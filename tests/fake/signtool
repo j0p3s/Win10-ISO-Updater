@@ -1,0 +1,7 @@
+#!/bin/sh
+if [ "$1" = "sign" ]; then for f; do last="$f"; done; printf 'signed' > "$last"; exit 0; fi
+if [ "$1" = "verify" ]; then
+  if grep -q nvcleanstall "$4"; then echo "SignTool Error: A certificate chain processed, but terminated in a root" 1>&2; echo "certificate which is not trusted by the trust provider." 1>&2; exit 1; fi
+  grep -q signed "$4" && exit 0 || { echo "SignTool Error: File not valid" 1>&2; exit 1; }
+fi
+exit 2

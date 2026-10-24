@@ -1,5 +1,7 @@
 # Win10 ISO Updater
 
+![version](https://img.shields.io/badge/version-2.0.5-2F9BFF) ![platform](https://img.shields.io/badge/Windows-10%20%7C%2011-8B5CF6) ![license](https://img.shields.io/badge/license-MIT-3DDC97)
+
 **One file. Double-click. Get a fully updated Windows 10 ISO with your drivers, your signed NVIDIA mod, your answer file and your `$OEM$` folder baked in.**
 
 `Win10-ISO-Updater.cmd` is a single-file tool with a dark graphical interface that:
@@ -24,6 +26,10 @@ Missing tools (`oscdimg`, `Inf2Cat`, `signtool`) are downloaded automatically fr
 4. Press **Run everything**.
 
 That's it. The new ISO lands in `C:\W10U\output` (the work folder can be changed under *Options*).
+
+The console line at start shows the version (`Starting Win10 ISO Updater v2.0.5 ...`), then the console hides and the window opens.
+
+**Updating:** replace `Win10-ISO-Updater.cmd` with the new one. Your settings, the `signing` folder and the work folder (unpacked media, updates, drivers) are kept — the tool picks up where you left off.
 
 > Requirements: Windows 10 or 11, Windows PowerShell 5.1 (built in), administrator rights, an NTFS drive with about 30 GB free, and an internet connection.
 
@@ -55,11 +61,12 @@ On page **5**:
    - copies the package into the work folder (your original is not touched)
    - extracts only `Inf2Cat` + `signtool` from Microsoft's NuGet packages (Windows SDK build tools / Windows Driver Kit) — nothing is installed
    - creates a **self-signed code-signing certificate** the first time (you choose the password for its backup `DriverSigning.pfx`)
-   - builds a new catalog for **every modified package only** and signs and verifies it
+   - builds a new catalog for **every modified package only** and signs and verifies it. "Modified" covers an edited INF and a catalog signed with a certificate Windows doesn't trust (NVCleanstall signs its packages with its own).
 3. When the ISO is built, the package goes to `$OEM$\$1\Drivers\NVIDIA` together with the public `DriverSigning.cer`, and `SetupComplete-drivers.cmd` is generated. During Windows setup that script:
    - trusts the certificate (`Trusted Root` + `Trusted Publishers`)
    - runs `pnputil /add-driver ... /subdirs /install`
-   - optionally deletes the driver copy from `C:\Drivers`
+   - optionally deletes the driver copy from `C:\Drivers` (turn this off if a script of yours still needs the files, for example `C:\Drivers\NVIDIA\setup.exe`; the Install check spots that)
+   - runs only once, even when it is also started from the answer file's `specialize` pass (see Install check)
 
 If your `$OEM$` already has a `SetupComplete.cmd`, a `call "%~dp0SetupComplete-drivers.cmd"` line is added to the copy that goes into the ISO. Your own file is not changed.
 
@@ -87,19 +94,22 @@ The **Install check** page (it also runs automatically before every build) compa
 - `Extend` + `Size` on the same partition → **fix**, `InstallTo` + `InstallToAvailablePartition` → **fix**
 - disk wipe warning, GPT/UEFI vs MBR/legacy boot hint, EFI partition size
 - commands that use files missing from `$OEM$` or fixed drive letters (`D:\`)
+- scripts the answer file writes itself (`<Extensions><File path="...">`, as made by the autounattend generator) count as existing, and their PowerShell is checked too
 
 **`$OEM$` folder**
 - folders that Windows 10 ignores (anything other than `$$` and `$1`)
 - `autounattend.xml` inside `$1` (never read by Setup) → **fix**: use it as the answer file
 - `unattend.xml` in `$$\Panther`, `SetupComplete.cmd` in the wrong place
 - scripts saved as UTF-16 / with a BOM / with LF line endings
-- `pause`, `set /p`, `choice` or restarts in scripts that run hidden during setup
-- driver folders whose INF was edited or is unsigned (Windows will refuse them)
+- `pause`, `set /p`, `choice` or restarts in scripts that run hidden during setup (one finding per script, with line numbers). A script called with parameters (`call "%~dp0Tool.cmd" /switch`) is treated as running unattended, so its menus are only noted
+- files a script uses that won't exist — Windows' own folders (`System32`, `Sysnative`, `Panther`, `Temp`, `Program Files`, ...) and paths built from variables are not reported
+- driver folders whose INF was edited, is unsigned or is signed with an untrusted certificate (Windows will refuse them)
 - driver folders that nothing installs → **fix**: install them with `pnputil`
 
 **Drivers and setup scripts**
 - slipstreamed drivers that are not validly signed (for example, a modded NVIDIA driver exported from this PC) → **fix**: remove them
 - signed packages made with a different certificate or missing from the work folder
+- something that uses a file inside a signed package while the driver copy is deleted after installation → **fix**: keep the copy
 - **SetupComplete.cmd is skipped by Windows on Home/Pro installs activated with an OEM key** (PCs sold with Windows keep the key in the firmware; the tool checks this PC too) → **fix**: the driver script also runs from the `specialize` pass of the answer file, and runs only once
 
 Fixes only change the copies that go into the ISO. You can **save the fixed answer file** over your own, or **undo** the answer file fixes.
@@ -136,6 +146,9 @@ Logs: `C:\W10U\logs\engine.log` and `dism.log`. During install, the driver scrip
 | Cumulative update fails with an ESU-related error | Set the month on page 3 back to `2025-10` |
 | Drivers didn't install after setup | Read `C:\Windows\Temp\SetupComplete-drivers.log`, and run the **Install check** (OEM-key fallback) |
 | `Inf2Cat` "Signability test failed" | Delete `inf2cat.exe.manifest` next to `Inf2Cat.exe` and sign again |
+| "Could not start: The property 'ItemsSource' cannot be found" / "SignTool Error: ... terminated in a root" / check list shows `System.Object[]` | Bugs of v2.0.0 – v2.0.3. Make sure the copy you start is the newest: the first console line shows the version |
+| A line starting with `Interface error:` in the Activity log | Something in the window failed but the program kept running — please open an issue with that line and `C:\W10U\logs\engine.log` |
+| The full Windows SDK / WDK got installed (v2.0.0) | Not needed any more — uninstall *Windows Software Development Kit* and *Windows Driver Kit* under Settings → Apps if you like |
 | ISO won't boot with Secure Boot on (Boot2023 option) | The firmware doesn't trust *Windows UEFI CA 2023* yet — turn the option off or update the firmware's Secure Boot DB |
 | install.wim larger than 4 GB for a FAT32 USB | Use Rufus, or turn on *Split install.wim* on page 7 |
 
@@ -150,6 +163,25 @@ python src/build.py
 ```
 
 `src/engine_v1.ps1` is the original engine (catalog, DISM servicing, ISO build). `build.py` takes the parts it needs from it and adds the GUI, signing and install check parts. The output is ASCII with CRLF line endings, which `cmd.exe` requires.
+
+| File | Part |
+|------|------|
+| `00_header.cmd` | batch launcher: elevation, starts the PowerShell part of the same file |
+| `10_engine_head.ps1` | constants, log sink (every `Write-Host` goes to the Activity panel), Yes/No questions from the worker |
+| `30_engine_tools.ps1` | console tools with live output and progress, oscdimg / Inf2Cat / signtool download |
+| `31_engine_sign.ps1` | certificate, catalogs, re-signing, `$OEM$` assembly, `SetupComplete-drivers.cmd` |
+| `33_engine_check.ps1`, `34_engine_check2.ps1` | install check and its fixes |
+| `32_engine_jobs.ps1` | driver scan / import, answer file, run everything, job entry point for the background worker |
+| `40_gui_xaml.ps1`, `45_gui_dialogs.ps1` | window, pages and dialogs (WPF XAML) |
+| `50_gui.ps1`, `55_gui_main.ps1` | window logic, background worker, events |
+
+### Tests
+
+```
+pwsh tests/run-tests.ps1
+```
+
+Six suites (about 130 checks) run the PowerShell part on Linux / macOS with PowerShell 7: catalog parsing, signing with stand-ins for `signtool` / `Inf2Cat` (including an NVCleanstall-style untrusted catalog), `$OEM$` assembly, every install check finding and fix, an answer file made by the autounattend generator (`tests/fixtures`, personal data removed), and the page refresh with Windows PowerShell 5.1's JSON behaviour simulated. DISM, WPF and real driver installs still need a Windows test run.
 
 ---
 

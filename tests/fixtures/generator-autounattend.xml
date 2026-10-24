@@ -1,0 +1,345 @@
+<?xml version="1.0" encoding="utf-8"?>
+<unattend xmlns="urn:schemas-microsoft-com:unattend" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <settings pass="windowsPE">
+    <component name="Microsoft-Windows-International-Core-WinPE" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS">
+      <SetupUILanguage>
+        <UILanguage>en-US</UILanguage>
+      </SetupUILanguage>
+      <InputLocale>0816:00000816</InputLocale>
+      <SystemLocale>pt-PT</SystemLocale>
+      <UILanguage>en-US</UILanguage>
+      <UserLocale>pt-PT</UserLocale>
+    </component>
+    <component name="Microsoft-Windows-Setup" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS">
+      <RunSynchronous>
+        <RunSynchronousCommand wcm:action="add">
+          <Order>1</Order>
+          <Path>reg.exe add "HKLM\SYSTEM\Setup\LabConfig" /v BypassTPMCheck /t REG_DWORD /d 1 /f</Path>
+        </RunSynchronousCommand>
+        <RunSynchronousCommand wcm:action="add">
+          <Order>2</Order>
+          <Path>reg.exe add "HKLM\SYSTEM\Setup\LabConfig" /v BypassSecureBootCheck /t REG_DWORD /d 1 /f</Path>
+        </RunSynchronousCommand>
+        <RunSynchronousCommand wcm:action="add">
+          <Order>3</Order>
+          <Path>reg.exe add "HKLM\SYSTEM\Setup\LabConfig" /v BypassRAMCheck /t REG_DWORD /d 1 /f</Path>
+        </RunSynchronousCommand>
+        <RunSynchronousCommand wcm:action="add">
+          <Order>4</Order>
+          <Path>reg.exe add "HKLM\SYSTEM\Setup\LabConfig" /v BypassCPUCheck /t REG_DWORD /d 1 /f</Path>
+        </RunSynchronousCommand>
+        <RunSynchronousCommand wcm:action="add">
+          <Order>5</Order>
+          <Path>reg.exe add "HKLM\SYSTEM\Setup\LabConfig" /v BypassStorageCheck /t REG_DWORD /d 1 /f</Path>
+        </RunSynchronousCommand>
+        <RunSynchronousCommand wcm:action="add">
+          <Order>6</Order>
+          <Path>reg.exe add "HKLM\SYSTEM\Setup\LabConfig" /v BypassDiskCheck /t REG_DWORD /d 1 /f</Path>
+        </RunSynchronousCommand>
+      </RunSynchronous>
+      <UserData>
+        <AcceptEula>true</AcceptEula>
+        <ProductKey>
+          <Key>VK7JG-NPHTM-C97JM-9MPGT-3V66T</Key>
+          <WillShowUI>OnError</WillShowUI>
+        </ProductKey>
+      </UserData>
+    </component>
+  </settings>
+  <settings pass="specialize">
+    <component name="Microsoft-Windows-Deployment" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS">
+      <RunSynchronous>
+        <RunSynchronousCommand wcm:action="add">
+          <Order>1</Order>
+          <Path>powershell -NoProfile -Command "$x=[xml](gc C:\Windows\Panther\unattend.xml -Raw);foreach($f in $x.unattend.Extensions.File){md (Split-Path $f.path) -Force|Out-Null;sc $f.path $f.InnerText -Encoding UTF8}"</Path>
+        </RunSynchronousCommand>
+        <RunSynchronousCommand wcm:action="add">
+          <Order>2</Order>
+          <Path>powershell -NoProfile -Command "Get-NetAdapter | Disable-NetAdapter -Confirm:$false"</Path>
+        </RunSynchronousCommand>
+        <RunSynchronousCommand wcm:action="add">
+          <Order>3</Order>
+          <Path>powershell -NoProfile -ExecutionPolicy Bypass -File C:\ProgramData\WinTweaks\system.ps1</Path>
+        </RunSynchronousCommand>
+      </RunSynchronous>
+    </component>
+    <component name="Microsoft-Windows-Shell-Setup" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS">
+      <RegisteredOwner>Owner</RegisteredOwner>
+      <TimeZone>GMT Standard Time</TimeZone>
+    </component>
+  </settings>
+  <settings pass="oobeSystem">
+    <component name="Microsoft-Windows-International-Core" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS">
+      <InputLocale>0816:00000816</InputLocale>
+      <SystemLocale>pt-PT</SystemLocale>
+      <UILanguage>en-US</UILanguage>
+      <UserLocale>pt-PT</UserLocale>
+    </component>
+    <component name="Microsoft-Windows-Shell-Setup" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS">
+      <OOBE>
+        <HideEULAPage>true</HideEULAPage>
+        <HideOEMRegistrationScreen>true</HideOEMRegistrationScreen>
+        <HideOnlineAccountScreens>true</HideOnlineAccountScreens>
+        <HideWirelessSetupInOOBE>true</HideWirelessSetupInOOBE>
+        <HideLocalAccountScreen>true</HideLocalAccountScreen>
+        <ProtectYourPC>3</ProtectYourPC>
+      </OOBE>
+      <UserAccounts>
+        <LocalAccounts>
+          <LocalAccount wcm:action="add">
+            <Name>User</Name>
+            <DisplayName>User</DisplayName>
+            <Group>Administrators</Group>
+            <Password>
+              <Value>ChangeMe123</Value>
+              <PlainText>true</PlainText>
+            </Password>
+          </LocalAccount>
+        </LocalAccounts>
+      </UserAccounts>
+      <AutoLogon>
+        <Username>User</Username>
+        <Enabled>true</Enabled>
+        <LogonCount>1</LogonCount>
+        <Password>
+          <Value>ChangeMe123</Value>
+          <PlainText>true</PlainText>
+        </Password>
+      </AutoLogon>
+      <FirstLogonCommands>
+        <SynchronousCommand wcm:action="add">
+          <Order>1</Order>
+          <CommandLine>powershell -NoProfile -ExecutionPolicy Bypass -File C:\ProgramData\WinTweaks\firstlogon.ps1</CommandLine>
+          <RequiresUserInput>false</RequiresUserInput>
+        </SynchronousCommand>
+      </FirstLogonCommands>
+    </component>
+  </settings>
+  <Extensions xmlns="urn:wintweaks:extensions">
+    <File path="C:\ProgramData\WinTweaks\system.ps1"><![CDATA[$ErrorActionPreference = 'SilentlyContinue'
+Start-Transcript -Path "$env:ProgramData\WinTweaks\system.log" -Append | Out-Null
+
+# Registry (HKLM)
+reg add 'HKLM\SOFTWARE\Policies\Microsoft\Windows\DataCollection' /v 'AllowTelemetry' /t REG_DWORD /d '0' /f | Out-Null
+reg add 'HKLM\SOFTWARE\Policies\Microsoft\Windows\DataCollection' /v 'DoNotShowFeedbackNotifications' /t REG_DWORD /d '1' /f | Out-Null
+reg add 'HKLM\SYSTEM\CurrentControlSet\Services\DiagTrack' /v 'Start' /t REG_DWORD /d '4' /f | Out-Null
+reg add 'HKLM\SYSTEM\CurrentControlSet\Services\dmwappushservice' /v 'Start' /t REG_DWORD /d '4' /f | Out-Null
+reg add 'HKLM\SOFTWARE\Policies\Microsoft\Windows\AdvertisingInfo' /v 'DisabledByGroupPolicy' /t REG_DWORD /d '1' /f | Out-Null
+reg add 'HKLM\SOFTWARE\Microsoft\Windows\Windows Error Reporting' /v 'Disabled' /t REG_DWORD /d '1' /f | Out-Null
+reg add 'HKLM\SOFTWARE\Policies\Microsoft\Windows\Windows Error Reporting' /v 'Disabled' /t REG_DWORD /d '1' /f | Out-Null
+reg add 'HKLM\SOFTWARE\Policies\Microsoft\Windows\Windows Search' /v 'AllowCortana' /t REG_DWORD /d '0' /f | Out-Null
+reg add 'HKLM\SOFTWARE\Policies\Microsoft\Windows\Windows Search' /v 'DisableWebSearch' /t REG_DWORD /d '1' /f | Out-Null
+reg add 'HKLM\SOFTWARE\Policies\Microsoft\Windows\Windows Search' /v 'ConnectedSearchUseWeb' /t REG_DWORD /d '0' /f | Out-Null
+reg add 'HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsCopilot' /v 'TurnOffWindowsCopilot' /t REG_DWORD /d '1' /f | Out-Null
+reg add 'HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsAI' /v 'DisableAIDataAnalysis' /t REG_DWORD /d '1' /f | Out-Null
+reg add 'HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsAI' /v 'AllowRecallEnablement' /t REG_DWORD /d '0' /f | Out-Null
+reg add 'HKLM\SOFTWARE\Policies\Microsoft\Windows\System' /v 'EnableActivityFeed' /t REG_DWORD /d '0' /f | Out-Null
+reg add 'HKLM\SOFTWARE\Policies\Microsoft\Windows\System' /v 'PublishUserActivities' /t REG_DWORD /d '0' /f | Out-Null
+reg add 'HKLM\SOFTWARE\Policies\Microsoft\Windows\System' /v 'UploadUserActivities' /t REG_DWORD /d '0' /f | Out-Null
+reg add 'HKLM\SOFTWARE\Policies\Microsoft\Windows\CloudContent' /v 'DisableWindowsConsumerFeatures' /t REG_DWORD /d '1' /f | Out-Null
+reg add 'HKLM\SOFTWARE\Policies\Microsoft\Windows\CloudContent' /v 'DisableCloudOptimizedContent' /t REG_DWORD /d '1' /f | Out-Null
+reg add 'HKLM\SOFTWARE\Policies\Microsoft\Dsh' /v 'AllowNewsAndInterests' /t REG_DWORD /d '0' /f | Out-Null
+reg add 'HKLM\SOFTWARE\Policies\Microsoft\Windows\GameDVR' /v 'AllowGameDVR' /t REG_DWORD /d '0' /f | Out-Null
+reg add 'HKLM\SYSTEM\CurrentControlSet\Control\PriorityControl' /v 'Win32PrioritySeparation' /t REG_DWORD /d '38' /f | Out-Null
+reg add 'HKLM\SOFTWARE\Policies\Microsoft\Windows\AppPrivacy' /v 'LetAppsRunInBackground' /t REG_DWORD /d '2' /f | Out-Null
+reg add 'HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU' /v 'NoAutoRebootWithLoggedOnUsers' /t REG_DWORD /d '1' /f | Out-Null
+reg add 'HKLM\SOFTWARE\Policies\Microsoft\Windows\DeliveryOptimization' /v 'DODownloadMode' /t REG_DWORD /d '0' /f | Out-Null
+reg add 'HKLM\Software\Microsoft\Windows\CurrentVersion\Policies\System' /v 'DisableStartupSound' /t REG_DWORD /d '1' /f | Out-Null
+reg add 'HKLM\SOFTWARE\Policies\Microsoft\Windows\Windows Search' /v 'EnableDynamicContentInWSB' /t REG_DWORD /d '0' /f | Out-Null
+reg add 'HKLM\SYSTEM\CurrentControlSet\Control\FileSystem' /v 'LongPathsEnabled' /t REG_DWORD /d '1' /f | Out-Null
+reg add 'HKLM\SOFTWARE\Policies\Microsoft\Edge' /v 'HideFirstRunExperience' /t REG_DWORD /d '1' /f | Out-Null
+reg add 'HKLM\SOFTWARE\Policies\Microsoft\Edge' /v 'StartupBoostEnabled' /t REG_DWORD /d '0' /f | Out-Null
+reg add 'HKLM\SOFTWARE\Policies\Microsoft\Edge' /v 'BackgroundModeEnabled' /t REG_DWORD /d '0' /f | Out-Null
+reg add 'HKLM\SOFTWARE\Policies\Microsoft\Edge' /v 'EdgeShoppingAssistantEnabled' /t REG_DWORD /d '0' /f | Out-Null
+reg add 'HKLM\SOFTWARE\Policies\Microsoft\Edge' /v 'HubsSidebarEnabled' /t REG_DWORD /d '0' /f | Out-Null
+reg add 'HKLM\SOFTWARE\Policies\Microsoft\Edge' /v 'ShowRecommendationsEnabled' /t REG_DWORD /d '0' /f | Out-Null
+reg add 'HKLM\SOFTWARE\Policies\Microsoft\Edge' /v 'PersonalizationReportingEnabled' /t REG_DWORD /d '0' /f | Out-Null
+reg add 'HKLM\SOFTWARE\Policies\Microsoft\Edge' /v 'EdgeFollowEnabled' /t REG_DWORD /d '0' /f | Out-Null
+reg add 'HKLM\SOFTWARE\Policies\Microsoft\Windows\OneDrive' /v 'DisableFileSyncNGSC' /t REG_DWORD /d '1' /f | Out-Null
+reg add 'HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate' /v 'ExcludeWUDriversInQualityUpdate' /t REG_DWORD /d '1' /f | Out-Null
+
+# Default profile: applies to all new users
+reg load HKU\WH_DEF C:\Users\Default\NTUSER.DAT | Out-Null
+reg add 'HKU\WH_DEF\Software\Microsoft\Windows\CurrentVersion\AdvertisingInfo' /v 'Enabled' /t REG_DWORD /d '0' /f | Out-Null
+reg add 'HKU\WH_DEF\Software\Microsoft\Windows\CurrentVersion\Privacy' /v 'TailoredExperiencesWithDiagnosticDataEnabled' /t REG_DWORD /d '0' /f | Out-Null
+reg add 'HKU\WH_DEF\Software\Microsoft\Windows\CurrentVersion\Search' /v 'BingSearchEnabled' /t REG_DWORD /d '0' /f | Out-Null
+reg add 'HKU\WH_DEF\Software\Policies\Microsoft\Windows\WindowsCopilot' /v 'TurnOffWindowsCopilot' /t REG_DWORD /d '1' /f | Out-Null
+reg add 'HKU\WH_DEF\Software\Microsoft\GameBar' /v 'AutoGameModeEnabled' /t REG_DWORD /d '1' /f | Out-Null
+reg add 'HKU\WH_DEF\Software\Microsoft\GameBar' /v 'AllowAutoGameMode' /t REG_DWORD /d '1' /f | Out-Null
+reg add 'HKU\WH_DEF\System\GameConfigStore' /v 'GameDVR_Enabled' /t REG_DWORD /d '0' /f | Out-Null
+reg add 'HKU\WH_DEF\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager' /v 'SubscribedContent-338388Enabled' /t REG_DWORD /d '0' /f | Out-Null
+reg add 'HKU\WH_DEF\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager' /v 'SubscribedContent-338389Enabled' /t REG_DWORD /d '0' /f | Out-Null
+reg add 'HKU\WH_DEF\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager' /v 'SubscribedContent-338393Enabled' /t REG_DWORD /d '0' /f | Out-Null
+reg add 'HKU\WH_DEF\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager' /v 'SubscribedContent-353694Enabled' /t REG_DWORD /d '0' /f | Out-Null
+reg add 'HKU\WH_DEF\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager' /v 'SubscribedContent-353696Enabled' /t REG_DWORD /d '0' /f | Out-Null
+reg add 'HKU\WH_DEF\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager' /v 'SubscribedContent-310093Enabled' /t REG_DWORD /d '0' /f | Out-Null
+reg add 'HKU\WH_DEF\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager' /v 'SoftLandingEnabled' /t REG_DWORD /d '0' /f | Out-Null
+reg add 'HKU\WH_DEF\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager' /v 'SystemPaneSuggestionsEnabled' /t REG_DWORD /d '0' /f | Out-Null
+reg add 'HKU\WH_DEF\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager' /v 'SilentInstalledAppsEnabled' /t REG_DWORD /d '0' /f | Out-Null
+reg add 'HKU\WH_DEF\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager' /v 'OemPreInstalledAppsEnabled' /t REG_DWORD /d '0' /f | Out-Null
+reg add 'HKU\WH_DEF\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager' /v 'PreInstalledAppsEnabled' /t REG_DWORD /d '0' /f | Out-Null
+reg add 'HKU\WH_DEF\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager' /v 'RotatingLockScreenOverlayEnabled' /t REG_DWORD /d '0' /f | Out-Null
+reg add 'HKU\WH_DEF\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager' /v 'SubscribedContent-338387Enabled' /t REG_DWORD /d '0' /f | Out-Null
+reg add 'HKU\WH_DEF\Software\Microsoft\Windows\CurrentVersion\UserProfileEngagement' /v 'ScoobeSystemSettingEnabled' /t REG_DWORD /d '0' /f | Out-Null
+reg add 'HKU\WH_DEF\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager' /v 'SubscribedContent-310093Enabled' /t REG_DWORD /d '0' /f | Out-Null
+reg add 'HKU\WH_DEF\AppEvents\Schemes' /ve /t REG_SZ /d '.None' /f | Out-Null
+reg add 'HKU\WH_DEF\Control Panel\Keyboard' /v 'InitialKeyboardIndicators' /t REG_SZ /d '2' /f | Out-Null
+reg add 'HKU\WH_DEF\Control Panel\Accessibility\StickyKeys' /v 'Flags' /t REG_SZ /d '506' /f | Out-Null
+reg add 'HKU\WH_DEF\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize' /v 'AppsUseLightTheme' /t REG_DWORD /d '0' /f | Out-Null
+reg add 'HKU\WH_DEF\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize' /v 'SystemUsesLightTheme' /t REG_DWORD /d '0' /f | Out-Null
+reg add 'HKU\WH_DEF\Software\Microsoft\Windows\CurrentVersion\Explorer\HideDesktopIcons\NewStartPanel' /v '{20D04FE0-3AEA-1069-A2D8-08002B30309D}' /t REG_DWORD /d '0' /f | Out-Null
+reg add 'HKU\WH_DEF\Software\Microsoft\Windows\CurrentVersion\Explorer\HideDesktopIcons\NewStartPanel' /v '{59031a47-ed4f-4a54-bf5d-9f15a1a0bf55}' /t REG_DWORD /d '0' /f | Out-Null
+reg add 'HKU\WH_DEF\Software\Microsoft\Windows\CurrentVersion\Explorer\HideDesktopIcons\NewStartPanel' /v '{5399E694-6CE5-4D6C-8FCE-1D8870FDCBA0}' /t REG_DWORD /d '0' /f | Out-Null
+reg add 'HKU\WH_DEF\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced' /v 'TaskbarAl' /t REG_DWORD /d '0' /f | Out-Null
+reg add 'HKU\WH_DEF\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced' /v 'ShowTaskViewButton' /t REG_DWORD /d '0' /f | Out-Null
+reg add 'HKU\WH_DEF\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced' /v 'TaskbarDa' /t REG_DWORD /d '0' /f | Out-Null
+reg add 'HKU\WH_DEF\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced' /v 'TaskbarMn' /t REG_DWORD /d '0' /f | Out-Null
+reg add 'HKU\WH_DEF\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced' /v 'ShowCopilotButton' /t REG_DWORD /d '0' /f | Out-Null
+reg add 'HKU\WH_DEF\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced\TaskbarDeveloperSettings' /v 'TaskbarEndTask' /t REG_DWORD /d '1' /f | Out-Null
+reg add 'HKU\WH_DEF\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced' /v 'Start_Layout' /t REG_DWORD /d '0' /f | Out-Null
+reg add 'HKU\WH_DEF\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced' /v 'Start_IrisRecommendations' /t REG_DWORD /d '0' /f | Out-Null
+reg add 'HKU\WH_DEF\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced' /v 'Start_AccountNotifications' /t REG_DWORD /d '0' /f | Out-Null
+reg add 'HKU\WH_DEF\Software\Policies\Microsoft\Windows\Explorer' /v 'DisableSearchBoxSuggestions' /t REG_DWORD /d '1' /f | Out-Null
+reg add 'HKU\WH_DEF\Software\Microsoft\Windows\CurrentVersion\SearchSettings' /v 'IsDynamicSearchBoxEnabled' /t REG_DWORD /d '0' /f | Out-Null
+reg add 'HKU\WH_DEF\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced' /v 'HideFileExt' /t REG_DWORD /d '0' /f | Out-Null
+reg add 'HKU\WH_DEF\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced' /v 'Hidden' /t REG_DWORD /d '1' /f | Out-Null
+reg add 'HKU\WH_DEF\Software\Microsoft\Windows\CurrentVersion\Explorer\CabinetState' /v 'FullPath' /t REG_DWORD /d '1' /f | Out-Null
+reg add 'HKU\WH_DEF\Software\Classes\CLSID\{86ca1aa0-34aa-4e8b-a509-50c905bae2a2}\InprocServer32' /ve /t REG_SZ /f | Out-Null
+reg add 'HKU\WH_DEF\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced' /v 'LaunchTo' /t REG_DWORD /d '1' /f | Out-Null
+reg add 'HKU\WH_DEF\Software\Microsoft\Windows\CurrentVersion\Explorer' /v 'ShowRecent' /t REG_DWORD /d '0' /f | Out-Null
+reg add 'HKU\WH_DEF\Software\Microsoft\Windows\CurrentVersion\Explorer' /v 'ShowFrequent' /t REG_DWORD /d '0' /f | Out-Null
+reg add 'HKU\WH_DEF\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced' /v 'ShowSyncProviderNotifications' /t REG_DWORD /d '0' /f | Out-Null
+reg add 'HKU\WH_DEF\Software\Microsoft\Windows\CurrentVersion\Explorer\HideDesktopIcons\NewStartPanel' /v '{F02C1A0D-BE21-4350-88B0-7367FC96F89C}' /t REG_DWORD /d '0' /f | Out-Null
+Get-ChildItem -LiteralPath 'Registry::HKEY_USERS\WH_DEF\AppEvents\Schemes\Apps' -Recurse | Where-Object { $_.PSChildName -eq '.Current' } | ForEach-Object { Set-ItemProperty -LiteralPath $_.PSPath -Name '(default)' -Value '' }
+# Prevent OneDrive from reinstalling itself at first logon
+reg delete "HKU\WH_DEF\Software\Microsoft\Windows\CurrentVersion\Run" /v "OneDriveSetup" /f | Out-Null
+[GC]::Collect(); [GC]::WaitForPendingFinalizers(); Start-Sleep 1
+reg unload HKU\WH_DEF | Out-Null
+
+# .NET Framework 3.5
+foreach ($d in (Get-PSDrive -PSProvider FileSystem)) { $p = Join-Path $d.Root 'sources\sxs'; if (Test-Path $p) { dism /online /enable-feature /featurename:NetFx3 /All /Source:$p /LimitAccess | Out-Null; break } }
+
+# Commands
+reg add 'HKU\.DEFAULT\Control Panel\Keyboard' /v InitialKeyboardIndicators /t REG_SZ /d 2 /f | Out-Null
+Remove-WindowsCapability -Online -Name 'App.StepsRecorder~~~~0.0.1.0' | Out-Null
+Remove-WindowsCapability -Online -Name 'MathRecognizer~~~~0.0.1.0' | Out-Null
+Remove-WindowsCapability -Online -Name 'Browser.InternetExplorer~~~~0.0.11.0' | Out-Null
+Disable-WindowsOptionalFeature -Online -FeatureName 'MicrosoftWindowsPowerShellV2Root' -NoRestart | Out-Null
+Disable-WindowsOptionalFeature -Online -FeatureName 'SMB1Protocol' -NoRestart | Out-Null
+Stop-Process -Name OneDrive -Force; foreach ($p in "$env:SystemRoot\SysWOW64\OneDriveSetup.exe","$env:SystemRoot\System32\OneDriveSetup.exe") { if (Test-Path $p) { Start-Process $p '/uninstall' -Wait } }
+foreach ($n in 'DiagTrack','dmwappushservice') { $k = "HKLM:\SYSTEM\CurrentControlSet\Services\$n"; if (Test-Path $k) { Set-ItemProperty -Path $k -Name Start -Value 4 -Type DWord } }
+foreach ($n in 'diagnosticshub.standardcollector.service','WerSvc') { $k = "HKLM:\SYSTEM\CurrentControlSet\Services\$n"; if (Test-Path $k) { Set-ItemProperty -Path $k -Name Start -Value 4 -Type DWord } }
+foreach ($n in 'Fax') { $k = "HKLM:\SYSTEM\CurrentControlSet\Services\$n"; if (Test-Path $k) { Set-ItemProperty -Path $k -Name Start -Value 4 -Type DWord } }
+foreach ($n in 'RetailDemo','MapsBroker') { $k = "HKLM:\SYSTEM\CurrentControlSet\Services\$n"; if (Test-Path $k) { Set-ItemProperty -Path $k -Name Start -Value 4 -Type DWord } }
+foreach ($n in 'RemoteRegistry','RemoteAccess') { $k = "HKLM:\SYSTEM\CurrentControlSet\Services\$n"; if (Test-Path $k) { Set-ItemProperty -Path $k -Name Start -Value 4 -Type DWord } }
+foreach ($n in 'WpcMonSvc','SEMgrSvc') { $k = "HKLM:\SYSTEM\CurrentControlSet\Services\$n"; if (Test-Path $k) { Set-ItemProperty -Path $k -Name Start -Value 4 -Type DWord } }
+foreach ($n in 'PhoneSvc','SmsRouter','icssvc') { $k = "HKLM:\SYSTEM\CurrentControlSet\Services\$n"; if (Test-Path $k) { Set-ItemProperty -Path $k -Name Start -Value 4 -Type DWord } }
+foreach ($n in 'wisvc','WFDSConMgrSvc','lltdsvc') { $k = "HKLM:\SYSTEM\CurrentControlSet\Services\$n"; if (Test-Path $k) { Set-ItemProperty -Path $k -Name Start -Value 4 -Type DWord } }
+foreach ($n in 'WMPNetworkSvc') { $k = "HKLM:\SYSTEM\CurrentControlSet\Services\$n"; if (Test-Path $k) { Set-ItemProperty -Path $k -Name Start -Value 4 -Type DWord } }
+foreach ($n in 'SCardSvr','ScDeviceEnum','CertPropSvc') { $k = "HKLM:\SYSTEM\CurrentControlSet\Services\$n"; if (Test-Path $k) { Set-ItemProperty -Path $k -Name Start -Value 4 -Type DWord } }
+foreach ($n in 'lfsvc') { $k = "HKLM:\SYSTEM\CurrentControlSet\Services\$n"; if (Test-Path $k) { Set-ItemProperty -Path $k -Name Start -Value 4 -Type DWord } }
+
+# Remove apps
+$apps = @('*CandyCrush*', '*TikTok*', '*Facebook*', '*Instagram*', 'Disney.*', 'Amazon.com.Amazon', 'AmazonVideo.PrimeVideo', 'SpotifyAB.SpotifyMusic', '4DF9E0F8.Netflix', '*LinkedIn*', '*Twitter*', '*Duolingo*', '*AdobeExpress*', '*Pinterest*', 'Microsoft.BingNews', 'Microsoft.BingWeather', 'Microsoft.BingSearch', 'Microsoft.GetHelp', 'Microsoft.Getstarted', 'Microsoft.MicrosoftOfficeHub', 'Microsoft.MicrosoftSolitaireCollection', 'Microsoft.People', 'Microsoft.WindowsFeedbackHub', 'Microsoft.WindowsMaps', 'Microsoft.YourPhone', 'Microsoft.Todos', 'Microsoft.PowerAutomateDesktop', 'Clipchamp.Clipchamp', 'MicrosoftTeams', 'MSTeams', 'Microsoft.OutlookForWindows', 'Microsoft.Copilot', 'Microsoft.Windows.DevHome', 'MicrosoftCorporationII.QuickAssist', 'Microsoft.549981C3F5F10', 'MicrosoftWindows.CrossDevice')
+foreach ($n in $apps) {
+  Get-AppxPackage -AllUsers -Name $n | Remove-AppxPackage -AllUsers
+  Get-AppxProvisionedPackage -Online | Where-Object { $_.DisplayName -like $n } | Remove-AppxProvisionedPackage -Online | Out-Null
+}
+
+# One-time task: runs firstboot.ps1 as SYSTEM at the first sign-in (network, power, drivers)
+$task = @'
+<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
+ <Triggers><LogonTrigger><Enabled>true</Enabled></LogonTrigger></Triggers>
+ <Principals><Principal id="Author"><UserId>S-1-5-18</UserId><RunLevel>HighestAvailable</RunLevel></Principal></Principals>
+ <Settings><MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy><DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries><StopIfGoingOnBatteries>false</StopIfGoingOnBatteries><ExecutionTimeLimit>PT3H</ExecutionTimeLimit><Enabled>true</Enabled></Settings>
+ <Actions Context="Author"><Exec><Command>powershell.exe</Command><Arguments>-NoProfile -ExecutionPolicy Bypass -File "C:\ProgramData\WinTweaks\firstboot.ps1"</Arguments></Exec></Actions>
+</Task>
+'@
+Register-ScheduledTask -TaskName 'WinTweaks-FirstBoot' -Xml $task -Force | Out-Null
+
+Stop-Transcript | Out-Null]]></File>
+    <File path="C:\ProgramData\WinTweaks\firstboot.ps1"><![CDATA[$ErrorActionPreference = 'SilentlyContinue'
+# Runs once as SYSTEM at the first sign-in (scheduled task WinTweaks-FirstBoot), whatever the account type.
+# The task can also start for the temporary OOBE account: wait until OOBE is over and a real account is signed in.
+for ($i = 0; $i -lt 360; $i++) {
+ $u = (Get-CimInstance Win32_ComputerSystem).UserName
+ if ((Get-ItemProperty -LiteralPath 'HKLM:\SYSTEM\Setup').OOBEInProgress -ne 1 -and $u -and $u -notmatch 'defaultuser\d') { break }
+ Start-Sleep 10
+}
+try { [IO.File]::Open("$env:ProgramData\WinTweaks\firstboot.lock", 'CreateNew').Close() } catch { exit }
+Unregister-ScheduledTask -TaskName 'WinTweaks-FirstBoot' -Confirm:$false
+Start-Transcript -Path "$env:ProgramData\WinTweaks\firstboot.log" -Append | Out-Null
+
+# Turn the network adapters back on (they were disabled during setup)
+Get-NetAdapter | Enable-NetAdapter -Confirm:$false
+
+# Wi-Fi profile
+if (Get-Service WlanSvc -ErrorAction SilentlyContinue) {
+ for ($i = 0; $i -lt 20 -and (Get-Service WlanSvc).Status -ne 'Running'; $i++) { Start-Sleep 2 }
+ $wp = Join-Path $env:ProgramData 'WinTweaks\wifi-profile.xml'
+ $wx = @'
+<?xml version="1.0"?>
+<WLANProfile xmlns="http://www.microsoft.com/networking/WLAN/profile/v1">
+<name>MyWiFi</name>
+<SSIDConfig><SSID><hex>4D7957694669</hex><name>MyWiFi</name></SSID><nonBroadcast>false</nonBroadcast></SSIDConfig>
+<connectionType>ESS</connectionType>
+<connectionMode>auto</connectionMode>
+<MSM><security>
+<authEncryption><authentication>WPA2PSK</authentication><encryption>AES</encryption><useOneX>false</useOneX></authEncryption>
+<sharedKey><keyType>passPhrase</keyType><protected>false</protected><keyMaterial>YourWiFiPassword</keyMaterial></sharedKey>
+</security></MSM>
+</WLANProfile>
+'@
+ Set-Content -LiteralPath $wp -Value $wx -Encoding UTF8
+ netsh wlan add profile filename="$wp" user=all | Out-Null
+ Remove-Item -LiteralPath $wp -Force
+ $wn = 'MyWiFi'
+ netsh wlan connect name="$wn" | Out-Null
+ $m = [regex]::Match($wx, '<keyMaterial>.*?</keyMaterial>')
+ if ($m.Success) {
+  $files = @($PSCommandPath) + @(Get-ChildItem 'C:\Windows\Panther' -Recurse -File -Filter 'unattend*.xml' | ForEach-Object { $_.FullName })
+  foreach ($f in $files) { if ($f -and (Test-Path -LiteralPath $f)) { $t = [IO.File]::ReadAllText($f).Replace($m.Value, '<keyMaterial>********</keyMaterial>'); [IO.File]::WriteAllText($f, $t, (New-Object Text.UTF8Encoding $false)) } }
+ }
+}
+
+# DNS
+$dns = @('1.1.1.1', '1.0.0.1')
+foreach ($a in Get-NetAdapter -Physical) { Set-DnsClientServerAddress -InterfaceIndex $a.ifIndex -ServerAddresses $dns }
+
+# Disable IPv6
+foreach ($a in Get-NetAdapter -Physical) { Disable-NetAdapterBinding -Name $a.Name -ComponentID ms_tcpip6 }
+
+# Private network profile
+for ($i = 0; $i -lt 30 -and -not (Get-NetConnectionProfile); $i++) { Start-Sleep 2 }
+Get-NetConnectionProfile | Where-Object { $_.NetworkCategory -eq 'Public' } | Set-NetConnectionProfile -NetworkCategory Private
+
+# Power and other system settings
+$o = powercfg -duplicatescheme e9a42b02-d5df-448d-aa00-03f14749eb61; if ($o -match '([0-9a-fA-F-]{36})') { powercfg -setactive $Matches[1] }
+powercfg /hibernate off
+powercfg /change monitor-timeout-ac 0
+powercfg /change monitor-timeout-dc 0
+powercfg /change standby-timeout-ac 0
+powercfg /change standby-timeout-dc 0
+
+# NVIDIA driver (silent installer copied to this path beforehand)
+$s = 'C:\Drivers\NVIDIA\setup.exe'
+if (Test-Path $s) { Start-Process $s -ArgumentList '-s','-noreboot' -Wait }
+
+Stop-Transcript | Out-Null]]></File>
+    <File path="C:\ProgramData\WinTweaks\firstlogon.ps1"><![CDATA[$ErrorActionPreference = 'SilentlyContinue'
+Start-Transcript -Path "$env:ProgramData\WinTweaks\firstlogon.log" -Append | Out-Null
+
+# Region: Portugal
+Set-WinHomeLocation -GeoId 193
+Set-Culture pt-PT
+
+# winget: wait for network (up to ~3 min) and for winget (up to ~10 min), then install
+for ($i = 0; $i -lt 90 -and -not (Test-Connection 1.1.1.1 -Count 1 -Quiet); $i++) { Start-Sleep 2 }
+$ids = @('Google.Chrome', 'Mozilla.Firefox', '7zip.7zip', 'Notepad++.Notepad++', 'Microsoft.VisualStudioCode', 'Microsoft.PowerToys', 'Valve.Steam', 'Discord.Discord', 'Microsoft.WindowsTerminal')
+for ($i = 0; $i -lt 60 -and -not (Get-Command winget -ErrorAction SilentlyContinue); $i++) { Start-Sleep 10 }
+winget source update | Out-Null
+foreach ($id in $ids) { winget install --id $id -e --source winget --silent --accept-package-agreements --accept-source-agreements }
+
+Stop-Transcript | Out-Null]]></File>
+  </Extensions>
+</unattend>

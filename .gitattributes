@@ -4,3 +4,4 @@
 *.md  text eol=lf
 *.py  text eol=lf
 *.ps1 text eol=lf
+tests/fake/* text eol=lf

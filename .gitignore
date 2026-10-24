@@ -14,3 +14,7 @@ Win10-ISO-Updater.settings.json
 *.wim
 *.esd
 *.swm
+
+# test run leftovers
+tests/v2body.ps1
+tests/findings.txt
