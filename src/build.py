@@ -1,0 +1,105 @@
+"""Assembles Win10-ISO-Updater.cmd (single file) from src/ parts + the v1.1 engine."""
+import os, sys
+
+SRC = os.path.dirname(os.path.abspath(__file__))
+OUT = os.path.join(os.path.dirname(SRC), 'Win10-ISO-Updater.cmd')
+
+v1 = open(os.path.join(SRC, 'engine_v1.ps1'), encoding='ascii').read().replace('\r\n', '\n').split('\n')
+
+def rng(a, b):
+    """1-based inclusive line range of the v1 engine."""
+    return '\n'.join(v1[a - 1:b])
+
+def edit(text, old, new, count=1):
+    n = text.count(old)
+    if n != count:
+        sys.exit(f'edit failed ({n} matches, expected {count}): {old[:70]!r}')
+    return text.replace(old, new)
+
+# ---- kept regions of the v1 engine -----------------------------------------
+settings = rng(162, 353)          # settings/state + process/DISM helpers
+settings = edit(settings, "        LastDriverFolder = ''\n",
+                "        LastDriverFolder = ''\n        SignCleanup      = $true\n        InstallOemDrivers = $false\n")
+settings = edit(settings, "        Output   = Join-Path $w 'output'\n",
+                "        Output   = Join-Path $w 'output'\n        Signed   = Join-Path $w 'signed'\n")
+settings = edit(settings, "        Updates = @(); Drivers = @(); Unattend = $null; Serviced = $null; Iso = $null\n",
+                "        Updates = @(); Drivers = @(); Unattend = $null; Serviced = $null; Iso = $null\n"
+                "        Oem = $null; Signed = @(); OemSynced = $false\n")
+settings = edit(settings, "foreach ($k in 'Images', 'Selected', 'Updates', 'Drivers') {",
+                "foreach ($k in 'Images', 'Selected', 'Updates', 'Drivers', 'Signed') {")
+old_exe = rng(257, 261)
+assert old_exe.startswith('function Invoke-Exe'), old_exe
+settings = edit(settings, old_exe + '\n', '')          # replaced by the live-output version
+settings = edit(settings, "use [C] Clean up in the menu first.", "use Clean up on the Options page first.")
+
+detect_catalog = rng(354, 592)
+detect_catalog = edit(detect_catalog,
+    'Invoke-Exe $curl ("-L --fail --retry 3 --retry-delay 3 -C - --progress-bar -o $(Q $part) $(Q $Url)")',
+    'Invoke-Exe $curl ("-L --fail --retry 3 --retry-delay 3 -C - --progress-bar -o $(Q $part) $(Q $Url)") -MergeErr')
+
+unpack = rng(593, 680)
+unpack = edit(unpack, """    if (-not $iso) {
+        $start = if ($Script:S.SourceIso) { Split-Path $Script:S.SourceIso -Parent } else { Join-Path $env:USERPROFILE 'Downloads' }
+        $iso = Select-FileDialog 'Select a Windows 10 ISO' 'ISO images (*.iso)|*.iso' $start
+    }
+""", '')
+unpack = edit(unpack, "if (-not (Read-YesNo 'The work folder already has unpacked media. Replace it?' $true)) { return }",
+              "if (-not $Script:NoAsk -and -not (Read-YesNo 'The work folder already has unpacked media. Replace it?' $true)) { return }")
+unpack = edit(unpack, "    $Script:S.SourceIso = $iso\n", "    $prevIso = $Script:S.SourceIso\n    $Script:S.SourceIso = $iso\n")
+unpack = edit(unpack, "    $Script:S.Selected  = @()\n", "    if ($prevIso -ne $iso) { $Script:S.Selected = @() }\n")
+unpack = edit(unpack, "    $Script:S.Iso       = $null\n", "    $Script:S.Iso       = $null\n    $Script:S.OemSynced = $false\n")
+
+download = rng(708, 773)
+drivers_a = rng(774, 836)        # INF parser, arch test, boot driver list
+drivers_b = rng(909, 958)        # Get-DriverPackages, Find-DriverBackupFolders, Copy-Tree
+drivers_b = edit(drivers_b, """        New-Item -ItemType Directory -Force -Path (Split-Path $Dest -Parent) | Out-Null
+        Copy-Item -LiteralPath $Source -Destination $Dest -Recurse -Force""", """        New-Item -ItemType Directory -Force -Path $Dest | Out-Null
+        Get-ChildItem -LiteralPath $Source -Force | Copy-Item -Destination $Dest -Recurse -Force""")
+unattend = rng(1103, 1138) + '\n#endregion'
+
+service = rng(1177, 1419)
+service = edit(service, "    if (@($S.Selected).Count -eq 0) { Invoke-Editions }",
+               "    if (@($S.Selected).Count -eq 0) { throw 'No edition selected - tick at least one on the Editions page.' }")
+
+build = rng(1420, 1481)
+build = edit(build, 'function Invoke-Build([switch]$Auto) {', 'function Invoke-Build([switch]$Auto, [string]$OutIso) {')
+build = edit(build, "    if (-not $osc) { throw 'oscdimg.exe not found - use [T] Tools in the menu to download it.' }",
+             "    if (-not $osc) { $osc = Get-Oscdimg }")
+build = edit(build, "    Sync-Unattend\n    Test-UnattendSelection", """    Sync-Oem
+    Sync-Unattend
+    Test-UnattendSelection
+    Write-Step 'Install check (answer file, $OEM$, drivers)'
+    $chk = @(Invoke-InstallCheck -NoDownload -Quiet)
+    $bad = @($chk | Where-Object { $_.Level -eq 'Error' })
+    if ($bad.Count -and -not (Read-YesNo "The install check found $($bad.Count) problem(s) that can break Windows setup (details in the log and on the Install check page). Build the ISO anyway?" $false)) {
+        throw 'Build stopped - open the Install check page to see and fix the problems.'
+    }""")
+build = edit(build, """    if (-not $Auto) {
+        $ans = Read-Host "  Output file (Enter = $iso)"
+        if ($ans) { $iso = $ans.Trim().Trim('"'); if ($iso -notmatch '\\.iso$') { $iso += '.iso' } }
+    }""", """    if ($OutIso) { $iso = $OutIso.Trim().Trim('"'); if ($iso -notmatch '\\.iso$') { $iso += '.iso' } }""")
+build = edit(build, 'Invoke-Exe $osc ("-m -o -u2 -udfver102 -l$label $bootdata $(Q $m) $(Q $iso)")',
+             'Invoke-Exe $osc ("-m -o -u2 -udfver102 -l$label $bootdata $(Q $m) $(Q $iso)") -MergeErr')
+
+def part(name):
+    return open(os.path.join(SRC, name), encoding='ascii').read().replace('\r\n', '\n').rstrip('\n')
+
+engine = '\n\n'.join([
+    part('10_engine_head.ps1'),
+    settings, detect_catalog, unpack, download,
+    drivers_a, drivers_b, '#endregion', unattend, service, build,
+    part('30_engine_tools.ps1'), part('31_engine_sign.ps1'), part('33_engine_check.ps1'), part('34_engine_check2.ps1'), part('32_engine_jobs.ps1'),
+])
+
+pieces = [part('00_header.cmd'), engine]
+for extra in ('40_gui_xaml.ps1', '45_gui_dialogs.ps1', '50_gui.ps1', '55_gui_main.ps1'):
+    if os.path.exists(os.path.join(SRC, extra)):
+        pieces.append(part(extra))
+text = '\n'.join(pieces) + '\n'
+
+bad = [(i + 1, l) for i, l in enumerate(text.split('\n')) if any(ord(c) > 127 for c in l)]
+if bad:
+    sys.exit(f'non-ASCII on line {bad[0][0]}: {bad[0][1][:80]}')
+with open(OUT, 'wb') as f:
+    f.write(text.replace('\n', '\r\n').encode('ascii'))
+print(f'wrote {OUT}: {len(text.splitlines())} lines, {len(text)} chars')

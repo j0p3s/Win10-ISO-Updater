@@ -1,0 +1,6 @@
+# cmd.exe needs CRLF line endings
+*.cmd text eol=crlf
+*.bat text eol=crlf
+*.ps1 text eol=crlf
+*.md  text eol=lf
+*.py  text eol=lf

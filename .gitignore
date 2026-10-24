@@ -1,0 +1,16 @@
+# private signing material - never commit
+signing/
+Signing-Output/
+*.pfx
+*.p12
+
+# downloaded tools and local state
+tools/
+Win10-ISO-Updater.settings.json
+
+# ISO work / output
+*.iso
+*.iso.sha256
+*.wim
+*.esd
+*.swm

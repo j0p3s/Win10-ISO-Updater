@@ -1,0 +1,225 @@
+
+#region ---------------------------------------------------------------- drivers: scan (worker) / commit (worker) / remove (GUI)
+function Get-HostDriverScan {
+    $hostArch = Get-HostArch
+    if ($Script:S.Family -and $Script:S.Family.Arch -ne $hostArch) {
+        throw "This PC is $hostArch but the ISO is $($Script:S.Family.Arch) - its drivers would not work in that image."
+    }
+    $exp = Join-Path $Script:P.Drivers 'host_export'
+    Reset-Dir $exp
+    Write-Step 'Exporting third-party drivers from this PC (1-3 minutes)'
+    $drv = @(Export-WindowsDriver -Online -Destination $exp)
+    if ($drv.Count -eq 0) { Write-Warn 'No third-party drivers found on this PC.'; return @() }
+    $used = @{}
+    $items = foreach ($d in $drv) {
+        $inf = Split-Path $d.OriginalFileName -Leaf
+        $folder = Split-Path (Split-Path $d.OriginalFileName -Parent) -Leaf
+        $path = Join-Path $exp $folder
+        if (-not (Test-Path -LiteralPath $path)) {
+            $cand = Get-ChildItem -LiteralPath $exp -Directory | Where-Object { -not $used.ContainsKey($_.Name) -and (Test-Path -LiteralPath (Join-Path $_.FullName $inf)) } | Select-Object -First 1
+            if (-not $cand) { continue }
+            $folder = $cand.Name; $path = $cand.FullName
+        }
+        $used[$folder] = $true
+        $size = (Get-ChildItem -LiteralPath $path -Recurse -File -ErrorAction SilentlyContinue | Measure-Object -Property Length -Sum).Sum
+        $date = ''
+        try { $date = ([datetime]$d.Date).ToString('yyyy-MM-dd') } catch { }
+        [pscustomobject]@{
+            Class = [string]$d.ClassName; Provider = [string]$d.ProviderName; Version = [string]$d.Version; Date = $date; Arch = $hostArch
+            'Size (MB)' = [math]::Round($size / 1MB, 1); Inf = $inf; Folder = $folder; FullDir = $path
+        }
+    }
+    $items = @($items | Sort-Object Class, Provider)
+    Write-Ok "$($items.Count) driver packages found on this PC."
+    return $items
+}
+function Save-HostDrivers($Pick) {
+    $pick = @($Pick)
+    $exp = Join-Path $Script:P.Drivers 'host_export'
+    if ($pick.Count -eq 0) { Remove-Item -LiteralPath $exp -Recurse -Force -ErrorAction SilentlyContinue; return }
+    $hostDir = Join-Path $Script:P.DrvSel 'host'
+    Reset-Dir $hostDir
+    $keep = @($Script:S.Drivers | Where-Object { $_.Source -ne 'host' })
+    foreach ($x in $pick) {
+        Copy-Item -LiteralPath (Join-Path $exp $x.Folder) -Destination (Join-Path $hostDir $x.Folder) -Recurse -Force
+        $keep += [ordered]@{ Source = 'host'; Folder = "host\$($x.Folder)"; Inf = $x.Inf; Class = $x.Class; Provider = $x.Provider; Version = $x.Version; SizeMB = $x.'Size (MB)' }
+    }
+    Remove-Item -LiteralPath $exp -Recurse -Force -ErrorAction SilentlyContinue
+    $Script:S.Drivers = $keep
+    Save-State
+    Write-Ok "$($pick.Count) driver package(s) from this PC will be slipstreamed."
+}
+function Save-ImportDrivers([string]$Dir, $Pick) {
+    $pick = @($Pick)
+    $target = ''
+    if ($Script:S.Family) { $target = [string]$Script:S.Family.Arch }
+    $wrong = @($pick | Where-Object { -not (Test-DriverArch $_.Arch $target) })
+    if ($wrong.Count -gt 0) {
+        Write-Warn "$($wrong.Count) picked driver(s) are not built for $target and were left out."
+        $pick = @($pick | Where-Object { Test-DriverArch $_.Arch $target })
+    }
+    if ($pick.Count -eq 0) { Write-Warn 'No drivers imported.'; return }
+    $name = (Split-Path $Dir -Leaf) -replace '[^\w\.-]', '_'
+    if (-not $name) { $name = 'drivers' }
+    $base = Join-Path (Join-Path $Script:P.DrvSel 'import') $name
+    Reset-Dir $base
+    Write-Step "Copying $($pick.Count) driver(s) into the work folder"
+    $rootTrim = $Dir.TrimEnd('\', '/')
+    $dirs = @($pick | ForEach-Object { $_.FullDir } | Sort-Object -Unique | Sort-Object Length)
+    $done = New-Object System.Collections.Generic.List[string]
+    foreach ($d in $dirs) {
+        $inside = $false
+        foreach ($c in $done) { if ($d -eq $c -or $d.StartsWith($c.TrimEnd('\') + '\', [StringComparison]::OrdinalIgnoreCase)) { $inside = $true; break } }
+        if ($inside) { continue }
+        $rel = ''
+        if ($d.Length -gt $rootTrim.Length) { $rel = $d.Substring($rootTrim.Length).TrimStart('\', '/') }
+        $dest = if ($rel) { Join-Path $base $rel } else { $base }
+        Copy-Tree $d $dest
+        $done.Add($d)
+    }
+    $prefix = "import\$name"
+    $keep = @($Script:S.Drivers | Where-Object { -not ([string]$_.Folder).StartsWith($prefix, [StringComparison]::OrdinalIgnoreCase) })
+    $seen = @{}
+    foreach ($x in $pick) {
+        $size = 0
+        if (-not $seen.ContainsKey($x.FullDir)) { $size = $x.'Size (MB)'; $seen[$x.FullDir] = $true }
+        $folder = if ($x.Folder) { "$prefix\$($x.Folder)" } else { $prefix }
+        $keep += [ordered]@{ Source = 'import'; Folder = $folder; Inf = $x.Inf; Class = $x.Class; Provider = $x.Provider; Version = $x.Version; SizeMB = $size }
+    }
+    $Script:S.Drivers = $keep
+    Save-State
+    $Script:Cfg.LastDriverFolder = $Dir
+    Save-Settings
+    $boot = @($pick | Where-Object { $Script:BootClasses -contains $_.Class }).Count
+    Write-Ok "$($pick.Count) driver(s) imported from $Dir ($boot storage/network also go into boot.wim and WinRE)."
+}
+function Remove-DriverEntries([int[]]$Numbers) {
+    $d = @($Script:S.Drivers)
+    $keep = @()
+    for ($i = 0; $i -lt $d.Count; $i++) {
+        if ($Numbers -contains ($i + 1)) {
+            $folder = Join-Path $Script:P.DrvSel $d[$i].Folder
+            if ($d[$i].Source -eq 'host') { Remove-Item -LiteralPath $folder -Recurse -Force -ErrorAction SilentlyContinue }
+            else { Remove-Item -LiteralPath (Join-Path $folder $d[$i].Inf) -Force -ErrorAction SilentlyContinue }
+        } else { $keep += $d[$i] }
+    }
+    $Script:S.Drivers = $keep
+    Save-State
+    Write-Ok "$($d.Count - $keep.Count) driver(s) removed."
+}
+#endregion
+
+#region ---------------------------------------------------------------- answer file
+function Set-UnattendFile([string]$File) {
+    [void](Test-UnattendFile $File)
+    New-Item -ItemType Directory -Force -Path $Script:P.Work | Out-Null
+    Copy-Item -LiteralPath $File -Destination $Script:P.Unattend -Force
+    Remove-Item -LiteralPath (Join-Path $Script:P.Work 'autounattend.original.xml') -Force -ErrorAction SilentlyContinue
+    $Script:S.Unattend = [ordered]@{ Source = $File; Added = (Get-Date).ToString('yyyy-MM-dd HH:mm') }
+    Save-State
+    Sync-Unattend
+    Write-Ok "autounattend.xml added (from $File)"
+}
+function Clear-UnattendFile {
+    if ($Script:S.Unattend) { Remove-Item -LiteralPath (Join-Path $Script:P.Media 'autounattend.xml') -Force -ErrorAction SilentlyContinue }
+    Remove-Item -LiteralPath $Script:P.Unattend -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath (Join-Path $Script:P.Work 'autounattend.original.xml') -Force -ErrorAction SilentlyContinue
+    $Script:S.Unattend = $null
+    Save-State
+    Write-Ok 'autounattend.xml removed.'
+}
+#endregion
+
+#region ---------------------------------------------------------------- run everything / clean / job entry point
+function Invoke-RunAll($A) {
+    Write-Title "Run everything - $Script:AppName $Script:AppVersion"
+    $iso = if ($A.Iso) { [string]$A.Iso } else { [string]$Script:S.SourceIso }
+    $fresh = (-not $Script:S.Unpacked) -or $Script:S.Serviced -or ($iso -and $iso -ne $Script:S.SourceIso)
+    if ($fresh) {
+        if (-not $iso -or -not (Test-Path -LiteralPath $iso)) { throw 'Choose the source ISO first (page 1).' }
+        if ($Script:S.Serviced) { Write-Info 'The unpacked media was already serviced - unpacking a fresh copy.' }
+        $Script:IsoPath = $iso
+        $Script:NoAsk = $true
+        Invoke-Unpack
+        $Script:NoAsk = $false
+    } else { Invoke-Analyze }
+    $n = @($Script:S.Images).Count
+    if (@($Script:S.Selected).Count -eq 0) {
+        if ($n -gt 1 -and -not (Read-YesNo "No edition is ticked. Update and keep all $n editions?" $true)) { throw 'Tick the editions on page 2, then run again.' }
+        $Script:S.Selected = @($Script:S.Images | ForEach-Object { [int]$_.Index })
+        Save-State
+    }
+    if ($Script:S.Family.Supported) { Invoke-Download -Auto } else { Write-Warn 'Updates skipped (unsupported build).' }
+    Invoke-Service -Auto
+    Invoke-Build -Auto -OutIso $A.Out
+    Write-Title 'Everything done'
+    Write-Ok $Script:S.Iso
+}
+function Invoke-CleanJob($A) {
+    Write-Title 'Clean up'
+    Clear-Mounts
+    Remove-Item -LiteralPath $Script:P.Temp -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath (Join-Path $Script:P.Work 'mnt') -Recurse -Force -ErrorAction SilentlyContinue
+    Write-Ok 'Leftover mounts and temporary files removed.'
+    if ($A.Updates -and (Test-Path -LiteralPath $Script:P.Updates)) {
+        Remove-Item -LiteralPath $Script:P.Updates -Recurse -Force; $Script:S.Updates = @(); Write-Ok 'Downloaded updates deleted.'
+    }
+    if ($A.Media -and (Test-Path -LiteralPath $Script:P.Media)) {
+        Remove-Item -LiteralPath $Script:P.Media -Recurse -Force
+        $Script:S.Unpacked = $false; $Script:S.Serviced = $null; $Script:S.Images = @(); $Script:S.Family = $null; $Script:S.Selected = @(); $Script:S.OemSynced = $false
+        Write-Ok 'Unpacked media deleted.'
+    }
+    if ($A.Output -and (Test-Path -LiteralPath $Script:P.Output)) {
+        Remove-Item -LiteralPath $Script:P.Output -Recurse -Force; $Script:S.Iso = $null; Write-Ok 'Built ISOs deleted.'
+    }
+    if ($A.Signed -and (Test-Path -LiteralPath $Script:P.Signed)) {
+        Remove-Item -LiteralPath $Script:P.Signed -Recurse -Force; $Script:S.Signed = @(); Write-Ok 'Re-signed driver copies deleted.'
+    }
+    Save-State
+}
+# Entry point of the background worker. State is re-read from disk for every job.
+function Invoke-Job([string]$Job, $A) {
+    if ($null -eq $A) { $A = @{} }
+    $Script:Cfg = Import-Settings
+    Initialize-Paths
+    $Script:S = Import-State
+    $Script:NoAsk = [bool]$A.NoAsk
+    $Script:Sync.Result = $null
+    New-Item -ItemType Directory -Force -Path $Script:P.Logs | Out-Null
+    $Script:LogFile = Join-Path $Script:P.Logs 'engine.log'
+    $Script:DismLog = Join-Path $Script:P.Logs 'dism.log'
+    Add-Log "---- $Script:AppName $Script:AppVersion  job=$Job"
+    try {
+        switch ($Job) {
+            'Unpack'       { $Script:IsoPath = [string]$A.Iso; Invoke-Unpack }
+            'Analyze'      { Invoke-Analyze }
+            'Download'     { Invoke-Download -Auto }
+            'ScanHost'     { $Script:Sync.Result = @(Get-HostDriverScan) }
+            'CommitHost'   { Save-HostDrivers $A.Pick }
+            'ScanFolder'   {
+                Write-Step "Scanning $($A.Dir)"
+                $Script:Sync.Result = @(Get-DriverPackages $A.Dir | Sort-Object Class, Provider, Inf)
+                Write-Ok "$(@($Script:Sync.Result).Count) driver(s) found."
+            }
+            'CommitImport' { Save-ImportDrivers $A.Dir $A.Pick }
+            'Sign'         { Invoke-SignPackage $A.Source $A.Name $A.Password ([bool]$A.All) }
+            'Service'      { Invoke-Service -Auto }
+            'Build'        { Invoke-Build -Auto -OutIso ([string]$A.Out) }
+            'All'          { Invoke-RunAll $A }
+            'Tools'        { Get-AllTools }
+            'Check'        { $Script:Sync.Result = @(Invoke-InstallCheck) }
+            'Fix'          { Invoke-InstallFixes @($A.Fixes); $Script:Sync.Result = @(Invoke-InstallCheck) }
+            'Clean'        { Invoke-CleanJob $A }
+            default        { throw "Unknown job: $Job" }
+        }
+    } catch {
+        Write-Err $_.Exception.Message
+        Add-Log ($_ | Out-String)
+        throw
+    } finally {
+        if ($Script:Sync) { $Script:Sync.Pct = -1; $Script:Sync.Status = '' }
+    }
+}
+#endregion
+#ENGINE-END
+
