@@ -1,6 +1,6 @@
 @echo off
 :: ===========================================================================
-::  Win10-ISO-Updater.cmd  (v2.0.4)  -  one file, graphical interface
+::  Win10-ISO-Updater.cmd  (v2.0.5)  -  one file, graphical interface
 ::  - unpacks a Windows 10 ISO and detects its build
 ::  - downloads its updates from the Microsoft Update Catalog
 ::  - slipstreams updates and drivers (this PC or a Drivers-Backup folder)
@@ -23,7 +23,7 @@ exit /b
 set "W10U_SELF=%~f0"
 set "PSEXE=%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe"
 if exist "%SystemRoot%\Sysnative\WindowsPowerShell\v1.0\powershell.exe" set "PSEXE=%SystemRoot%\Sysnative\WindowsPowerShell\v1.0\powershell.exe"
-echo Starting Win10 ISO Updater v2.0.4 ...  (this window hides when the program opens)
+echo Starting Win10 ISO Updater v2.0.5 ...  (this window hides when the program opens)
 "%PSEXE%" -NoProfile -STA -ExecutionPolicy Bypass -Command "$t=[IO.File]::ReadAllText($env:W10U_SELF);$i=$t.IndexOf('#'+'PS-BEGIN');Invoke-Expression $t.Substring($i)"
 if errorlevel 1 pause
 exit /b
@@ -38,7 +38,7 @@ $ErrorActionPreference = 'Stop'
 $ProgressPreference    = 'SilentlyContinue'
 
 $Script:AppName      = 'Win10-ISO-Updater'
-$Script:AppVersion   = '2.0.4'
+$Script:AppVersion   = '2.0.5'
 $Script:Root         = Split-Path -Parent $env:W10U_SELF
 $ToolsDir            = Join-Path $Script:Root 'tools'
 $IsoPath             = $null
@@ -1765,6 +1765,7 @@ function Get-OemContext {
         User = $user; Signed = $signed; Roots = $roots; Generated = $gen; DriverScript = $script; Fallback = $false
         PkgDirs = @(foreach ($x in $signed) { '$1\' + (([string]$x.InstallDir) -replace '^[A-Za-z]:\\?', '') })
         Installers = New-Object System.Collections.Generic.List[object]; OemInfDirs = @()
+        PkgRefs = New-Object System.Collections.Generic.List[string]
     }
 }
 function Test-OemRel($Ctx, [string]$Rel) {
@@ -1773,10 +1774,6 @@ function Test-OemRel($Ctx, [string]$Rel) {
     foreach ($d in $Ctx.PkgDirs) { if ($r -ieq $d -or $r.StartsWith($d + '\', [StringComparison]::OrdinalIgnoreCase)) { return $true } }
     if ($Ctx.User) { return (Test-Path -LiteralPath (Join-Path $Ctx.User $r)) }
     return $false
-}
-function Test-BuiltinRel([string]$Rel) {
-    return ($Rel -match '(?i)^\$\$\\(System32|SysWOW64|SystemApps|WinSxS|Microsoft\.NET)\\' -or $Rel -match '(?i)^\$\$\\[^\\]+\.exe$' -or
-            $Rel -match '(?i)^\$1\\(Program Files|ProgramData|Users)\b')
 }
 # File paths used in a command / script line, mapped into $OEM$ ($1 = C:\, $$ = C:\Windows)
 function Get-CommandRefs([string]$Text, [string]$ScriptDirRel, [switch]$Dirs) {
@@ -1844,7 +1841,7 @@ function Get-SignText([string]$State) {
 #endregion
 
 #region ---------------------------------------------------------------- install check: scripts in $OEM$
-function Test-SetupScript($Ctx, [string]$Rel, [string]$Why, [hashtable]$Seen, [bool]$Hidden, [int]$Depth = 0) {
+function Test-SetupScript($Ctx, [string]$Rel, [string]$Why, [hashtable]$Seen, [bool]$Hidden, [int]$Depth = 0, [bool]$WithArgs = $false) {
     $key = $Rel.ToLower()
     if ($Seen.ContainsKey($key)) { return }
     $Seen[$key] = $true
@@ -1864,38 +1861,107 @@ function Test-SetupScript($Ctx, [string]$Rel, [string]$Why, [hashtable]$Seen, [b
     if ($text.Contains("`n") -and -not $text.Contains("`r`n")) {
         Add-Finding 'Warning' 'Scripts' ('{0} has Unix (LF) line endings - labels and goto can break in cmd.exe.' -f $name) '' 'Re-save it with Windows (CRLF) line endings'
     }
-    $dir = Split-Path $Rel -Parent
+    Test-ScriptText $Ctx $Rel $name $text $Hidden $WithArgs $Seen $Depth $false
+}
+# Checks the lines of a cmd / PowerShell script that runs during setup.
+#   $Hidden   - runs without a visible window (SetupComplete, specialize, SYSTEM task): prompts hang setup
+#   $WithArgs - called with parameters: menu scripts normally skip their prompts then
+function Test-ScriptText($Ctx, [string]$Rel, [string]$Name, [string]$Text, [bool]$Hidden, [bool]$WithArgs, [hashtable]$Seen, [int]$Depth, [bool]$IsPs) {
+    $dir = if ($Rel) { Split-Path $Rel -Parent } else { '' }
+    $waitRx = if ($IsPs) { '(?i)\bRead-Host\b|\[Console\]::ReadKey|^\s*pause\b' } else { '(?i)(^|[&|(]\s*)@?(pause\b|set\s+/p\b|choice\b(?!.*\s/t))' }
+    $bootRx = if ($IsPs) { '(?i)\b(Restart|Stop)-Computer\b|\bshutdown(\.exe)?\s+[/-][rsg]\b' } else { '(?i)\bshutdown(\.exe)?\s+[/-][rsg]\b' }
     $no = 0
     $waits = @(); $restarts = @(); $drives = @(); $missing = @(); $calls = @()
-    foreach ($line in ($text -split "`r?`n")) {
+    foreach ($line in ($Text -split "`r?`n")) {
         $no++
         $l = $line.Trim()
-        if (-not $l -or $l -match '^(?i)(@?rem\b|::)') { continue }
-        if ($Hidden -and $l -match '(?i)(^|[&|(]\s*)@?(pause\b|set\s+/p\b|choice\b(?!.*\s/t))') { $waits += $no }
-        if ($Hidden -and $l -match '(?i)\bshutdown(\.exe)?\s+[/-][rsg]\b') { $restarts += $no }
+        if (-not $l -or $l -match '^(?i)(@?rem\b|::|#)') { continue }
+        if ($Hidden -and $l -match $waitRx) { $waits += $no }
+        if ($Hidden -and $l -match $bootRx) { $restarts += $no }
         if ($l -match $Script:InstallerRx) { $Ctx.Installers.Add([pscustomobject]@{ Text = $l; Dir = $dir }) }
         foreach ($r in @(Get-CommandRefs $l $dir)) {
             if ($r.Kind -eq 'drive') { if ($drives -notcontains $r.Raw) { $drives += $r.Raw }; continue }
-            if (-not $r.Rel -or $r.Rel -match '\*' -or (Test-BuiltinRel $r.Rel)) { continue }
+            Add-PkgRef $Ctx $r $Name
+            if (-not (Test-RefWorthChecking $Ctx $r.Rel)) { continue }
             if (-not (Test-OemRel $Ctx $r.Rel)) { if ($missing -notcontains $r.Raw) { $missing += $r.Raw } }
-            elseif ($Depth -lt 2 -and $r.Rel -match '(?i)\.(cmd|bat)$' -and $calls -notcontains $r.Rel) { $calls += $r.Rel }
+            elseif ($Depth -lt 2 -and $r.Rel -match '(?i)\.(cmd|bat)$' -and -not @($calls | Where-Object { $_.Rel -eq $r.Rel }).Count) {
+                $calls += [pscustomobject]@{ Rel = $r.Rel; Args = (Test-CalledWithArgs $l $r.Rel) }
+            }
         }
     }
     # one finding per script and problem, not one per line
     $lines = { param($l) $t = (@($l | Select-Object -First 8) -join ', '); if (@($l).Count -gt 8) { $t += ', ...' }; $t }
-    if ($waits.Count) {
-        Add-Finding 'Warning' 'Scripts' ('{0} waits for a key on {1} line(s) (line {2}) - pause / set /p / choice. It runs hidden during setup, so setup hangs there.' -f $name, $waits.Count, (& $lines $waits)) '' 'Remove the prompts, or run this script from FirstLogonCommands (visible) instead'
+    if ($waits.Count -and $WithArgs) {
+        Add-Finding 'Info' 'Scripts' ('{0} has {1} prompt line(s), but it is called with parameters - menu scripts normally skip their prompts then. Make sure those parameters run it without questions.' -f $Name, $waits.Count)
+    } elseif ($waits.Count) {
+        Add-Finding 'Warning' 'Scripts' ('{0} waits for input on {1} line(s) (line {2}). It runs hidden during setup, so setup hangs there.' -f $Name, $waits.Count, (& $lines $waits)) '' 'Remove the prompts, call it with its unattended parameters, or run it from FirstLogonCommands (visible) instead'
     }
-    if ($restarts.Count) {
-        Add-Finding 'Warning' 'Scripts' ('{0} restarts the PC (line {1}) - that can cut setup short.' -f $name, (& $lines $restarts)) '' 'Restart from FirstLogonCommands instead'
+    if ($restarts.Count -and -not $WithArgs) {
+        Add-Finding 'Warning' 'Scripts' ('{0} restarts the PC (line {1}) - that can cut setup short.' -f $Name, (& $lines $restarts)) '' 'Restart from FirstLogonCommands instead'
     }
     if ($drives.Count) {
-        Add-Finding 'Warning' 'Scripts' ('{0} uses fixed drive letters ({1}) - USB stick and disk letters differ between PCs.' -f $name, (& $lines $drives)) '' 'Use %SystemDrive%, %~dp0 or search for the drive'
+        Add-Finding 'Warning' 'Scripts' ('{0} uses fixed drive letters ({1}) - USB stick and disk letters differ between PCs.' -f $Name, (& $lines $drives)) '' 'Use %SystemDrive%, %~dp0 or search for the drive'
     }
     if ($missing.Count) {
-        Add-Finding 'Warning' 'Scripts' ('{0} uses files that are not in your $OEM$: {1}' -f $name, (& $lines $missing)) '' 'Add the files to $OEM$ or fix the paths'
+        Add-Finding 'Warning' 'Scripts' ('{0} uses files that will not exist: {1}' -f $Name, (& $lines $missing)) '' 'Add the files to $OEM$ or fix the paths'
     }
-    foreach ($c in $calls) { Test-SetupScript $Ctx $c ('called by ' + (Split-Path $Rel -Leaf)) $Seen $Hidden ($Depth + 1) }
+    foreach ($c in $calls) { Test-SetupScript $Ctx $c.Rel ('called by ' + (Split-Path $Rel -Leaf)) $Seen $Hidden ($Depth + 1) $c.Args }
+}
+# "call script.cmd /switch" -> $true
+function Test-CalledWithArgs([string]$Line, [string]$Rel) {
+    $leaf = Split-Path $Rel -Leaf
+    $i = $Line.IndexOf($leaf, [StringComparison]::OrdinalIgnoreCase)
+    if ($i -lt 0) { return $false }
+    $after = $Line.Substring($i + $leaf.Length).TrimStart('"', "'").Trim()
+    return ($after -match '^[/-]?\w' -and $after -notmatch '^(>|2>|&|\|)')
+}
+# Only paths that a person would put into $OEM$ are checked; Windows' own folders
+# (System32, Sysnative, Panther, Temp, Program Files, ...) and paths built from variables are not.
+function Test-RefWorthChecking($Ctx, [string]$Rel) {
+    if (-not $Rel -or $Rel -match '[\*%]|\$env') { return $false }
+    if ($Rel -match '(?i)^\$\$\\([^\\]+)\\') {
+        $top = $Matches[1]
+        if ($top -ieq 'Setup') { return $true }
+        if ($Ctx.User -and (Test-Path -LiteralPath (Join-Path (Join-Path $Ctx.User '$$') $top))) { return $true }
+        return $false
+    }
+    if ($Rel -match '(?i)^\$\$(\\[^\\]*)?$') { return $false }
+    if ($Rel -match '(?i)^\$1\\(Program Files|ProgramData|Users|PerfLogs|Recovery|\$Recycle\.Bin)\b') { return $false }
+    return $true
+}
+# Remember when something uses a file inside a signed package (e.g. C:\Drivers\NVIDIA\setup.exe)
+function Add-PkgRef($Ctx, $Ref, [string]$Where) {
+    if (-not $Ref.Rel) { return }
+    foreach ($d in $Ctx.PkgDirs) {
+        if ($Ref.Rel.StartsWith($d + '\', [StringComparison]::OrdinalIgnoreCase)) { $Ctx.PkgRefs.Add(('{0} uses {1}' -f $Where, $Ref.Raw)); return }
+    }
+}
+# Files the answer file writes itself (<Extensions><File path="...">, used by the autounattend generator)
+function Get-EmbeddedFiles {
+    if (-not $Script:S.Unattend -or -not (Test-Path -LiteralPath $Script:P.Unattend)) { return @() }
+    try {
+        $doc = New-Object System.Xml.XmlDocument
+        $doc.Load($Script:P.Unattend)
+        return @(foreach ($n in $doc.SelectNodes("//*[local-name()='File' and @path]")) { [pscustomobject]@{ Path = $n.GetAttribute('path'); Text = $n.InnerText } })
+    } catch { return @() }
+}
+function ConvertTo-OemRel([string]$Path) {
+    $r = @(Get-CommandRefs ('"' + $Path + '"') '') | Select-Object -First 1
+    if ($r) { return $r.Rel }
+    return $null
+}
+function Test-EmbeddedScripts($Ctx, $X, $Emb, [hashtable]$Seen) {
+    if (-not $X -or @($Emb).Count -eq 0) { return }
+    $visible = (@(Get-XNodes $X '//u:SynchronousCommand/u:CommandLine | //u:AsynchronousCommand/u:CommandLine') | ForEach-Object { $_.InnerText }) -join "`n"
+    $n = 0
+    foreach ($f in $Emb) {
+        $isPs = $f.Path -match '(?i)\.ps1$'
+        if (-not $isPs -and $f.Path -notmatch '(?i)\.(cmd|bat)$') { continue }
+        $n++
+        $hidden = $visible -notmatch [regex]::Escape($f.Path)
+        Test-ScriptText $Ctx (ConvertTo-OemRel $f.Path) ('{0} (written by the answer file)' -f $f.Path) $f.Text $hidden $false $Seen 0 $isPs
+    }
+    if ($n) { Add-Finding 'OK' 'Answer file' ('{0} script(s) embedded in the answer file were checked too.' -f $n) }
 }
 #endregion
 
@@ -2215,11 +2281,12 @@ function Test-AnswerFileFull($Ctx, $Final, [string]$Arch, [string]$UArch) {
         if ($text -match $Script:InstallerRx) { $Ctx.Installers.Add([pscustomobject]@{ Text = $text; Dir = '' }) }
         foreach ($r in @(Get-CommandRefs $text '')) {
             if ($r.Kind -eq 'drive') { Add-Finding 'Warning' 'Answer file' ('A command in the {0} pass uses a fixed drive letter ({1}) - USB stick and disk letters differ between PCs.' -f $pass, $r.Raw) '' 'Use %SystemDrive% / %WINDIR% or search for the drive'; continue }
-            if (-not $r.Rel -or $r.Rel -match '\*' -or (Test-BuiltinRel $r.Rel)) { continue }
+            Add-PkgRef $Ctx $r ('A command in the {0} pass' -f $pass)
+            if (-not (Test-RefWorthChecking $Ctx $r.Rel)) { continue }
             if ($pass -eq 'windowsPE') { Add-Finding 'Warning' 'Answer file' ('A command in the windowsPE pass uses {0} - in that pass C: is not the new Windows yet.' -f $r.Raw); continue }
             if ($r.Rel -match '(?i)SetupComplete-drivers\.cmd$') { continue }
-            if (-not (Test-OemRel $Ctx $r.Rel)) { Add-Finding 'Warning' 'Answer file' ('A command in the {0} pass uses {1}, which is not in your $OEM$ (expected at {2}).' -f $pass, $r.Raw, $r.Rel) '' 'Add the file to $OEM$ or fix the path' }
-            elseif ($r.Rel -match '(?i)\.(cmd|bat)$') { Test-SetupScript $Ctx $r.Rel ('run by the answer file, ' + $pass) $seen $hidden }
+            if (-not (Test-OemRel $Ctx $r.Rel)) { Add-Finding 'Warning' 'Answer file' ('A command in the {0} pass uses {1}, which will not exist (it is not in your $OEM$ and the answer file does not create it).' -f $pass, $r.Raw) '' 'Add the file to $OEM$ or fix the path' }
+            elseif ($r.Rel -match '(?i)\.(cmd|bat)$') { Test-SetupScript $Ctx $r.Rel ('run by the answer file, ' + $pass) $seen $hidden 0 (Test-CalledWithArgs $text $r.Rel) }
         }
     }
     foreach ($p in (Get-XNodes $X "//u:component[@name='Microsoft-Windows-PnpCustomizationsNonWinPE']//u:PathAndCredentials/u:Path")) {
@@ -2306,6 +2373,8 @@ function Invoke-InstallCheck([switch]$NoDownload, [switch]$Quiet) {
     if ($own -and $Script:IsWorker) { try { $added = @(Add-TempTrust $cer) } catch { } }
     try {
         $ctx = Get-OemContext
+        $emb = @(Get-EmbeddedFiles)
+        foreach ($f in $emb) { $rel = ConvertTo-OemRel $f.Path; if ($rel) { $ctx.Generated[$rel.ToLower()] = $true } }
         if ($final.Count -gt 0 -and $S.Serviced) {
             $wim = Join-Path $Script:P.Media 'sources\install.wim'
             if ((Test-Path -LiteralPath $wim) -and (Get-Item -LiteralPath $wim).Length -gt 4GB -and -not $Script:Cfg.SplitFat32) {
@@ -2317,8 +2386,15 @@ function Invoke-InstallCheck([switch]$NoDownload, [switch]$Quiet) {
         Test-SlipstreamDrivers $own
         Test-SignedPackages $own
         $X = Test-AnswerFileFull $ctx $final $arch $uArch
+        Test-EmbeddedScripts $ctx $X $emb @{}
         Test-SetupCompleteRuns $ctx $X $final
         Test-DriverCoverage $ctx
+        $refs = @($ctx.PkgRefs | Select-Object -Unique)
+        if ($refs.Count -and $Script:Cfg.SignCleanup) {
+            Add-Finding 'Warning' 'Signed drivers' ('{0} - but SetupComplete-drivers.cmd deletes that folder right after pnputil has installed the driver, so the file is gone when this runs.' -f (($refs | Select-Object -First 3) -join '; ')) 'keep-driver-copy' 'Keep the driver copy in C:\Drivers (turns off "Delete the driver copy")'
+        } elseif ($refs.Count) {
+            Add-Finding 'OK' 'Signed drivers' ('{0} - the signed copy stays in place for it.' -f (($refs | Select-Object -First 3) -join '; '))
+        }
     } finally {
         if ($added.Count) { try { Remove-TempTrust $cer $added } catch { } }
         if ($Script:Sync) { $Script:Sync.Status = '' }
@@ -2436,7 +2512,8 @@ function Invoke-InstallFixes([string[]]$Fixes) {
     $xml = @()
     $newFile = $false
     foreach ($f in @($Fixes | Where-Object { $_ } | Sort-Object -Unique)) {
-        if ($f -eq 'oem-drivers') { $Script:Cfg.InstallOemDrivers = $true; Save-Settings; Write-Ok 'The driver folders in your $OEM$ are now installed by SetupComplete-drivers.cmd.' }
+        if ($f -eq 'keep-driver-copy') { $Script:Cfg.SignCleanup = $false; Save-Settings; Write-Ok 'The signed driver copy now stays in C:\Drivers after installation.' }
+        elseif ($f -eq 'oem-drivers') { $Script:Cfg.InstallOemDrivers = $true; Save-Settings; Write-Ok 'The driver folders in your $OEM$ are now installed by SetupComplete-drivers.cmd.' }
         elseif ($f -match '^drop-bad-drivers=(.+)$') { Remove-DriverEntries @($Matches[1] -split ',' | ForEach-Object { [int]$_ }) }
         elseif ($f -match '^use-oem-unattend=(.+)$') { Set-UnattendFile $Matches[1]; $newFile = $true }
         else { $xml += $f }

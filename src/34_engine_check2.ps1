@@ -160,11 +160,12 @@ function Test-AnswerFileFull($Ctx, $Final, [string]$Arch, [string]$UArch) {
         if ($text -match $Script:InstallerRx) { $Ctx.Installers.Add([pscustomobject]@{ Text = $text; Dir = '' }) }
         foreach ($r in @(Get-CommandRefs $text '')) {
             if ($r.Kind -eq 'drive') { Add-Finding 'Warning' 'Answer file' ('A command in the {0} pass uses a fixed drive letter ({1}) - USB stick and disk letters differ between PCs.' -f $pass, $r.Raw) '' 'Use %SystemDrive% / %WINDIR% or search for the drive'; continue }
-            if (-not $r.Rel -or $r.Rel -match '\*' -or (Test-BuiltinRel $r.Rel)) { continue }
+            Add-PkgRef $Ctx $r ('A command in the {0} pass' -f $pass)
+            if (-not (Test-RefWorthChecking $Ctx $r.Rel)) { continue }
             if ($pass -eq 'windowsPE') { Add-Finding 'Warning' 'Answer file' ('A command in the windowsPE pass uses {0} - in that pass C: is not the new Windows yet.' -f $r.Raw); continue }
             if ($r.Rel -match '(?i)SetupComplete-drivers\.cmd$') { continue }
-            if (-not (Test-OemRel $Ctx $r.Rel)) { Add-Finding 'Warning' 'Answer file' ('A command in the {0} pass uses {1}, which is not in your $OEM$ (expected at {2}).' -f $pass, $r.Raw, $r.Rel) '' 'Add the file to $OEM$ or fix the path' }
-            elseif ($r.Rel -match '(?i)\.(cmd|bat)$') { Test-SetupScript $Ctx $r.Rel ('run by the answer file, ' + $pass) $seen $hidden }
+            if (-not (Test-OemRel $Ctx $r.Rel)) { Add-Finding 'Warning' 'Answer file' ('A command in the {0} pass uses {1}, which will not exist (it is not in your $OEM$ and the answer file does not create it).' -f $pass, $r.Raw) '' 'Add the file to $OEM$ or fix the path' }
+            elseif ($r.Rel -match '(?i)\.(cmd|bat)$') { Test-SetupScript $Ctx $r.Rel ('run by the answer file, ' + $pass) $seen $hidden 0 (Test-CalledWithArgs $text $r.Rel) }
         }
     }
     foreach ($p in (Get-XNodes $X "//u:component[@name='Microsoft-Windows-PnpCustomizationsNonWinPE']//u:PathAndCredentials/u:Path")) {
@@ -251,6 +252,8 @@ function Invoke-InstallCheck([switch]$NoDownload, [switch]$Quiet) {
     if ($own -and $Script:IsWorker) { try { $added = @(Add-TempTrust $cer) } catch { } }
     try {
         $ctx = Get-OemContext
+        $emb = @(Get-EmbeddedFiles)
+        foreach ($f in $emb) { $rel = ConvertTo-OemRel $f.Path; if ($rel) { $ctx.Generated[$rel.ToLower()] = $true } }
         if ($final.Count -gt 0 -and $S.Serviced) {
             $wim = Join-Path $Script:P.Media 'sources\install.wim'
             if ((Test-Path -LiteralPath $wim) -and (Get-Item -LiteralPath $wim).Length -gt 4GB -and -not $Script:Cfg.SplitFat32) {
@@ -262,8 +265,15 @@ function Invoke-InstallCheck([switch]$NoDownload, [switch]$Quiet) {
         Test-SlipstreamDrivers $own
         Test-SignedPackages $own
         $X = Test-AnswerFileFull $ctx $final $arch $uArch
+        Test-EmbeddedScripts $ctx $X $emb @{}
         Test-SetupCompleteRuns $ctx $X $final
         Test-DriverCoverage $ctx
+        $refs = @($ctx.PkgRefs | Select-Object -Unique)
+        if ($refs.Count -and $Script:Cfg.SignCleanup) {
+            Add-Finding 'Warning' 'Signed drivers' ('{0} - but SetupComplete-drivers.cmd deletes that folder right after pnputil has installed the driver, so the file is gone when this runs.' -f (($refs | Select-Object -First 3) -join '; ')) 'keep-driver-copy' 'Keep the driver copy in C:\Drivers (turns off "Delete the driver copy")'
+        } elseif ($refs.Count) {
+            Add-Finding 'OK' 'Signed drivers' ('{0} - the signed copy stays in place for it.' -f (($refs | Select-Object -First 3) -join '; '))
+        }
     } finally {
         if ($added.Count) { try { Remove-TempTrust $cer $added } catch { } }
         if ($Script:Sync) { $Script:Sync.Status = '' }
@@ -381,7 +391,8 @@ function Invoke-InstallFixes([string[]]$Fixes) {
     $xml = @()
     $newFile = $false
     foreach ($f in @($Fixes | Where-Object { $_ } | Sort-Object -Unique)) {
-        if ($f -eq 'oem-drivers') { $Script:Cfg.InstallOemDrivers = $true; Save-Settings; Write-Ok 'The driver folders in your $OEM$ are now installed by SetupComplete-drivers.cmd.' }
+        if ($f -eq 'keep-driver-copy') { $Script:Cfg.SignCleanup = $false; Save-Settings; Write-Ok 'The signed driver copy now stays in C:\Drivers after installation.' }
+        elseif ($f -eq 'oem-drivers') { $Script:Cfg.InstallOemDrivers = $true; Save-Settings; Write-Ok 'The driver folders in your $OEM$ are now installed by SetupComplete-drivers.cmd.' }
         elseif ($f -match '^drop-bad-drivers=(.+)$') { Remove-DriverEntries @($Matches[1] -split ',' | ForEach-Object { [int]$_ }) }
         elseif ($f -match '^use-oem-unattend=(.+)$') { Set-UnattendFile $Matches[1]; $newFile = $true }
         else { $xml += $f }
