@@ -1,6 +1,6 @@
 @echo off
 :: ===========================================================================
-::  Win10-ISO-Updater.cmd  (v2.0.3)  -  one file, graphical interface
+::  Win10-ISO-Updater.cmd  (v2.0.4)  -  one file, graphical interface
 ::  - unpacks a Windows 10 ISO and detects its build
 ::  - downloads its updates from the Microsoft Update Catalog
 ::  - slipstreams updates and drivers (this PC or a Drivers-Backup folder)
@@ -23,7 +23,7 @@ exit /b
 set "W10U_SELF=%~f0"
 set "PSEXE=%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe"
 if exist "%SystemRoot%\Sysnative\WindowsPowerShell\v1.0\powershell.exe" set "PSEXE=%SystemRoot%\Sysnative\WindowsPowerShell\v1.0\powershell.exe"
-echo Starting Win10 ISO Updater v2.0.3 ...  (this window hides when the program opens)
+echo Starting Win10 ISO Updater v2.0.4 ...  (this window hides when the program opens)
 "%PSEXE%" -NoProfile -STA -ExecutionPolicy Bypass -Command "$t=[IO.File]::ReadAllText($env:W10U_SELF);$i=$t.IndexOf('#'+'PS-BEGIN');Invoke-Expression $t.Substring($i)"
 if errorlevel 1 pause
 exit /b
@@ -38,7 +38,7 @@ $ErrorActionPreference = 'Stop'
 $ProgressPreference    = 'SilentlyContinue'
 
 $Script:AppName      = 'Win10-ISO-Updater'
-$Script:AppVersion   = '2.0.3'
+$Script:AppVersion   = '2.0.4'
 $Script:Root         = Split-Path -Parent $env:W10U_SELF
 $ToolsDir            = Join-Path $Script:Root 'tools'
 $IsoPath             = $null
@@ -1866,30 +1866,36 @@ function Test-SetupScript($Ctx, [string]$Rel, [string]$Why, [hashtable]$Seen, [b
     }
     $dir = Split-Path $Rel -Parent
     $no = 0
+    $waits = @(); $restarts = @(); $drives = @(); $missing = @(); $calls = @()
     foreach ($line in ($text -split "`r?`n")) {
         $no++
         $l = $line.Trim()
         if (-not $l -or $l -match '^(?i)(@?rem\b|::)') { continue }
-        if ($Hidden -and $l -match '(?i)(^|[&|(]\s*)@?(pause\b|set\s+/p\b|choice\b(?!.*\s/t))') {
-            Add-Finding 'Warning' 'Scripts' ('{0} line {1} waits for a key ("{2}") - it runs hidden during setup, so setup hangs there.' -f $name, $no, (Limit-Text $l 50)) '' 'Remove the pause / prompt'
-        }
-        if ($Hidden -and $l -match '(?i)\bshutdown(\.exe)?\s+[/-][rsg]\b') {
-            Add-Finding 'Warning' 'Scripts' ('{0} line {1} restarts the PC ("{2}") - that can cut setup short.' -f $name, $no, (Limit-Text $l 50)) '' 'Restart from FirstLogonCommands instead'
-        }
+        if ($Hidden -and $l -match '(?i)(^|[&|(]\s*)@?(pause\b|set\s+/p\b|choice\b(?!.*\s/t))') { $waits += $no }
+        if ($Hidden -and $l -match '(?i)\bshutdown(\.exe)?\s+[/-][rsg]\b') { $restarts += $no }
         if ($l -match $Script:InstallerRx) { $Ctx.Installers.Add([pscustomobject]@{ Text = $l; Dir = $dir }) }
         foreach ($r in @(Get-CommandRefs $l $dir)) {
-            if ($r.Kind -eq 'drive') {
-                Add-Finding 'Warning' 'Scripts' ('{0} line {1} uses a fixed drive letter ({2}) - USB stick and disk letters differ between PCs.' -f $name, $no, $r.Raw) '' 'Use %SystemDrive%, %~dp0 or search for the drive'
-                continue
-            }
+            if ($r.Kind -eq 'drive') { if ($drives -notcontains $r.Raw) { $drives += $r.Raw }; continue }
             if (-not $r.Rel -or $r.Rel -match '\*' -or (Test-BuiltinRel $r.Rel)) { continue }
-            if (-not (Test-OemRel $Ctx $r.Rel)) {
-                Add-Finding 'Warning' 'Scripts' ('{0} line {1} uses {2}, which is not in your $OEM$ (expected at {3}).' -f $name, $no, $r.Raw, $r.Rel) '' 'Add the file to $OEM$ or fix the path'
-            } elseif ($Depth -lt 2 -and $r.Rel -match '(?i)\.(cmd|bat)$') {
-                Test-SetupScript $Ctx $r.Rel ('called by ' + (Split-Path $Rel -Leaf)) $Seen $Hidden ($Depth + 1)
-            }
+            if (-not (Test-OemRel $Ctx $r.Rel)) { if ($missing -notcontains $r.Raw) { $missing += $r.Raw } }
+            elseif ($Depth -lt 2 -and $r.Rel -match '(?i)\.(cmd|bat)$' -and $calls -notcontains $r.Rel) { $calls += $r.Rel }
         }
     }
+    # one finding per script and problem, not one per line
+    $lines = { param($l) $t = (@($l | Select-Object -First 8) -join ', '); if (@($l).Count -gt 8) { $t += ', ...' }; $t }
+    if ($waits.Count) {
+        Add-Finding 'Warning' 'Scripts' ('{0} waits for a key on {1} line(s) (line {2}) - pause / set /p / choice. It runs hidden during setup, so setup hangs there.' -f $name, $waits.Count, (& $lines $waits)) '' 'Remove the prompts, or run this script from FirstLogonCommands (visible) instead'
+    }
+    if ($restarts.Count) {
+        Add-Finding 'Warning' 'Scripts' ('{0} restarts the PC (line {1}) - that can cut setup short.' -f $name, (& $lines $restarts)) '' 'Restart from FirstLogonCommands instead'
+    }
+    if ($drives.Count) {
+        Add-Finding 'Warning' 'Scripts' ('{0} uses fixed drive letters ({1}) - USB stick and disk letters differ between PCs.' -f $name, (& $lines $drives)) '' 'Use %SystemDrive%, %~dp0 or search for the drive'
+    }
+    if ($missing.Count) {
+        Add-Finding 'Warning' 'Scripts' ('{0} uses files that are not in your $OEM$: {1}' -f $name, (& $lines $missing)) '' 'Add the files to $OEM$ or fix the paths'
+    }
+    foreach ($c in $calls) { Test-SetupScript $Ctx $c ('called by ' + (Split-Path $Rel -Leaf)) $Seen $Hidden ($Depth + 1) }
 }
 #endregion
 
@@ -3660,7 +3666,11 @@ function Show-CheckResults {
     $U = $Script:U
     $f = Join-Path $Script:P.Work 'install-check.json'
     $rows = @()
-    if (Test-Path -LiteralPath $f) { try { $rows = @(Get-Content -LiteralPath $f -Raw | ConvertFrom-Json) } catch { } }
+    if (Test-Path -LiteralPath $f) {
+        # Windows PowerShell 5.1 returns a JSON array as ONE object - unroll it, or every
+        # column shows System.Object[] and the fixes are sent as one meaningless string
+        try { $parsed = Get-Content -LiteralPath $f -Raw | ConvertFrom-Json; $rows = @(foreach ($one in $parsed) { $one }) } catch { }
+    }
     $Script:CheckRows = $rows
     $U.ChkGrid.ItemsSource = (New-Table @('Level', 'Area', 'Finding', 'FixText', 'Fix') @(foreach ($r in $rows) { , @($r.Level, $r.Area, $r.Finding, $r.FixText, $r.Fix) })).DefaultView
     $c = $Script:S.Check

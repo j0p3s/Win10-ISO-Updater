@@ -285,7 +285,11 @@ function Show-CheckResults {
     $U = $Script:U
     $f = Join-Path $Script:P.Work 'install-check.json'
     $rows = @()
-    if (Test-Path -LiteralPath $f) { try { $rows = @(Get-Content -LiteralPath $f -Raw | ConvertFrom-Json) } catch { } }
+    if (Test-Path -LiteralPath $f) {
+        # Windows PowerShell 5.1 returns a JSON array as ONE object - unroll it, or every
+        # column shows System.Object[] and the fixes are sent as one meaningless string
+        try { $parsed = Get-Content -LiteralPath $f -Raw | ConvertFrom-Json; $rows = @(foreach ($one in $parsed) { $one }) } catch { }
+    }
     $Script:CheckRows = $rows
     $U.ChkGrid.ItemsSource = (New-Table @('Level', 'Area', 'Finding', 'FixText', 'Fix') @(foreach ($r in $rows) { , @($r.Level, $r.Area, $r.Finding, $r.FixText, $r.Fix) })).DefaultView
     $c = $Script:S.Check

@@ -1,5 +1,13 @@
 # Changelog
 
+## v2.0.4 — 2026-10-24
+
+### Fixed
+- **Install check fixes were never applied.** Windows PowerShell 5.1 reads a JSON array as one object, so the check list showed one row of `System.Object[]`. "Apply fixes" sent a single meaningless fix, and the saved answer file kept every problem. The results are now unrolled, so each finding is its own row and every fix is applied.
+
+### Changed
+- Script findings are grouped: one finding per script for prompts (`pause` / `set /p` / `choice`), restarts, fixed drive letters and missing files, with the line numbers, instead of one finding per line.
+
 ## v2.0.3 — 2026-10-24
 
 ### Fixed
