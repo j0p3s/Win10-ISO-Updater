@@ -1,6 +1,6 @@
 @echo off
 :: ===========================================================================
-::  Win10-ISO-Updater.cmd  (v2.0.2)  -  one file, graphical interface
+::  Win10-ISO-Updater.cmd  (v2.0.3)  -  one file, graphical interface
 ::  - unpacks a Windows 10 ISO and detects its build
 ::  - downloads its updates from the Microsoft Update Catalog
 ::  - slipstreams updates and drivers (this PC or a Drivers-Backup folder)
@@ -23,7 +23,7 @@ exit /b
 set "W10U_SELF=%~f0"
 set "PSEXE=%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe"
 if exist "%SystemRoot%\Sysnative\WindowsPowerShell\v1.0\powershell.exe" set "PSEXE=%SystemRoot%\Sysnative\WindowsPowerShell\v1.0\powershell.exe"
-echo Starting Win10 ISO Updater v2.0.2 ...  (this window hides when the program opens)
+echo Starting Win10 ISO Updater v2.0.3 ...  (this window hides when the program opens)
 "%PSEXE%" -NoProfile -STA -ExecutionPolicy Bypass -Command "$t=[IO.File]::ReadAllText($env:W10U_SELF);$i=$t.IndexOf('#'+'PS-BEGIN');Invoke-Expression $t.Substring($i)"
 if errorlevel 1 pause
 exit /b
@@ -38,7 +38,7 @@ $ErrorActionPreference = 'Stop'
 $ProgressPreference    = 'SilentlyContinue'
 
 $Script:AppName      = 'Win10-ISO-Updater'
-$Script:AppVersion   = '2.0.2'
+$Script:AppVersion   = '2.0.3'
 $Script:Root         = Split-Path -Parent $env:W10U_SELF
 $ToolsDir            = Join-Path $Script:Root 'tools'
 $IsoPath             = $null
@@ -1227,6 +1227,23 @@ function Invoke-Exe([string]$File, [string]$Arguments, [switch]$MergeErr) {
 }
 #endregion
 
+# Runs a console tool and returns exit code + output. Windows PowerShell 5.1 turns redirected
+# stderr lines into errors, and with ErrorActionPreference = Stop one line on stderr would end
+# the whole job - so it is relaxed for this call only.
+function Invoke-Native([string]$File, [string[]]$ArgList) {
+    $ErrorActionPreference = 'Continue'
+    $out = @(& $File @ArgList 2>&1 | ForEach-Object { "$_" })
+    return [pscustomobject]@{ Code = $LASTEXITCODE; Output = $out; Text = ($out -join "`r`n") }
+}
+# ok | untrusted (signed, but by a certificate Windows does not trust) | mismatch (edited / not in the catalog)
+function Get-VerifyState([string]$Cat, [string]$Inf) {
+    $r = Invoke-Native $Script:SignTool @('verify', '/pa', '/c', $Cat, $Inf)
+    if ($r.Code -eq 0) { return 'ok' }
+    if ($r.Text -match '(?i)terminated in a root|not trusted|untrusted') { return 'untrusted' }
+    return 'mismatch'
+}
+#endregion
+
 #region ---------------------------------------------------------------- tools (oscdimg, Inf2Cat, signtool)
 function Test-MicrosoftSigned([string]$Path) {
     $s = Get-AuthenticodeSignature -LiteralPath $Path
@@ -1449,7 +1466,7 @@ function Get-InfFolders([string]$Root) {
     }
     return $list
 }
-# ok | mismatch | catalog-missing | no-catalog-directive | unknown (no signtool to check)
+# ok | mismatch | untrusted | catalog-missing | no-catalog-directive | unknown (no signtool to check)
 function Get-InfState([string]$Inf) {
     $cats = @(Get-InfCatalogs $Inf)
     if ($cats.Count -eq 0) { return 'no-catalog-directive' }
@@ -1458,8 +1475,8 @@ function Get-InfState([string]$Inf) {
         $cp = Join-Path $dir $c
         if (-not (Test-Path -LiteralPath $cp)) { return 'catalog-missing' }
         if ($Script:SignTool) {
-            & $Script:SignTool verify /pa /c $cp $Inf 2>&1 | Out-Null
-            if ($LASTEXITCODE -ne 0) { return 'mismatch' }
+            $v = Get-VerifyState $cp $Inf
+            if ($v -ne 'ok') { return $v }
         }
     }
     if ($Script:SignTool) { return 'ok' }
@@ -1467,17 +1484,17 @@ function Get-InfState([string]$Inf) {
 }
 function Invoke-SignCatalog([string]$CatFile, $Cert) {
     if ($Script:SignTool) {
-        $o = & $Script:SignTool sign /fd SHA256 /sha1 $Cert.Thumbprint /s My $CatFile 2>&1
-        Add-Log ($o | Out-String)
-        return ($LASTEXITCODE -eq 0)
+        $r = Invoke-Native $Script:SignTool @('sign', '/fd', 'SHA256', '/sha1', $Cert.Thumbprint, '/s', 'My', $CatFile)
+        Add-Log $r.Text
+        if ($r.Code -ne 0) { @($r.Output | Where-Object { $_.Trim() } | Select-Object -Last 3) | ForEach-Object { Write-Host "       $_" -ForegroundColor DarkYellow } }
+        return ($r.Code -eq 0)
     }
     $r = Set-AuthenticodeSignature -FilePath $CatFile -Certificate $Cert -HashAlgorithm SHA256
     return ($null -ne $r.SignerCertificate)
 }
 function Test-SignedCatalog([string]$CatFile, [string]$Inf) {
     if ($Script:SignTool) {
-        & $Script:SignTool verify /pa /c $CatFile $Inf 2>&1 | Out-Null
-        return ($LASTEXITCODE -eq 0)
+        return ((Get-VerifyState $CatFile $Inf) -eq 'ok')
     }
     return ((Get-AuthenticodeSignature -FilePath $CatFile).Status -eq 'Valid')
 }
@@ -1487,19 +1504,21 @@ function Invoke-SignFolder([string]$Root, $Cert, [string]$Inf2Cat, [bool]$All) {
     $states = @{}
     $n = 0
     foreach ($p in $pkgs) { foreach ($inf in $p.Infs) { $n++; Write-Host "checking INF $n" -NoNewline; $states[$inf] = Get-InfState $inf } }
-    $bad = @($states.Keys | Where-Object { $states[$_] -in 'mismatch', 'catalog-missing', 'unknown' })
-    Write-Info ("{0} INF file(s) in {1} folder(s) - {2} modified or without a valid catalog" -f @($states.Keys).Count, $pkgs.Count, $bad.Count)
+    $bad = @($states.Keys | Where-Object { $states[$_] -in 'mismatch', 'untrusted', 'catalog-missing', 'unknown' })
+    $untrusted = @($states.Keys | Where-Object { $states[$_] -eq 'untrusted' }).Count
+    Write-Info ("{0} INF file(s) in {1} folder(s) - {2} need a new signature ({3} signed with a certificate Windows does not trust)" -f @($states.Keys).Count, $pkgs.Count, $bad.Count, $untrusted)
     $res = [ordered]@{ Signed = 0; Failed = 0; Untouched = 0; Skipped = 0 }
     foreach ($p in $pkgs) {
         $rel = $p.Dir.Substring($Root.TrimEnd('\').Length).TrimStart('\'); if (-not $rel) { $rel = '.' }
         $withCat = @($p.Infs | Where-Object { $states[$_] -ne 'no-catalog-directive' })
-        $need = @($p.Infs | Where-Object { $states[$_] -in 'mismatch', 'catalog-missing', 'unknown' })
+        $need = @($p.Infs | Where-Object { $states[$_] -in 'mismatch', 'untrusted', 'catalog-missing', 'unknown' })
         if ($withCat.Count -eq 0) { Write-Info "$rel : no CatalogFile= line in the INF - left as is"; $res.Skipped++; continue }
         if (-not $All -and $need.Count -eq 0) { $res.Untouched++; continue }
         Write-Sub $rel
         $start = Get-Date
-        $o = & $Inf2Cat "/driver:$($p.Dir)" "/os:$os" /uselocaltime /verbose 2>&1
-        $code = $LASTEXITCODE
+        $r = Invoke-Native $Inf2Cat @("/driver:$($p.Dir)", "/os:$os", '/uselocaltime', '/verbose')
+        $o = $r.Output
+        $code = $r.Code
         Add-Log ("[$rel] Inf2Cat exit $code`r`n" + ($o | Out-String))
         if ($code -ne 0) {
             Write-Err "Inf2Cat failed for $rel"
@@ -1786,7 +1805,7 @@ function Get-CommandRefs([string]$Text, [string]$ScriptDirRel, [switch]$Dirs) {
     }
     return $out
 }
-# Catalog state of one INF: ok | own | unchecked | mismatch | catalog-missing | no-catalog | unsigned | other-cert
+# Catalog state of one INF: ok | own | unchecked | mismatch | untrusted | catalog-missing | no-catalog | unsigned | other-cert
 function Get-DriverSignState([string]$Inf, [string]$OwnThumb) {
     $cats = @(Get-InfCatalogs $Inf)
     if ($cats.Count -eq 0) { return 'no-catalog' }
@@ -1802,18 +1821,19 @@ function Get-DriverSignState([string]$Inf, [string]$OwnThumb) {
             $own = $true
         }
         if ($Script:SignTool) {
-            & $Script:SignTool verify /pa /c $cp $Inf 2>&1 | Out-Null
-            if ($LASTEXITCODE -ne 0) { return 'mismatch' }
+            $v = Get-VerifyState $cp $Inf
+            if ($v -ne 'ok') { return $v }
         } elseif (-not $own -and (-not $sig -or $sig.Status -ne 'Valid')) { return 'unsigned' }
     }
     if ($own) { return 'own' }
     if ($Script:SignTool) { return 'ok' }
     return 'unchecked'
 }
-$Script:BadSign = @('mismatch', 'catalog-missing', 'no-catalog', 'unsigned', 'other-cert')
+$Script:BadSign = @('mismatch', 'untrusted', 'catalog-missing', 'no-catalog', 'unsigned', 'other-cert')
 function Get-SignText([string]$State) {
     switch ($State) {
         'mismatch'        { 'the INF was edited after signing, so its catalog no longer matches' }
+        'untrusted'       { 'its catalog is signed with a certificate Windows does not trust (NVCleanstall''s own, for example)' }
         'catalog-missing' { 'its .cat catalog file is missing' }
         'no-catalog'      { 'the INF names no catalog file, so it is unsigned' }
         'unsigned'        { 'its catalog is not validly signed' }
@@ -2984,7 +3004,7 @@ __RES__
           </Grid>
         </Border>
 
-        <TabControl x:Name="Pages" Grid.Row="1" Background="Transparent" BorderThickness="0" Padding="0">
+        <TabControl x:Name="Pages" Grid.Row="1" Background="Transparent" Foreground="#E6EAF2" BorderThickness="0" Padding="0">
 __PAGES__
         </TabControl>
       </Grid>

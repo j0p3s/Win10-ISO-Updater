@@ -1,5 +1,11 @@
 # Changelog
 
+## v2.0.3 — 2026-10-24
+
+### Fixed
+- **Re-signing stopped with "SignTool Error: A certificate chain processed, but terminated in a root"** on NVCleanstall packages. Their catalogs are signed with a certificate Windows doesn't trust. signtool reports that on stderr, and Windows PowerShell 5.1 turned it into a job-ending error. Console tools now run through a helper that captures stderr. Packages with an untrusted catalog are detected as "needs a new signature" and re-signed, and the install check reports them clearly.
+- Page text inside the main area was nearly black on the dark background (the page container used the system text color); it now uses the theme color.
+
 ## v2.0.2 — 2026-10-24
 
 ### Fixed

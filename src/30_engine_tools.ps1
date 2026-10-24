@@ -53,6 +53,23 @@ function Invoke-Exe([string]$File, [string]$Arguments, [switch]$MergeErr) {
 }
 #endregion
 
+# Runs a console tool and returns exit code + output. Windows PowerShell 5.1 turns redirected
+# stderr lines into errors, and with ErrorActionPreference = Stop one line on stderr would end
+# the whole job - so it is relaxed for this call only.
+function Invoke-Native([string]$File, [string[]]$ArgList) {
+    $ErrorActionPreference = 'Continue'
+    $out = @(& $File @ArgList 2>&1 | ForEach-Object { "$_" })
+    return [pscustomobject]@{ Code = $LASTEXITCODE; Output = $out; Text = ($out -join "`r`n") }
+}
+# ok | untrusted (signed, but by a certificate Windows does not trust) | mismatch (edited / not in the catalog)
+function Get-VerifyState([string]$Cat, [string]$Inf) {
+    $r = Invoke-Native $Script:SignTool @('verify', '/pa', '/c', $Cat, $Inf)
+    if ($r.Code -eq 0) { return 'ok' }
+    if ($r.Text -match '(?i)terminated in a root|not trusted|untrusted') { return 'untrusted' }
+    return 'mismatch'
+}
+#endregion
+
 #region ---------------------------------------------------------------- tools (oscdimg, Inf2Cat, signtool)
 function Test-MicrosoftSigned([string]$Path) {
     $s = Get-AuthenticodeSignature -LiteralPath $Path

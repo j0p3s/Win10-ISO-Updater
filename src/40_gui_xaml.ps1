@@ -327,7 +327,7 @@ __RES__
           </Grid>
         </Border>
 
-        <TabControl x:Name="Pages" Grid.Row="1" Background="Transparent" BorderThickness="0" Padding="0">
+        <TabControl x:Name="Pages" Grid.Row="1" Background="Transparent" Foreground="#E6EAF2" BorderThickness="0" Padding="0">
 __PAGES__
         </TabControl>
       </Grid>

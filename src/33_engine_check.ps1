@@ -126,7 +126,7 @@ function Get-CommandRefs([string]$Text, [string]$ScriptDirRel, [switch]$Dirs) {
     }
     return $out
 }
-# Catalog state of one INF: ok | own | unchecked | mismatch | catalog-missing | no-catalog | unsigned | other-cert
+# Catalog state of one INF: ok | own | unchecked | mismatch | untrusted | catalog-missing | no-catalog | unsigned | other-cert
 function Get-DriverSignState([string]$Inf, [string]$OwnThumb) {
     $cats = @(Get-InfCatalogs $Inf)
     if ($cats.Count -eq 0) { return 'no-catalog' }
@@ -142,18 +142,19 @@ function Get-DriverSignState([string]$Inf, [string]$OwnThumb) {
             $own = $true
         }
         if ($Script:SignTool) {
-            & $Script:SignTool verify /pa /c $cp $Inf 2>&1 | Out-Null
-            if ($LASTEXITCODE -ne 0) { return 'mismatch' }
+            $v = Get-VerifyState $cp $Inf
+            if ($v -ne 'ok') { return $v }
         } elseif (-not $own -and (-not $sig -or $sig.Status -ne 'Valid')) { return 'unsigned' }
     }
     if ($own) { return 'own' }
     if ($Script:SignTool) { return 'ok' }
     return 'unchecked'
 }
-$Script:BadSign = @('mismatch', 'catalog-missing', 'no-catalog', 'unsigned', 'other-cert')
+$Script:BadSign = @('mismatch', 'untrusted', 'catalog-missing', 'no-catalog', 'unsigned', 'other-cert')
 function Get-SignText([string]$State) {
     switch ($State) {
         'mismatch'        { 'the INF was edited after signing, so its catalog no longer matches' }
+        'untrusted'       { 'its catalog is signed with a certificate Windows does not trust (NVCleanstall''s own, for example)' }
         'catalog-missing' { 'its .cat catalog file is missing' }
         'no-catalog'      { 'the INF names no catalog file, so it is unsigned' }
         'unsigned'        { 'its catalog is not validly signed' }

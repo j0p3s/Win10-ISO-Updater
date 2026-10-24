@@ -86,7 +86,7 @@ function Get-InfFolders([string]$Root) {
     }
     return $list
 }
-# ok | mismatch | catalog-missing | no-catalog-directive | unknown (no signtool to check)
+# ok | mismatch | untrusted | catalog-missing | no-catalog-directive | unknown (no signtool to check)
 function Get-InfState([string]$Inf) {
     $cats = @(Get-InfCatalogs $Inf)
     if ($cats.Count -eq 0) { return 'no-catalog-directive' }
@@ -95,8 +95,8 @@ function Get-InfState([string]$Inf) {
         $cp = Join-Path $dir $c
         if (-not (Test-Path -LiteralPath $cp)) { return 'catalog-missing' }
         if ($Script:SignTool) {
-            & $Script:SignTool verify /pa /c $cp $Inf 2>&1 | Out-Null
-            if ($LASTEXITCODE -ne 0) { return 'mismatch' }
+            $v = Get-VerifyState $cp $Inf
+            if ($v -ne 'ok') { return $v }
         }
     }
     if ($Script:SignTool) { return 'ok' }
@@ -104,17 +104,17 @@ function Get-InfState([string]$Inf) {
 }
 function Invoke-SignCatalog([string]$CatFile, $Cert) {
     if ($Script:SignTool) {
-        $o = & $Script:SignTool sign /fd SHA256 /sha1 $Cert.Thumbprint /s My $CatFile 2>&1
-        Add-Log ($o | Out-String)
-        return ($LASTEXITCODE -eq 0)
+        $r = Invoke-Native $Script:SignTool @('sign', '/fd', 'SHA256', '/sha1', $Cert.Thumbprint, '/s', 'My', $CatFile)
+        Add-Log $r.Text
+        if ($r.Code -ne 0) { @($r.Output | Where-Object { $_.Trim() } | Select-Object -Last 3) | ForEach-Object { Write-Host "       $_" -ForegroundColor DarkYellow } }
+        return ($r.Code -eq 0)
     }
     $r = Set-AuthenticodeSignature -FilePath $CatFile -Certificate $Cert -HashAlgorithm SHA256
     return ($null -ne $r.SignerCertificate)
 }
 function Test-SignedCatalog([string]$CatFile, [string]$Inf) {
     if ($Script:SignTool) {
-        & $Script:SignTool verify /pa /c $CatFile $Inf 2>&1 | Out-Null
-        return ($LASTEXITCODE -eq 0)
+        return ((Get-VerifyState $CatFile $Inf) -eq 'ok')
     }
     return ((Get-AuthenticodeSignature -FilePath $CatFile).Status -eq 'Valid')
 }
@@ -124,19 +124,21 @@ function Invoke-SignFolder([string]$Root, $Cert, [string]$Inf2Cat, [bool]$All) {
     $states = @{}
     $n = 0
     foreach ($p in $pkgs) { foreach ($inf in $p.Infs) { $n++; Write-Host "checking INF $n" -NoNewline; $states[$inf] = Get-InfState $inf } }
-    $bad = @($states.Keys | Where-Object { $states[$_] -in 'mismatch', 'catalog-missing', 'unknown' })
-    Write-Info ("{0} INF file(s) in {1} folder(s) - {2} modified or without a valid catalog" -f @($states.Keys).Count, $pkgs.Count, $bad.Count)
+    $bad = @($states.Keys | Where-Object { $states[$_] -in 'mismatch', 'untrusted', 'catalog-missing', 'unknown' })
+    $untrusted = @($states.Keys | Where-Object { $states[$_] -eq 'untrusted' }).Count
+    Write-Info ("{0} INF file(s) in {1} folder(s) - {2} need a new signature ({3} signed with a certificate Windows does not trust)" -f @($states.Keys).Count, $pkgs.Count, $bad.Count, $untrusted)
     $res = [ordered]@{ Signed = 0; Failed = 0; Untouched = 0; Skipped = 0 }
     foreach ($p in $pkgs) {
         $rel = $p.Dir.Substring($Root.TrimEnd('\').Length).TrimStart('\'); if (-not $rel) { $rel = '.' }
         $withCat = @($p.Infs | Where-Object { $states[$_] -ne 'no-catalog-directive' })
-        $need = @($p.Infs | Where-Object { $states[$_] -in 'mismatch', 'catalog-missing', 'unknown' })
+        $need = @($p.Infs | Where-Object { $states[$_] -in 'mismatch', 'untrusted', 'catalog-missing', 'unknown' })
         if ($withCat.Count -eq 0) { Write-Info "$rel : no CatalogFile= line in the INF - left as is"; $res.Skipped++; continue }
         if (-not $All -and $need.Count -eq 0) { $res.Untouched++; continue }
         Write-Sub $rel
         $start = Get-Date
-        $o = & $Inf2Cat "/driver:$($p.Dir)" "/os:$os" /uselocaltime /verbose 2>&1
-        $code = $LASTEXITCODE
+        $r = Invoke-Native $Inf2Cat @("/driver:$($p.Dir)", "/os:$os", '/uselocaltime', '/verbose')
+        $o = $r.Output
+        $code = $r.Code
         Add-Log ("[$rel] Inf2Cat exit $code`r`n" + ($o | Out-String))
         if ($code -ne 0) {
             Write-Err "Inf2Cat failed for $rel"
