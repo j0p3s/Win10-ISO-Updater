@@ -1,6 +1,6 @@
-# cmd.exe needs CRLF line endings
-*.cmd text eol=crlf
-*.bat text eol=crlf
-*.ps1 text eol=crlf
+# Stored exactly as-is (CRLF) so a raw download from GitHub still runs in cmd.exe
+*.cmd -text
+*.bat -text
 *.md  text eol=lf
 *.py  text eol=lf
+*.ps1 text eol=lf
