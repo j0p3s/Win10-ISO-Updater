@@ -1,6 +1,6 @@
 @echo off
 :: ===========================================================================
-::  Win10-ISO-Updater.cmd  (v2.0.0)  -  one file, graphical interface
+::  Win10-ISO-Updater.cmd  (v2.0.1)  -  one file, graphical interface
 ::  - unpacks a Windows 10 ISO and detects its build
 ::  - downloads its updates from the Microsoft Update Catalog
 ::  - slipstreams updates and drivers (this PC or a Drivers-Backup folder)
@@ -38,7 +38,7 @@ $ErrorActionPreference = 'Stop'
 $ProgressPreference    = 'SilentlyContinue'
 
 $Script:AppName      = 'Win10-ISO-Updater'
-$Script:AppVersion   = '2.0.0'
+$Script:AppVersion   = '2.0.1'
 $Script:Root         = Split-Path -Parent $env:W10U_SELF
 $ToolsDir            = Join-Path $Script:Root 'tools'
 $IsoPath             = $null
@@ -527,17 +527,24 @@ function Save-UpdateFiles($Hit, [string]$Kind) {
     $files = @()
     foreach ($u in $urls) {
         $name = [IO.Path]::GetFileName(([uri]$u).AbsolutePath)
+        if ($Script:SavedFiles -and $Script:SavedFiles.ContainsKey($name.ToLower())) { Write-Info "Already included: $name"; continue }
         $dest = Join-Path $dir $name
         Save-Url $u $dest
+        if ($Script:SavedFiles) { $Script:SavedFiles[$name.ToLower()] = $true }
         $files += $dest
     }
     return [ordered]@{ Kind = $Kind; KB = $Hit.KB; Title = $Hit.Title; Date = $Hit.Date.ToString('yyyy-MM-dd'); Files = $files }
 }
 function Get-UpdateFiles {
     $h = @{ SSU = @(); LCU = @(); EKB = @(); SAFEOS = @(); SETUP = @(); NET = @(); NET481 = @() }
+    $seenLeaf = @{}
     foreach ($u in @($Script:S.Updates)) {
         foreach ($f in @($u.Files)) {
-            if (Test-Path -LiteralPath $f) { $h[$u.Kind] += $f } else { Write-Warn "Missing $f - run Download again." }
+            if (-not (Test-Path -LiteralPath $f)) { Write-Warn "Missing $f - run Download again."; continue }
+            $leaf = (Split-Path $f -Leaf).ToLower()
+            if ($seenLeaf.ContainsKey($leaf)) { continue }
+            $seenLeaf[$leaf] = $true
+            $h[$u.Kind] += $f
         }
     }
     return $h
@@ -688,6 +695,7 @@ function Invoke-Download([switch]$Auto) {
     if (-not $Auto -and -not (Read-YesNo 'Download them now?' $true)) { return }
 
     $records = @()
+    $Script:SavedFiles = @{}
     foreach ($x in $found) {
         Write-Step "$($x[0]) $($x[1].KB)"
         $records += Save-UpdateFiles $x[1] $x[0]
@@ -1168,13 +1176,13 @@ function Invoke-Build([switch]$Auto, [string]$OutIso) {
 #region ---------------------------------------------------------------- processes with live output
 function Push-ExeLine([string]$Line) {
     $t = $Line.Trim()
-    if (-not $t) { return }
+    if (-not $t -or $t -match '^[#=O\-\s]+$') { return }
     # progress bars (DISM "[====  45.0%  ]", curl "####  45.0%") drive the GUI progress bar
     $m = [regex]::Match($t, '(\d{1,3}(?:[\.,]\d+)?)\s*%')
     if ($m.Success -and ($t -replace '[\d\.,%\[\]=#\-\sO>]', '').Length -lt 3) {
         $v = 0.0
         if ($Script:Sync -and [double]::TryParse(($m.Groups[1].Value -replace ',', '.'), [Globalization.NumberStyles]::Float, $Script:Inv, [ref]$v)) {
-            $Script:Sync.Pct = [math]::Min(100, $v)
+            $Script:Sync.Pct = [math]::Min(100.0, $v)
         }
         return
     }
@@ -1314,24 +1322,20 @@ function Get-FromNuGet([string]$Exe, [string[]]$Packages, [string]$Prefer) {
             $dest = Join-Path $ToolsDir ([IO.Path]::GetFileNameWithoutExtension($Exe))
             if (Expand-Tool $nupkg $Exe $dest $Prefer) {
                 $exe = Join-Path $dest $Exe
-                if (Test-MicrosoftSigned $exe) { Write-Ok "$Exe extracted from $pkg"; return $exe }
-                Write-Warn "$Exe from $pkg failed the Microsoft signature check - removed."
+                $sig = Get-AuthenticodeSignature -LiteralPath $exe
+                if ($sig.Status -eq 'Valid' -and $sig.SignerCertificate.Subject -match 'O=Microsoft Corporation') { Write-Ok "$Exe extracted from $pkg (Microsoft signature valid)"; return $exe }
+                if ($sig.Status -eq 'NotSigned') {
+                    # Some kit tools (Inf2Cat is .NET) carry no Authenticode signature of their own; the package
+                    # itself comes from nuget.org over HTTPS under Microsoft's reserved Microsoft.* prefix.
+                    Write-Ok "$Exe extracted from $pkg (not signed itself - comes from Microsoft's NuGet package)"
+                    return $exe
+                }
+                Write-Warn "$Exe from $pkg failed the signature check (status: $($sig.Status)) - removed."
                 Remove-Item -LiteralPath $dest -Recurse -Force
             } else { Write-Info "$Exe is not inside $pkg" }
         } catch { Write-Warn "$pkg : $($_.Exception.Message)" }
     }
     return $null
-}
-function Install-KitsWithWinget {
-    if (-not (Get-Command winget -ErrorAction SilentlyContinue)) { Write-Warn 'winget is not available.'; return }
-    Write-Step 'Installing the Windows SDK + WDK with winget (large download)'
-    foreach ($ver in '10.0.28000', '10.0.26100') {
-        foreach ($pkg in 'Microsoft.WindowsSDK', 'Microsoft.WindowsWDK') {
-            Write-Sub "winget install $pkg.$ver"
-            [void](Invoke-Exe (Get-Command winget).Source "install --id $pkg.$ver -e --silent --accept-package-agreements --accept-source-agreements")
-        }
-        if (Find-Tool 'Inf2Cat.exe') { return }
-    }
 }
 function Get-SignTools {
     $t = @{ Inf2Cat = (Find-Tool 'Inf2Cat.exe'); SignTool = (Find-Tool 'signtool.exe') }
@@ -1343,12 +1347,7 @@ function Get-SignTools {
         Write-Step 'Getting Inf2Cat.exe (Windows Driver Kit, about 110 MB)'
         $t.Inf2Cat = Get-FromNuGet 'Inf2Cat.exe' @('Microsoft.Windows.WDK.x64') '(?i)/x86/'
     }
-    if (-not $t.Inf2Cat) {
-        Install-KitsWithWinget
-        $t.Inf2Cat = Find-Tool 'Inf2Cat.exe'
-        if (-not $t.SignTool) { $t.SignTool = Find-Tool 'signtool.exe' }
-    }
-    if (-not $t.Inf2Cat) { throw 'Inf2Cat.exe could not be obtained. Put Inf2Cat.exe (Windows Driver Kit) in the tools folder and try again.' }
+    if (-not $t.Inf2Cat) { throw 'Inf2Cat.exe could not be downloaded from nuget.org (see the lines above). Check the internet connection and try again - only the Inf2Cat folder of the package is kept, nothing is installed.' }
     Write-Info "Inf2Cat : $($t.Inf2Cat)"
     if ($t.SignTool) { Write-Info "signtool: $($t.SignTool)" } else { Write-Warn 'signtool.exe not available - PowerShell signing is used and every package is re-signed.' }
     return $t
@@ -3232,17 +3231,16 @@ $Script:XPages = @'
           <!-- 9 tools -->
           <TabItem Visibility="Collapsed"><ScrollViewer VerticalScrollBarVisibility="Auto"><StackPanel Margin="24,18,24,18">
             <TextBlock Style="{StaticResource H1}" Text="Tools"/>
-            <TextBlock Style="{StaticResource Sub}" Margin="0,0,0,14" Text="Everything missing is downloaded automatically when a step needs it, into the tools folder next to this file. oscdimg.exe comes from the Microsoft symbol server (SHA-256 checked) or the Windows ADK; Inf2Cat and signtool come from Microsoft's NuGet packages (signature checked) or winget."/>
+            <TextBlock Style="{StaticResource Sub}" Margin="0,0,0,14" Text="Everything missing is downloaded automatically when a step needs it, into the tools folder next to this file. oscdimg.exe comes from the Microsoft symbol server (SHA-256 checked) or the Windows ADK; Inf2Cat and signtool are extracted from Microsoft's NuGet packages (Windows SDK build tools / Windows Driver Kit) - only those tools are kept, nothing is installed."/>
             <Border Style="{StaticResource Card}"><StackPanel>
               <Grid>
                 <Grid.ColumnDefinitions><ColumnDefinition Width="150"/><ColumnDefinition/></Grid.ColumnDefinitions>
-                <Grid.RowDefinitions><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/></Grid.RowDefinitions>
+                <Grid.RowDefinitions><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/></Grid.RowDefinitions>
                 <TextBlock Grid.Row="0" Text="DISM" Margin="0,4"/><TextBlock x:Name="T_Dism" Grid.Row="0" Grid.Column="1" Margin="0,4" TextTrimming="CharacterEllipsis"/>
                 <TextBlock Grid.Row="1" Text="oscdimg.exe" Margin="0,4"/><TextBlock x:Name="T_Osc" Grid.Row="1" Grid.Column="1" Margin="0,4" TextTrimming="CharacterEllipsis"/>
                 <TextBlock Grid.Row="2" Text="Inf2Cat.exe" Margin="0,4"/><TextBlock x:Name="T_Inf" Grid.Row="2" Grid.Column="1" Margin="0,4" TextTrimming="CharacterEllipsis"/>
                 <TextBlock Grid.Row="3" Text="signtool.exe" Margin="0,4"/><TextBlock x:Name="T_Sign" Grid.Row="3" Grid.Column="1" Margin="0,4" TextTrimming="CharacterEllipsis"/>
                 <TextBlock Grid.Row="4" Text="curl.exe" Margin="0,4"/><TextBlock x:Name="T_Curl" Grid.Row="4" Grid.Column="1" Margin="0,4"/>
-                <TextBlock Grid.Row="5" Text="winget" Margin="0,4"/><TextBlock x:Name="T_Winget" Grid.Row="5" Grid.Column="1" Margin="0,4"/>
               </Grid>
               <WrapPanel Margin="0,14,0,0"><Button x:Name="ToolsBtn" Style="{StaticResource Primary}" Content="Download missing tools now"/><Button x:Name="ToolsOpen" Style="{StaticResource Btn}" Content="Open tools folder"/></WrapPanel>
             </StackPanel></Border>
@@ -3658,6 +3656,26 @@ function Show-CheckResults {
     $U.ChkSave.IsEnabled = [bool]$fixed
     $U.ChkNote.Text = if ($fixed) { "The ISO uses a fixed copy of your answer file (fixed $($Script:S.Unattend.Fixed)). Save it to update your own file too." } else { '' }
 }
+# A borderless WPF window maximizes over the taskbar, so "maximized" is done by hand:
+# the window is sized to the working area of the monitor it is on.
+function Set-WorkAreaMax([bool]$On) {
+    $w = $Script:W
+    if ($On) {
+        $Script:NormalBounds = @($w.Left, $w.Top, $w.Width, $w.Height)
+        $h = (New-Object System.Windows.Interop.WindowInteropHelper $w).Handle
+        $wa = [System.Windows.Forms.Screen]::FromHandle($h).WorkingArea
+        $m = [System.Windows.PresentationSource]::FromVisual($w).CompositionTarget.TransformFromDevice
+        $tl = $m.Transform((New-Object System.Windows.Point ($wa.Left, $wa.Top)))
+        $br = $m.Transform((New-Object System.Windows.Point ($wa.Right, $wa.Bottom)))
+        $w.Left = $tl.X; $w.Top = $tl.Y; $w.Width = $br.X - $tl.X; $w.Height = $br.Y - $tl.Y
+        $Script:FakeMax = $true
+        $Script:U.MaxBtn.Content = [string][char]0xE923
+    } else {
+        if ($Script:NormalBounds) { $w.Left = $Script:NormalBounds[0]; $w.Top = $Script:NormalBounds[1]; $w.Width = $Script:NormalBounds[2]; $w.Height = $Script:NormalBounds[3] }
+        $Script:FakeMax = $false
+        $Script:U.MaxBtn.Content = [string][char]0xE922
+    }
+}
 function Get-OemSummary([string]$Dir) {
     if (-not (Test-Path -LiteralPath $Dir)) { return 'folder not found' }
     if ($Script:OemCache -and $Script:OemCache[0] -eq $Dir) { return $Script:OemCache[1] }
@@ -3683,8 +3701,6 @@ function Update-Tools {
     & $set $U.T_Sign $sig 'missing - downloaded automatically when you sign drivers'
     $curl = Join-Path $env:SystemRoot 'System32\curl.exe'
     & $set $U.T_Curl $(if (Test-Path -LiteralPath $curl) { $curl }) 'missing - PowerShell / BITS downloads are used'
-    $wg = Get-Command winget -ErrorAction SilentlyContinue
-    & $set $U.T_Winget $(if ($wg) { $wg.Source }) 'not available (only needed if the NuGet download fails)'
     $U.ToolsDot.Text = if ($osc -and $inf -and $sig) { '' } else { [string][char]0x25CF }
 }
 function Save-EditionPick {
@@ -3869,9 +3885,17 @@ try {
 
     # title bar
     $U.MinBtn.Add_Click({ $Script:W.WindowState = 'Minimized' })
-    $U.MaxBtn.Add_Click({ $Script:W.WindowState = if ($Script:W.WindowState -eq 'Maximized') { 'Normal' } else { 'Maximized' } })
+    $U.MaxBtn.Add_Click({ Set-WorkAreaMax (-not $Script:FakeMax) })
     $U.CloseBtn.Add_Click({ $Script:W.Close() })
-    $W.Add_StateChanged({ $Script:W.BorderThickness = New-Object Windows.Thickness $(if ($Script:W.WindowState -eq 'Maximized') { 7 } else { 1 }) })
+    # double-click on the title bar, Win+Up or Aero Snap ask Windows to maximize - redirect that to the work area
+    $W.Add_StateChanged({
+        if ($Script:W.WindowState -eq 'Maximized') { $Script:W.WindowState = 'Normal'; Set-WorkAreaMax (-not $Script:FakeMax) }
+    })
+    # never start taller / wider than the screen minus the taskbar
+    $wa = [System.Windows.SystemParameters]::WorkArea
+    if ($W.Height -gt $wa.Height - 16) { $W.Height = [math]::Max(600, $wa.Height - 16) }
+    if ($W.Width -gt $wa.Width - 16) { $W.Width = [math]::Max(900, $wa.Width - 16) }
+    if ($W.MinHeight -gt $W.Height) { $W.MinHeight = $W.Height }
 
     # navigation
     for ($i = 1; $i -le 10; $i++) { $nb = $U["Nav$i"]; $nb.Tag = $i - 1; $nb.Add_Checked({ $Script:U.Pages.SelectedIndex = [int]$this.Tag }) }

@@ -2,13 +2,13 @@
 #region ---------------------------------------------------------------- processes with live output
 function Push-ExeLine([string]$Line) {
     $t = $Line.Trim()
-    if (-not $t) { return }
+    if (-not $t -or $t -match '^[#=O\-\s]+$') { return }
     # progress bars (DISM "[====  45.0%  ]", curl "####  45.0%") drive the GUI progress bar
     $m = [regex]::Match($t, '(\d{1,3}(?:[\.,]\d+)?)\s*%')
     if ($m.Success -and ($t -replace '[\d\.,%\[\]=#\-\sO>]', '').Length -lt 3) {
         $v = 0.0
         if ($Script:Sync -and [double]::TryParse(($m.Groups[1].Value -replace ',', '.'), [Globalization.NumberStyles]::Float, $Script:Inv, [ref]$v)) {
-            $Script:Sync.Pct = [math]::Min(100, $v)
+            $Script:Sync.Pct = [math]::Min(100.0, $v)
         }
         return
     }
@@ -148,24 +148,20 @@ function Get-FromNuGet([string]$Exe, [string[]]$Packages, [string]$Prefer) {
             $dest = Join-Path $ToolsDir ([IO.Path]::GetFileNameWithoutExtension($Exe))
             if (Expand-Tool $nupkg $Exe $dest $Prefer) {
                 $exe = Join-Path $dest $Exe
-                if (Test-MicrosoftSigned $exe) { Write-Ok "$Exe extracted from $pkg"; return $exe }
-                Write-Warn "$Exe from $pkg failed the Microsoft signature check - removed."
+                $sig = Get-AuthenticodeSignature -LiteralPath $exe
+                if ($sig.Status -eq 'Valid' -and $sig.SignerCertificate.Subject -match 'O=Microsoft Corporation') { Write-Ok "$Exe extracted from $pkg (Microsoft signature valid)"; return $exe }
+                if ($sig.Status -eq 'NotSigned') {
+                    # Some kit tools (Inf2Cat is .NET) carry no Authenticode signature of their own; the package
+                    # itself comes from nuget.org over HTTPS under Microsoft's reserved Microsoft.* prefix.
+                    Write-Ok "$Exe extracted from $pkg (not signed itself - comes from Microsoft's NuGet package)"
+                    return $exe
+                }
+                Write-Warn "$Exe from $pkg failed the signature check (status: $($sig.Status)) - removed."
                 Remove-Item -LiteralPath $dest -Recurse -Force
             } else { Write-Info "$Exe is not inside $pkg" }
         } catch { Write-Warn "$pkg : $($_.Exception.Message)" }
     }
     return $null
-}
-function Install-KitsWithWinget {
-    if (-not (Get-Command winget -ErrorAction SilentlyContinue)) { Write-Warn 'winget is not available.'; return }
-    Write-Step 'Installing the Windows SDK + WDK with winget (large download)'
-    foreach ($ver in '10.0.28000', '10.0.26100') {
-        foreach ($pkg in 'Microsoft.WindowsSDK', 'Microsoft.WindowsWDK') {
-            Write-Sub "winget install $pkg.$ver"
-            [void](Invoke-Exe (Get-Command winget).Source "install --id $pkg.$ver -e --silent --accept-package-agreements --accept-source-agreements")
-        }
-        if (Find-Tool 'Inf2Cat.exe') { return }
-    }
 }
 function Get-SignTools {
     $t = @{ Inf2Cat = (Find-Tool 'Inf2Cat.exe'); SignTool = (Find-Tool 'signtool.exe') }
@@ -177,12 +173,7 @@ function Get-SignTools {
         Write-Step 'Getting Inf2Cat.exe (Windows Driver Kit, about 110 MB)'
         $t.Inf2Cat = Get-FromNuGet 'Inf2Cat.exe' @('Microsoft.Windows.WDK.x64') '(?i)/x86/'
     }
-    if (-not $t.Inf2Cat) {
-        Install-KitsWithWinget
-        $t.Inf2Cat = Find-Tool 'Inf2Cat.exe'
-        if (-not $t.SignTool) { $t.SignTool = Find-Tool 'signtool.exe' }
-    }
-    if (-not $t.Inf2Cat) { throw 'Inf2Cat.exe could not be obtained. Put Inf2Cat.exe (Windows Driver Kit) in the tools folder and try again.' }
+    if (-not $t.Inf2Cat) { throw 'Inf2Cat.exe could not be downloaded from nuget.org (see the lines above). Check the internet connection and try again - only the Inf2Cat folder of the package is kept, nothing is installed.' }
     Write-Info "Inf2Cat : $($t.Inf2Cat)"
     if ($t.SignTool) { Write-Info "signtool: $($t.SignTool)" } else { Write-Warn 'signtool.exe not available - PowerShell signing is used and every package is re-signed.' }
     return $t

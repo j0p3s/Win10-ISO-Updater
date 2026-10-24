@@ -9,7 +9,7 @@ $ErrorActionPreference = 'Stop'
 $ProgressPreference    = 'SilentlyContinue'
 
 $Script:AppName      = 'Win10-ISO-Updater'
-$Script:AppVersion   = '2.0.0'
+$Script:AppVersion   = '2.0.1'
 $Script:Root         = Split-Path -Parent $env:W10U_SELF
 $ToolsDir            = Join-Path $Script:Root 'tools'
 $IsoPath             = $null

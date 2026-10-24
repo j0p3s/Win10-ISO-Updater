@@ -115,9 +115,17 @@ try {
 
     # title bar
     $U.MinBtn.Add_Click({ $Script:W.WindowState = 'Minimized' })
-    $U.MaxBtn.Add_Click({ $Script:W.WindowState = if ($Script:W.WindowState -eq 'Maximized') { 'Normal' } else { 'Maximized' } })
+    $U.MaxBtn.Add_Click({ Set-WorkAreaMax (-not $Script:FakeMax) })
     $U.CloseBtn.Add_Click({ $Script:W.Close() })
-    $W.Add_StateChanged({ $Script:W.BorderThickness = New-Object Windows.Thickness $(if ($Script:W.WindowState -eq 'Maximized') { 7 } else { 1 }) })
+    # double-click on the title bar, Win+Up or Aero Snap ask Windows to maximize - redirect that to the work area
+    $W.Add_StateChanged({
+        if ($Script:W.WindowState -eq 'Maximized') { $Script:W.WindowState = 'Normal'; Set-WorkAreaMax (-not $Script:FakeMax) }
+    })
+    # never start taller / wider than the screen minus the taskbar
+    $wa = [System.Windows.SystemParameters]::WorkArea
+    if ($W.Height -gt $wa.Height - 16) { $W.Height = [math]::Max(600, $wa.Height - 16) }
+    if ($W.Width -gt $wa.Width - 16) { $W.Width = [math]::Max(900, $wa.Width - 16) }
+    if ($W.MinHeight -gt $W.Height) { $W.MinHeight = $W.Height }
 
     # navigation
     for ($i = 1; $i -le 10; $i++) { $nb = $U["Nav$i"]; $nb.Tag = $i - 1; $nb.Add_Checked({ $Script:U.Pages.SelectedIndex = [int]$this.Tag }) }

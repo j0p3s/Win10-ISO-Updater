@@ -301,6 +301,26 @@ function Show-CheckResults {
     $U.ChkSave.IsEnabled = [bool]$fixed
     $U.ChkNote.Text = if ($fixed) { "The ISO uses a fixed copy of your answer file (fixed $($Script:S.Unattend.Fixed)). Save it to update your own file too." } else { '' }
 }
+# A borderless WPF window maximizes over the taskbar, so "maximized" is done by hand:
+# the window is sized to the working area of the monitor it is on.
+function Set-WorkAreaMax([bool]$On) {
+    $w = $Script:W
+    if ($On) {
+        $Script:NormalBounds = @($w.Left, $w.Top, $w.Width, $w.Height)
+        $h = (New-Object System.Windows.Interop.WindowInteropHelper $w).Handle
+        $wa = [System.Windows.Forms.Screen]::FromHandle($h).WorkingArea
+        $m = [System.Windows.PresentationSource]::FromVisual($w).CompositionTarget.TransformFromDevice
+        $tl = $m.Transform((New-Object System.Windows.Point ($wa.Left, $wa.Top)))
+        $br = $m.Transform((New-Object System.Windows.Point ($wa.Right, $wa.Bottom)))
+        $w.Left = $tl.X; $w.Top = $tl.Y; $w.Width = $br.X - $tl.X; $w.Height = $br.Y - $tl.Y
+        $Script:FakeMax = $true
+        $Script:U.MaxBtn.Content = [string][char]0xE923
+    } else {
+        if ($Script:NormalBounds) { $w.Left = $Script:NormalBounds[0]; $w.Top = $Script:NormalBounds[1]; $w.Width = $Script:NormalBounds[2]; $w.Height = $Script:NormalBounds[3] }
+        $Script:FakeMax = $false
+        $Script:U.MaxBtn.Content = [string][char]0xE922
+    }
+}
 function Get-OemSummary([string]$Dir) {
     if (-not (Test-Path -LiteralPath $Dir)) { return 'folder not found' }
     if ($Script:OemCache -and $Script:OemCache[0] -eq $Dir) { return $Script:OemCache[1] }
@@ -326,8 +346,6 @@ function Update-Tools {
     & $set $U.T_Sign $sig 'missing - downloaded automatically when you sign drivers'
     $curl = Join-Path $env:SystemRoot 'System32\curl.exe'
     & $set $U.T_Curl $(if (Test-Path -LiteralPath $curl) { $curl }) 'missing - PowerShell / BITS downloads are used'
-    $wg = Get-Command winget -ErrorAction SilentlyContinue
-    & $set $U.T_Winget $(if ($wg) { $wg.Source }) 'not available (only needed if the NuGet download fails)'
     $U.ToolsDot.Text = if ($osc -and $inf -and $sig) { '' } else { [string][char]0x25CF }
 }
 function Save-EditionPick {

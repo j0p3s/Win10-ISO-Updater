@@ -50,6 +50,21 @@ unpack = edit(unpack, "    $Script:S.Selected  = @()\n", "    if ($prevIso -ne $
 unpack = edit(unpack, "    $Script:S.Iso       = $null\n", "    $Script:S.Iso       = $null\n    $Script:S.OemSynced = $false\n")
 
 download = rng(708, 773)
+download = edit(download, "    $records = @()\n", "    $records = @()\n    $Script:SavedFiles = @{}\n")
+detect_catalog = edit(detect_catalog, """        $name = [IO.Path]::GetFileName(([uri]$u).AbsolutePath)
+        $dest = Join-Path $dir $name
+        Save-Url $u $dest""", """        $name = [IO.Path]::GetFileName(([uri]$u).AbsolutePath)
+        if ($Script:SavedFiles -and $Script:SavedFiles.ContainsKey($name.ToLower())) { Write-Info "Already included: $name"; continue }
+        $dest = Join-Path $dir $name
+        Save-Url $u $dest
+        if ($Script:SavedFiles) { $Script:SavedFiles[$name.ToLower()] = $true }""")
+detect_catalog = edit(detect_catalog, """            if (Test-Path -LiteralPath $f) { $h[$u.Kind] += $f } else { Write-Warn "Missing $f - run Download again." }""", """            if (-not (Test-Path -LiteralPath $f)) { Write-Warn "Missing $f - run Download again."; continue }
+            $leaf = (Split-Path $f -Leaf).ToLower()
+            if ($seenLeaf.ContainsKey($leaf)) { continue }
+            $seenLeaf[$leaf] = $true
+            $h[$u.Kind] += $f""")
+detect_catalog = edit(detect_catalog, """    $h = @{ SSU = @(); LCU = @(); EKB = @(); SAFEOS = @(); SETUP = @(); NET = @(); NET481 = @() }""", """    $h = @{ SSU = @(); LCU = @(); EKB = @(); SAFEOS = @(); SETUP = @(); NET = @(); NET481 = @() }
+    $seenLeaf = @{}""")
 drivers_a = rng(774, 836)        # INF parser, arch test, boot driver list
 drivers_b = rng(909, 958)        # Get-DriverPackages, Find-DriverBackupFolders, Copy-Tree
 drivers_b = edit(drivers_b, """        New-Item -ItemType Directory -Force -Path (Split-Path $Dest -Parent) | Out-Null

@@ -1,5 +1,13 @@
 # Changelog
 
+## v2.0.1 — 2026-10-24
+
+### Fixed
+- `Inf2Cat.exe` from the Windows Driver Kit NuGet package was rejected because it has no Authenticode signature of its own. That triggered a full Windows SDK + WDK install through winget. It is now accepted as part of Microsoft's package, and the winget fallback is gone: only the `Inf2Cat` and `signtool` folders are extracted, nothing is installed.
+- Maximizing the window (button, double-click on the title bar, Win+Up, Aero Snap) no longer covers the taskbar and hides the Activity panel. The window now fills the work area of its monitor, and it never opens taller than the screen.
+- Combined .NET cumulative updates are downloaded and applied once, not once per KB that shares the same files.
+- curl's start-up spinner lines no longer clutter the log; the progress percentage is no longer rounded down.
+
 ## v2.0.0 — 2026-10-24
 
 ### Added

@@ -53,7 +53,7 @@ On page **5**:
 1. Pick the folder NVCleanstall extracted. Every subfolder is scanned.
 2. Press **Sign and add to the ISO**. The tool then:
    - copies the package into the work folder (your original is not touched)
-   - gets `Inf2Cat` + `signtool` from Microsoft's NuGet packages (signature checked), or the WDK through winget
+   - extracts only `Inf2Cat` + `signtool` from Microsoft's NuGet packages (Windows SDK build tools / Windows Driver Kit) — nothing is installed
    - creates a **self-signed code-signing certificate** the first time (you choose the password for its backup `DriverSigning.pfx`)
    - builds a new catalog for **every modified package only** and signs and verifies it
 3. When the ISO is built, the package goes to `$OEM$\$1\Drivers\NVIDIA` together with the public `DriverSigning.cer`, and `SetupComplete-drivers.cmd` is generated. During Windows setup that script:

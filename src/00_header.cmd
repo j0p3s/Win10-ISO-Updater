@@ -1,6 +1,6 @@
 @echo off
 :: ===========================================================================
-::  Win10-ISO-Updater.cmd  (v2.0.0)  -  one file, graphical interface
+::  Win10-ISO-Updater.cmd  (v2.0.1)  -  one file, graphical interface
 ::  - unpacks a Windows 10 ISO and detects its build
 ::  - downloads its updates from the Microsoft Update Catalog
 ::  - slipstreams updates and drivers (this PC or a Drivers-Backup folder)
