@@ -1,5 +1,14 @@
 # Changelog
 
+## v2.0.5 — 2026-10-24
+
+### Changed — Install check
+- **Fewer false alarms.**
+  - Paths inside Windows' own folders (`Panther`, `Temp`, `Sysnative`, `SysArm32`, `System32`, ...) and paths built from variables are no longer reported as missing from `$OEM$`.
+  - A script called with parameters (`call "%~dp0Tool.cmd" /switch`) is a menu script running unattended, so its prompts are reported as Info instead of one warning per line.
+- **Scripts embedded in the answer file are checked.** These are `<Extensions><File path="...">` files, as written by the autounattend generator. The files they create count as existing, and their PowerShell is checked for `Read-Host` / restarts and for the paths they use.
+- **New conflict check.** It warns when something uses a file inside a signed driver package (for example a first-boot script running `C:\Drivers\NVIDIA\setup.exe`) while the driver copy is deleted after `pnputil` installs it. The fix keeps the copy.
+
 ## v2.0.4 — 2026-10-24
 
 ### Fixed
