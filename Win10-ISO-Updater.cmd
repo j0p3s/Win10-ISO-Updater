@@ -1,6 +1,6 @@
 @echo off
 :: ===========================================================================
-::  Win10-ISO-Updater.cmd  (v2.0.1)  -  one file, graphical interface
+::  Win10-ISO-Updater.cmd  (v2.0.2)  -  one file, graphical interface
 ::  - unpacks a Windows 10 ISO and detects its build
 ::  - downloads its updates from the Microsoft Update Catalog
 ::  - slipstreams updates and drivers (this PC or a Drivers-Backup folder)
@@ -38,7 +38,7 @@ $ErrorActionPreference = 'Stop'
 $ProgressPreference    = 'SilentlyContinue'
 
 $Script:AppName      = 'Win10-ISO-Updater'
-$Script:AppVersion   = '2.0.1'
+$Script:AppVersion   = '2.0.2'
 $Script:Root         = Split-Path -Parent $env:W10U_SELF
 $ToolsDir            = Join-Path $Script:Root 'tools'
 $IsoPath             = $null
@@ -1321,14 +1321,14 @@ function Get-FromNuGet([string]$Exe, [string[]]$Packages, [string]$Prefer) {
             $nupkg = Save-NuPkg $pkg
             $dest = Join-Path $ToolsDir ([IO.Path]::GetFileNameWithoutExtension($Exe))
             if (Expand-Tool $nupkg $Exe $dest $Prefer) {
-                $exe = Join-Path $dest $Exe
-                $sig = Get-AuthenticodeSignature -LiteralPath $exe
-                if ($sig.Status -eq 'Valid' -and $sig.SignerCertificate.Subject -match 'O=Microsoft Corporation') { Write-Ok "$Exe extracted from $pkg (Microsoft signature valid)"; return $exe }
+                $exePath = Join-Path $dest $Exe
+                $sig = Get-AuthenticodeSignature -LiteralPath $exePath
+                if ($sig.Status -eq 'Valid' -and $sig.SignerCertificate.Subject -match 'O=Microsoft Corporation') { Write-Ok "$Exe extracted from $pkg (Microsoft signature valid)"; return $exePath }
                 if ($sig.Status -eq 'NotSigned') {
                     # Some kit tools (Inf2Cat is .NET) carry no Authenticode signature of their own; the package
                     # itself comes from nuget.org over HTTPS under Microsoft's reserved Microsoft.* prefix.
                     Write-Ok "$Exe extracted from $pkg (not signed itself - comes from Microsoft's NuGet package)"
-                    return $exe
+                    return $exePath
                 }
                 Write-Warn "$Exe from $pkg failed the signature check (status: $($sig.Status)) - removed."
                 Remove-Item -LiteralPath $dest -Recurse -Force
@@ -3587,11 +3587,11 @@ function Update-Ui {
         # 2 editions
         $sel = @($S.Selected | ForEach-Object { [int]$_ })
         $Script:EdTable = New-Table @('Use:bool', 'Index:int', 'Edition', 'EditionId', 'Build', 'SizeGB:dbl') @(foreach ($i in $imgs) { , @(($sel -contains [int]$i.Index), $i.Index, $i.Name, $i.Edition, $i.Version, [math]::Round($i.Size / 1GB, 1)) })
-        $Script:EdTable.add_ColumnChanged({ param($s, $e) if (-not $Script:Loading -and $e.Column.ColumnName -eq 'Use') { Save-EditionPick } })
+        $Script:EdTable.add_ColumnChanged({ param($sender, $ev) if (-not $Script:Loading -and $ev.Column.ColumnName -eq 'Use') { Save-EditionPick } })
         $U.EdGrid.ItemsSource = $Script:EdTable.DefaultView
 
         # 3 updates
-        $U.UpdGrid.ItemsSource = (New-Table @('Kind', 'KB', 'Date', 'Title') @(foreach ($u in @($S.Updates)) { , @($u.Kind, $u.KB, $u.Date, $u.Title) })).DefaultView
+        $U.UpdGrid.ItemsSource = (New-Table @('Kind', 'KB', 'Date', 'Title') @(foreach ($upd in @($S.Updates)) { , @($upd.Kind, $upd.KB, $upd.Date, $upd.Title) })).DefaultView
 
         # 4 drivers
         $d = @($S.Drivers)
@@ -4050,12 +4050,25 @@ try {
         $Script:Timer.Stop()
     })
 
+    $W.Dispatcher.Add_UnhandledException({
+        param($sender, $ev)
+        $ev.Handled = $true
+        $msg = $ev.Exception.Message
+        if ($ev.Exception.InnerException) { $msg = $ev.Exception.InnerException.Message }
+        try { Write-Err "Interface error: $msg" } catch { }
+    })
     $Script:Timer = New-Object Windows.Threading.DispatcherTimer
     $Script:Timer.Interval = [TimeSpan]::FromMilliseconds(150)
-    $Script:Timer.Add_Tick({ try { Invoke-Tick } catch { } })
+    $Script:Timer.Add_Tick({
+        try { Invoke-Tick }
+        catch {
+            $m = $_.Exception.Message
+            if ($m -ne $Script:LastTickError) { $Script:LastTickError = $m; try { Write-Err "Interface error: $m" } catch { } }
+        }
+    })
     $Script:Timer.Start()
 
-    Update-Ui
+    try { Update-Ui } catch { Write-Err "Could not refresh every page: $($_.Exception.Message)" }
     Write-Title "Win10 ISO Updater $Script:AppVersion"
     Write-Info "Work folder: $($Script:P.Work)"
     if ($Script:S.Unpacked) { Write-Info "Unpacked media: $(Split-Path ([string]$Script:S.SourceIso) -Leaf) - pick up where you left off." }

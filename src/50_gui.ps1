@@ -232,11 +232,11 @@ function Update-Ui {
         # 2 editions
         $sel = @($S.Selected | ForEach-Object { [int]$_ })
         $Script:EdTable = New-Table @('Use:bool', 'Index:int', 'Edition', 'EditionId', 'Build', 'SizeGB:dbl') @(foreach ($i in $imgs) { , @(($sel -contains [int]$i.Index), $i.Index, $i.Name, $i.Edition, $i.Version, [math]::Round($i.Size / 1GB, 1)) })
-        $Script:EdTable.add_ColumnChanged({ param($s, $e) if (-not $Script:Loading -and $e.Column.ColumnName -eq 'Use') { Save-EditionPick } })
+        $Script:EdTable.add_ColumnChanged({ param($sender, $ev) if (-not $Script:Loading -and $ev.Column.ColumnName -eq 'Use') { Save-EditionPick } })
         $U.EdGrid.ItemsSource = $Script:EdTable.DefaultView
 
         # 3 updates
-        $U.UpdGrid.ItemsSource = (New-Table @('Kind', 'KB', 'Date', 'Title') @(foreach ($u in @($S.Updates)) { , @($u.Kind, $u.KB, $u.Date, $u.Title) })).DefaultView
+        $U.UpdGrid.ItemsSource = (New-Table @('Kind', 'KB', 'Date', 'Title') @(foreach ($upd in @($S.Updates)) { , @($upd.Kind, $upd.KB, $upd.Date, $upd.Title) })).DefaultView
 
         # 4 drivers
         $d = @($S.Drivers)

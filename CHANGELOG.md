@@ -1,5 +1,12 @@
 # Changelog
 
+## v2.0.2 — 2026-10-24
+
+### Fixed
+- **"Could not start: The property 'ItemsSource' cannot be found"** once updates had been downloaded. A loop variable (`$u`) overwrote the window's control list (`$U`), because PowerShell variable names ignore case.
+- When more than one NuGet package was tried, the tool name was overwritten by its path, so the second package was never searched.
+- An error inside a button or a background refresh is now written to the Activity log instead of closing the program.
+
 ## v2.0.1 — 2026-10-24
 
 ### Fixed

@@ -280,12 +280,25 @@ try {
         $Script:Timer.Stop()
     })
 
+    $W.Dispatcher.Add_UnhandledException({
+        param($sender, $ev)
+        $ev.Handled = $true
+        $msg = $ev.Exception.Message
+        if ($ev.Exception.InnerException) { $msg = $ev.Exception.InnerException.Message }
+        try { Write-Err "Interface error: $msg" } catch { }
+    })
     $Script:Timer = New-Object Windows.Threading.DispatcherTimer
     $Script:Timer.Interval = [TimeSpan]::FromMilliseconds(150)
-    $Script:Timer.Add_Tick({ try { Invoke-Tick } catch { } })
+    $Script:Timer.Add_Tick({
+        try { Invoke-Tick }
+        catch {
+            $m = $_.Exception.Message
+            if ($m -ne $Script:LastTickError) { $Script:LastTickError = $m; try { Write-Err "Interface error: $m" } catch { } }
+        }
+    })
     $Script:Timer.Start()
 
-    Update-Ui
+    try { Update-Ui } catch { Write-Err "Could not refresh every page: $($_.Exception.Message)" }
     Write-Title "Win10 ISO Updater $Script:AppVersion"
     Write-Info "Work folder: $($Script:P.Work)"
     if ($Script:S.Unpacked) { Write-Info "Unpacked media: $(Split-Path ([string]$Script:S.SourceIso) -Leaf) - pick up where you left off." }

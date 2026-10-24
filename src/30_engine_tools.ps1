@@ -147,14 +147,14 @@ function Get-FromNuGet([string]$Exe, [string[]]$Packages, [string]$Prefer) {
             $nupkg = Save-NuPkg $pkg
             $dest = Join-Path $ToolsDir ([IO.Path]::GetFileNameWithoutExtension($Exe))
             if (Expand-Tool $nupkg $Exe $dest $Prefer) {
-                $exe = Join-Path $dest $Exe
-                $sig = Get-AuthenticodeSignature -LiteralPath $exe
-                if ($sig.Status -eq 'Valid' -and $sig.SignerCertificate.Subject -match 'O=Microsoft Corporation') { Write-Ok "$Exe extracted from $pkg (Microsoft signature valid)"; return $exe }
+                $exePath = Join-Path $dest $Exe
+                $sig = Get-AuthenticodeSignature -LiteralPath $exePath
+                if ($sig.Status -eq 'Valid' -and $sig.SignerCertificate.Subject -match 'O=Microsoft Corporation') { Write-Ok "$Exe extracted from $pkg (Microsoft signature valid)"; return $exePath }
                 if ($sig.Status -eq 'NotSigned') {
                     # Some kit tools (Inf2Cat is .NET) carry no Authenticode signature of their own; the package
                     # itself comes from nuget.org over HTTPS under Microsoft's reserved Microsoft.* prefix.
                     Write-Ok "$Exe extracted from $pkg (not signed itself - comes from Microsoft's NuGet package)"
-                    return $exe
+                    return $exePath
                 }
                 Write-Warn "$Exe from $pkg failed the signature check (status: $($sig.Status)) - removed."
                 Remove-Item -LiteralPath $dest -Recurse -Force
