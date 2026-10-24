@@ -23,7 +23,7 @@ exit /b
 set "W10U_SELF=%~f0"
 set "PSEXE=%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe"
 if exist "%SystemRoot%\Sysnative\WindowsPowerShell\v1.0\powershell.exe" set "PSEXE=%SystemRoot%\Sysnative\WindowsPowerShell\v1.0\powershell.exe"
-echo Starting Win10 ISO Updater...
+echo Starting Win10 ISO Updater v2.0.2 ...  (this window hides when the program opens)
 "%PSEXE%" -NoProfile -STA -ExecutionPolicy Bypass -Command "$t=[IO.File]::ReadAllText($env:W10U_SELF);$i=$t.IndexOf('#'+'PS-BEGIN');Invoke-Expression $t.Substring($i)"
 if errorlevel 1 pause
 exit /b
