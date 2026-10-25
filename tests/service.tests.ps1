@@ -160,6 +160,29 @@ foreach ($parallel in $true, $false) {
 }
 $env:FAKE_DISM_SLEEP = ''
 
+# ---- Clean up: the new options leave nothing behind
+function New-WorkLeftovers {
+    foreach ($d in 'drivers/selected/host/x', 'logs', 'signed/NVIDIA', 'output', 'updates/LCU') { New-Item -ItemType Directory -Force (Join-Path $P.Work $d) | Out-Null }
+    foreach ($f in 'autounattend.xml', 'autounattend.original.xml', 'install-check.json', 'logs/engine.log', 'logs/dism.log') { Set-Content (Join-Path $P.Work $f) 'x' }
+    $Script:S = New-State; $Script:S.Drivers = @(@{ Inf = 'a.inf' }); $Script:S.Unattend = @{ Source = 'C:\Users\Joao\Desktop\autounattend.xml' }; $Script:S.Check = @{ Errors = 0 }
+    Save-State
+}
+New-WorkLeftovers
+Invoke-CleanJob @{ Drivers = $true; Extra = $true; Logs = $true }
+$st = Import-State
+Check 'clean: copied drivers deleted and forgotten' (-not (Test-Path (Join-Path $P.Work 'drivers')) -and @($st.Drivers).Count -eq 0)
+Check 'clean: answer file copy + check results deleted, answer file must be chosen again' (-not (Test-Path (Join-Path $P.Work 'autounattend.xml')) -and -not (Test-Path (Join-Path $P.Work 'install-check.json')) -and -not $st.Unattend -and -not $st.Check)
+Check 'clean: logs emptied' (@(Get-ChildItem (Join-Path $P.Work 'logs')).Count -eq 0)
+Check 'clean: other parts kept when not ticked' ((Test-Path (Join-Path $P.Work 'signed/NVIDIA')) -and (Test-Path (Join-Path $P.Work 'updates/LCU')))
+New-WorkLeftovers
+Set-Content (Join-Path $P.Work 'notes-of-mine.txt') 'keep me'
+Invoke-CleanJob @{ Updates = $true; Media = $true; Output = $true; Signed = $true; Drivers = $true; Extra = $true; Logs = $true; All = $true }
+$left = @(Get-ChildItem $P.Work -Force | ForEach-Object Name)
+Check "everything: only a file the tool did not make is left ($($left -join ', '))" (($left -join ',') -eq 'notes-of-mine.txt')
+Check 'everything: state starts empty' (-not (Test-Path $P.State) -and @((Import-State).Drivers).Count -eq 0)
+$null = Drain
+New-Item -ItemType Directory -Force $P.Logs | Out-Null
+
 Remove-Item Env:\FAKE_DISM_LOG, Env:\FAKE_DISM_SLEEP, Env:\FAKE_DISM_FAIL -ErrorAction SilentlyContinue
 Remove-Item $tmp -Recurse -Force
 if ($fails) { exit 1 }

@@ -244,9 +244,17 @@ try {
         Update-Ui
     })
     $U.WorkOpen.Add_Click({ Open-Path $Script:P.Work })
+    $U.ClnAll.Add_Click({
+        foreach ($n in 'ClnUpd', 'ClnMedia', 'ClnOut', 'ClnSigned', 'ClnDrivers', 'ClnExtra', 'ClnLogs') {
+            $Script:U[$n].IsChecked = $Script:U.ClnAll.IsChecked; $Script:U[$n].IsEnabled = -not $Script:U.ClnAll.IsChecked
+        }
+    })
     $U.ClnBtn.Add_Click({
-        $a = @{ Updates = [bool]$Script:U.ClnUpd.IsChecked; Media = [bool]$Script:U.ClnMedia.IsChecked; Output = [bool]$Script:U.ClnOut.IsChecked; Signed = [bool]$Script:U.ClnSigned.IsChecked }
-        $what = @('mounted images and temp files') + @($a.Keys | Where-Object { $a[$_] } | ForEach-Object { @{ Updates = 'downloaded updates'; Media = 'unpacked media'; Output = 'built ISOs'; Signed = 're-signed driver copies' }[$_] })
+        $a = [ordered]@{ Updates = [bool]$Script:U.ClnUpd.IsChecked; Media = [bool]$Script:U.ClnMedia.IsChecked; Output = [bool]$Script:U.ClnOut.IsChecked; Signed = [bool]$Script:U.ClnSigned.IsChecked
+                         Drivers = [bool]$Script:U.ClnDrivers.IsChecked; Extra = [bool]$Script:U.ClnExtra.IsChecked; Logs = [bool]$Script:U.ClnLogs.IsChecked; All = [bool]$Script:U.ClnAll.IsChecked }
+        $names = @{ Updates = 'downloaded updates'; Media = 'unpacked media'; Output = 'built ISOs'; Signed = 're-signed driver copies'; Drivers = 'copied drivers'
+                    Extra = 'answer file copy and check results'; Logs = 'logs'; All = 'EVERYTHING in the work folder' }
+        $what = @('mounted images and temp files') + @($a.Keys | Where-Object { $a[$_] } | ForEach-Object { $names[$_] })
         if (Confirm-Ui ("Delete: " + ($what -join ', ') + '?') 'Warning') { Start-Work 'Clean' $a }
     })
     $U.DefBtn.Add_Click({

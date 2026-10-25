@@ -1,5 +1,10 @@
 # Changelog
 
+## v2.1.1 — 2026-10-25
+
+### Fixed
+- **Clean up left the copied drivers, the answer file copy, the install check results, the logs and `state.json` behind.** New choices: *Copied drivers*, *Answer file copy and install check results*, *Logs*, and *Everything — empty the work folder and start from scratch*. "Everything" deletes only what the tool itself creates there (anything else in that folder is left alone) and resets the state; settings and the signing certificate next to the `.cmd` are kept.
+
 ## v2.1.0 — 2026-10-25
 
 ### Added — faster slipstream (page 7, *Speed*)

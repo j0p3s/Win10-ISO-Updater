@@ -1,6 +1,6 @@
 @echo off
 :: ===========================================================================
-::  Win10-ISO-Updater.cmd  (v2.1.0)  -  one file, graphical interface
+::  Win10-ISO-Updater.cmd  (v2.1.1)  -  one file, graphical interface
 ::  - unpacks a Windows 10 ISO and detects its build
 ::  - downloads its updates from the Microsoft Update Catalog
 ::  - slipstreams updates and drivers (this PC or a Drivers-Backup folder)
@@ -23,7 +23,7 @@ exit /b
 set "W10U_SELF=%~f0"
 set "PSEXE=%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe"
 if exist "%SystemRoot%\Sysnative\WindowsPowerShell\v1.0\powershell.exe" set "PSEXE=%SystemRoot%\Sysnative\WindowsPowerShell\v1.0\powershell.exe"
-echo Starting Win10 ISO Updater v2.1.0 ...  (this window hides when the program opens)
+echo Starting Win10 ISO Updater v2.1.1 ...  (this window hides when the program opens)
 "%PSEXE%" -NoProfile -STA -ExecutionPolicy Bypass -Command "$t=[IO.File]::ReadAllText($env:W10U_SELF);$i=$t.IndexOf('#'+'PS-BEGIN');Invoke-Expression $t.Substring($i)"
 if errorlevel 1 pause
 exit /b
@@ -38,7 +38,7 @@ $ErrorActionPreference = 'Stop'
 $ProgressPreference    = 'SilentlyContinue'
 
 $Script:AppName      = 'Win10-ISO-Updater'
-$Script:AppVersion   = '2.1.0'
+$Script:AppVersion   = '2.1.1'
 $Script:Root         = Split-Path -Parent $env:W10U_SELF
 $ToolsDir            = Join-Path $Script:Root 'tools'
 $IsoPath             = $null
@@ -3053,7 +3053,42 @@ function Invoke-CleanJob($A) {
     if ($A.Signed -and (Test-Path -LiteralPath $Script:P.Signed)) {
         Remove-Item -LiteralPath $Script:P.Signed -Recurse -Force; $Script:S.Signed = @(); Write-Ok 'Re-signed driver copies deleted.'
     }
+    if ($A.Drivers -and (Test-Path -LiteralPath $Script:P.Drivers)) {
+        Remove-Item -LiteralPath $Script:P.Drivers -Recurse -Force; $Script:S.Drivers = @(); Write-Ok 'Copied drivers deleted (this PC / imported folder).'
+    }
+    if ($A.Extra) {
+        $n = 0
+        foreach ($f in @($Script:P.Unattend, (Join-Path $Script:P.Work 'autounattend.original.xml'), (Join-Path $Script:P.Work 'install-check.json'))) {
+            if (Test-Path -LiteralPath $f) { Remove-Item -LiteralPath $f -Force; $n++ }
+        }
+        if ($Script:S.Unattend) { $Script:S.Unattend = $null; Write-Info 'The answer file is no longer added - choose it again on page 6 (your own file is not touched).' }
+        $Script:S.Check = $null
+        if ($n) { Write-Ok 'Answer file copy and install check results deleted.' }
+    }
+    if ($A.All) {
+        # start from scratch: everything this tool keeps in the work folder goes, the state starts empty.
+        # Only its own names are deleted - anything else in that folder is left alone.
+        $own = @('media', 'updates', 'drivers', 'signed', 'output', 'temp', 'mnt', 'logs', 'state.json', 'autounattend.xml',
+                 'autounattend.original.xml', 'install-check.json', 'defender-exclusion.txt')
+        $Script:LogFile = $null
+        foreach ($n in $own) {
+            $f = Join-Path $Script:P.Work $n
+            if (Test-Path -LiteralPath $f) { Remove-Item -LiteralPath $f -Recurse -Force -ErrorAction SilentlyContinue }
+        }
+        $Script:S = New-State
+        $left = @($own | Where-Object { Test-Path -LiteralPath (Join-Path $Script:P.Work $_) })
+        $other = @(Get-ChildItem -LiteralPath $Script:P.Work -Force -ErrorAction SilentlyContinue | Where-Object { $own -notcontains $_.Name.ToLower() })
+        if ($left.Count) { Write-Warn "Could not delete: $($left -join ', ') (in use?)" }
+        else { Write-Ok "Work folder $($Script:P.Work) is clean - settings and your signing certificate (next to the .cmd) are kept." }
+        if ($other.Count) { Write-Info "Not made by this tool, left alone: $((@($other | ForEach-Object Name) | Select-Object -First 5) -join ', ')" }
+        return
+    }
     Save-State
+    if ($A.Logs -and (Test-Path -LiteralPath $Script:P.Logs)) {
+        Get-ChildItem -LiteralPath $Script:P.Logs -Force | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+        $Script:LogFile = $null
+        Write-Ok 'Logs deleted.'
+    }
 }
 # Option "Let Windows Defender skip the work folder while a job runs": real-time scanning of
 # every file DISM, robocopy and oscdimg touch slows servicing a lot. The exclusion is added for
@@ -3704,6 +3739,10 @@ $Script:XPages = @'
               <CheckBox x:Name="ClnMedia" Style="{StaticResource Toggle}" Content="Unpacked media"/>
               <CheckBox x:Name="ClnOut" Style="{StaticResource Toggle}" Content="Built ISOs"/>
               <CheckBox x:Name="ClnSigned" Style="{StaticResource Toggle}" Content="Re-signed driver copies"/>
+              <CheckBox x:Name="ClnDrivers" Style="{StaticResource Toggle}" Content="Copied drivers (this PC / imported folder)"/>
+              <CheckBox x:Name="ClnExtra" Style="{StaticResource Toggle}" Content="Answer file copy and install check results (the answer file must be chosen again)"/>
+              <CheckBox x:Name="ClnLogs" Style="{StaticResource Toggle}" Content="Logs"/>
+              <CheckBox x:Name="ClnAll" Style="{StaticResource Toggle}" Margin="0,10,0,5" Content="Everything - empty the work folder and start from scratch"/>
               <WrapPanel Margin="0,12,0,0"><Button x:Name="ClnBtn" Style="{StaticResource Btn}" Content="Clean up now"/></WrapPanel>
             </StackPanel></Border>
             <Border Style="{StaticResource Card}"><StackPanel>
@@ -4507,9 +4546,17 @@ try {
         Update-Ui
     })
     $U.WorkOpen.Add_Click({ Open-Path $Script:P.Work })
+    $U.ClnAll.Add_Click({
+        foreach ($n in 'ClnUpd', 'ClnMedia', 'ClnOut', 'ClnSigned', 'ClnDrivers', 'ClnExtra', 'ClnLogs') {
+            $Script:U[$n].IsChecked = $Script:U.ClnAll.IsChecked; $Script:U[$n].IsEnabled = -not $Script:U.ClnAll.IsChecked
+        }
+    })
     $U.ClnBtn.Add_Click({
-        $a = @{ Updates = [bool]$Script:U.ClnUpd.IsChecked; Media = [bool]$Script:U.ClnMedia.IsChecked; Output = [bool]$Script:U.ClnOut.IsChecked; Signed = [bool]$Script:U.ClnSigned.IsChecked }
-        $what = @('mounted images and temp files') + @($a.Keys | Where-Object { $a[$_] } | ForEach-Object { @{ Updates = 'downloaded updates'; Media = 'unpacked media'; Output = 'built ISOs'; Signed = 're-signed driver copies' }[$_] })
+        $a = [ordered]@{ Updates = [bool]$Script:U.ClnUpd.IsChecked; Media = [bool]$Script:U.ClnMedia.IsChecked; Output = [bool]$Script:U.ClnOut.IsChecked; Signed = [bool]$Script:U.ClnSigned.IsChecked
+                         Drivers = [bool]$Script:U.ClnDrivers.IsChecked; Extra = [bool]$Script:U.ClnExtra.IsChecked; Logs = [bool]$Script:U.ClnLogs.IsChecked; All = [bool]$Script:U.ClnAll.IsChecked }
+        $names = @{ Updates = 'downloaded updates'; Media = 'unpacked media'; Output = 'built ISOs'; Signed = 're-signed driver copies'; Drivers = 'copied drivers'
+                    Extra = 'answer file copy and check results'; Logs = 'logs'; All = 'EVERYTHING in the work folder' }
+        $what = @('mounted images and temp files') + @($a.Keys | Where-Object { $a[$_] } | ForEach-Object { $names[$_] })
         if (Confirm-Ui ("Delete: " + ($what -join ', ') + '?') 'Warning') { Start-Work 'Clean' $a }
     })
     $U.DefBtn.Add_Click({

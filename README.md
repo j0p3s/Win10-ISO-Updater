@@ -1,6 +1,6 @@
 # Win10 ISO Updater
 
-![version](https://img.shields.io/badge/version-2.1.0-2F9BFF) ![platform](https://img.shields.io/badge/Windows-10%20%7C%2011-8B5CF6) ![license](https://img.shields.io/badge/license-MIT-3DDC97)
+![version](https://img.shields.io/badge/version-2.1.1-2F9BFF) ![platform](https://img.shields.io/badge/Windows-10%20%7C%2011-8B5CF6) ![license](https://img.shields.io/badge/license-MIT-3DDC97)
 
 **One file. Double-click. Get a fully updated Windows 10 ISO with your drivers, your signed NVIDIA mod, your answer file and your `$OEM$` folder baked in.**
 
@@ -27,7 +27,7 @@ Missing tools (`oscdimg`, `Inf2Cat`, `signtool`) are downloaded automatically fr
 
 That's it. The new ISO lands in `C:\W10U\output` (the work folder can be changed under *Options*).
 
-The console line at start shows the version (`Starting Win10 ISO Updater v2.1.0 ...`), then the console hides and the window opens.
+The console line at start shows the version (`Starting Win10 ISO Updater v2.1.1 ...`), then the console hides and the window opens.
 
 **Updating:** replace `Win10-ISO-Updater.cmd` with the new one. Your settings, the `signing` folder and the work folder (unpacked media, updates, drivers) are kept — the tool picks up where you left off.
 
@@ -171,6 +171,7 @@ Logs: `C:\W10U\logs\engine.log` and `dism.log`. During install, the driver scrip
 | Problem | Fix |
 |---------|-----|
 | "Mount folder is not empty" | *Options and clean up* → **Clean up now** |
+| Start completely fresh | *Options and clean up* → tick **Everything** → **Clean up now** (settings and the signing certificate are kept) |
 | Cumulative update fails with an ESU-related error | Set the month on page 3 back to `2025-10` |
 | Drivers didn't install after setup | Read `C:\Windows\Temp\SetupComplete-drivers.log`, and run the **Install check** (OEM-key fallback) |
 | `Inf2Cat` "Signability test failed" | Delete `inf2cat.exe.manifest` next to `Inf2Cat.exe` and sign again |

@@ -197,7 +197,42 @@ function Invoke-CleanJob($A) {
     if ($A.Signed -and (Test-Path -LiteralPath $Script:P.Signed)) {
         Remove-Item -LiteralPath $Script:P.Signed -Recurse -Force; $Script:S.Signed = @(); Write-Ok 'Re-signed driver copies deleted.'
     }
+    if ($A.Drivers -and (Test-Path -LiteralPath $Script:P.Drivers)) {
+        Remove-Item -LiteralPath $Script:P.Drivers -Recurse -Force; $Script:S.Drivers = @(); Write-Ok 'Copied drivers deleted (this PC / imported folder).'
+    }
+    if ($A.Extra) {
+        $n = 0
+        foreach ($f in @($Script:P.Unattend, (Join-Path $Script:P.Work 'autounattend.original.xml'), (Join-Path $Script:P.Work 'install-check.json'))) {
+            if (Test-Path -LiteralPath $f) { Remove-Item -LiteralPath $f -Force; $n++ }
+        }
+        if ($Script:S.Unattend) { $Script:S.Unattend = $null; Write-Info 'The answer file is no longer added - choose it again on page 6 (your own file is not touched).' }
+        $Script:S.Check = $null
+        if ($n) { Write-Ok 'Answer file copy and install check results deleted.' }
+    }
+    if ($A.All) {
+        # start from scratch: everything this tool keeps in the work folder goes, the state starts empty.
+        # Only its own names are deleted - anything else in that folder is left alone.
+        $own = @('media', 'updates', 'drivers', 'signed', 'output', 'temp', 'mnt', 'logs', 'state.json', 'autounattend.xml',
+                 'autounattend.original.xml', 'install-check.json', 'defender-exclusion.txt')
+        $Script:LogFile = $null
+        foreach ($n in $own) {
+            $f = Join-Path $Script:P.Work $n
+            if (Test-Path -LiteralPath $f) { Remove-Item -LiteralPath $f -Recurse -Force -ErrorAction SilentlyContinue }
+        }
+        $Script:S = New-State
+        $left = @($own | Where-Object { Test-Path -LiteralPath (Join-Path $Script:P.Work $_) })
+        $other = @(Get-ChildItem -LiteralPath $Script:P.Work -Force -ErrorAction SilentlyContinue | Where-Object { $own -notcontains $_.Name.ToLower() })
+        if ($left.Count) { Write-Warn "Could not delete: $($left -join ', ') (in use?)" }
+        else { Write-Ok "Work folder $($Script:P.Work) is clean - settings and your signing certificate (next to the .cmd) are kept." }
+        if ($other.Count) { Write-Info "Not made by this tool, left alone: $((@($other | ForEach-Object Name) | Select-Object -First 5) -join ', ')" }
+        return
+    }
     Save-State
+    if ($A.Logs -and (Test-Path -LiteralPath $Script:P.Logs)) {
+        Get-ChildItem -LiteralPath $Script:P.Logs -Force | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+        $Script:LogFile = $null
+        Write-Ok 'Logs deleted.'
+    }
 }
 # Option "Let Windows Defender skip the work folder while a job runs": real-time scanning of
 # every file DISM, robocopy and oscdimg touch slows servicing a lot. The exclusion is added for
