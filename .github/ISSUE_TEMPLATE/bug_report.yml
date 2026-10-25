@@ -1,0 +1,62 @@
+name: Bug report
+description: Something doesn't work or shows an error
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks! Please **remove private data** before posting: your user name in paths, computer name, product keys, passwords or Wi‑Fi keys from your answer file. Never attach `DriverSigning.pfx`.
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: First console line when it starts, e.g. "Starting Win10 ISO Updater v2.1.1 ..."
+      placeholder: v2.1.1
+    validations:
+      required: true
+  - type: input
+    id: windows
+    attributes:
+      label: Windows running the tool
+      placeholder: Windows 10 22H2 19045.6456
+  - type: input
+    id: iso
+    attributes:
+      label: ISO being updated
+      placeholder: Windows 10 22H2 x64, en-US, consumer editions
+  - type: dropdown
+    id: page
+    attributes:
+      label: Where did it happen?
+      options:
+        - Start / window
+        - 1 Source ISO
+        - 2 Editions
+        - 3 Windows updates
+        - 4 Drivers
+        - 5 Signed NVIDIA / modded
+        - 6 Answer file + $OEM$
+        - Install check
+        - 7 Slipstream + build ISO
+        - Options and clean up
+        - Run everything
+        - During Windows setup (from the ISO)
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: log
+    attributes:
+      label: Log
+      description: Last 50–100 lines of C:\W10U\logs\engine.log (and dism.log for DISM errors). For problems during setup, C:\Windows\Temp\SetupComplete-drivers.log.
+      render: text
+  - type: textarea
+    id: shots
+    attributes:
+      label: Screenshots
+      description: Optional.

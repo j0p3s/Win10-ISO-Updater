@@ -59,6 +59,7 @@ unpack = edit(unpack, "    $Script:S.Iso       = $null\n", "    $Script:S.Iso   
 
 download = rng(708, 773)
 download = edit(download, "    $records = @()\n", "    $records = @()\n    $Script:SavedFiles = @{}\n")
+download = edit(download, 'ESU cutoff - change it in Options if you want to experiment', 'ESU cutoff - change it on the Windows updates page if you want to experiment')
 detect_catalog = edit(detect_catalog, """        $name = [IO.Path]::GetFileName(([uri]$u).AbsolutePath)
         $dest = Join-Path $dir $name
         Save-Url $u $dest""", """        $name = [IO.Path]::GetFileName(([uri]$u).AbsolutePath)

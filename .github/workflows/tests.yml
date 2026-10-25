@@ -1,0 +1,24 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Win10-ISO-Updater.cmd matches src/
+        run: |
+          python3 src/build.py
+          git diff --exit-code -- Win10-ISO-Updater.cmd || { echo "::error::Win10-ISO-Updater.cmd is not the build of src/ - run python src/build.py and commit it"; exit 1; }
+
+      - name: Test suites
+        shell: pwsh
+        run: ./tests/run-tests.ps1

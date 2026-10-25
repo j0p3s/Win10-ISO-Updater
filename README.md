@@ -1,6 +1,6 @@
 # Win10 ISO Updater
 
-![version](https://img.shields.io/badge/version-2.1.1-2F9BFF) ![platform](https://img.shields.io/badge/Windows-10%20%7C%2011-8B5CF6) ![license](https://img.shields.io/badge/license-MIT-3DDC97)
+![version](https://img.shields.io/badge/version-2.1.1-2F9BFF) ![platform](https://img.shields.io/badge/Windows-10%20%7C%2011-8B5CF6) ![license](https://img.shields.io/badge/license-MIT-3DDC97) [![tests](https://github.com/j0p3s/Win10-ISO-Updater/actions/workflows/tests.yml/badge.svg)](https://github.com/j0p3s/Win10-ISO-Updater/actions/workflows/tests.yml)
 
 **One file. Double-click. Get a fully updated Windows 10 ISO with your drivers, your signed NVIDIA mod, your answer file and your `$OEM$` folder baked in.**
 
@@ -16,11 +16,21 @@
 
 Missing tools (`oscdimg`, `Inf2Cat`, `signtool`) are downloaded automatically from Microsoft and verified.
 
+**Contents:** [Screenshots](#screenshots) · [Quick start](#quick-start) · [The pages](#the-pages) · [Speed](#speed) · [Modded drivers](#modded-drivers-nvidia--nvcleanstall) · [Install check](#install-check) · [Windows 10 updates and ESU](#windows-10-updates-and-esu) · [Privacy](#privacy-what-stays-on-your-pc) · [Files the tool creates](#files-the-tool-creates) · [Troubleshooting](#troubleshooting) · [Building from source](#building-from-source)
+
+---
+
+## Screenshots
+
+<!-- SCREENSHOTS -->
+*Screenshots of the interface are coming soon (they go in [`docs/screenshots`](docs/screenshots)).*
+<!-- /SCREENSHOTS -->
+
 ---
 
 ## Quick start
 
-1. Download **[`Win10-ISO-Updater.cmd`](Win10-ISO-Updater.cmd)** and put it in a folder, for example `C:\W10U-Tool`.
+1. Download **`Win10-ISO-Updater.cmd`** from the [latest release](https://github.com/j0p3s/Win10-ISO-Updater/releases/latest) (or [straight from the repository](https://github.com/j0p3s/Win10-ISO-Updater/raw/main/Win10-ISO-Updater.cmd)) and put it in a folder of its own, for example `C:\W10U-Tool`.
 2. Double-click it and accept the administrator prompt.
 3. On page **1**, pick your Windows 10 ISO. Set up the other pages as you like.
 4. Press **Run everything**.
@@ -39,14 +49,18 @@ The console line at start shows the version (`Starting Win10 ISO Updater v2.1.1 
 
 | # | Page | What it does |
 |---|------|--------------|
-| 1 | **Source ISO** | Copies the ISO into the work folder and shows its build, editions, language and architecture |
+| 1 | **Source ISO** | Unpacks the ISO into the work folder and shows its build, editions, language and architecture |
 | 2 | **Editions** | Tick the editions to update. Unticked ones can be left out, which makes the ISO smaller and the build faster |
 | 3 | **Windows updates** | Finds and downloads the newest LCU, SSU, Safe OS DU, Setup DU, .NET 4.8.1 and .NET CU (SHA-1 checked). Optional .NET 3.5 and `/ResetBase` |
 | 4 | **Drivers** | *Add drivers from this PC* (`Export-WindowsDriver`) or *Import a drivers folder* (for example `Drivers-Backup` made by `Drivers.cmd`). All subfolders are scanned, and drivers for the wrong architecture are left out |
 | 5 | **Signed NVIDIA / modded** | Re-signs edited driver packages so Windows accepts them (see below) |
 | 6 | **Answer file + `$OEM$`** | Your `autounattend.xml` (from [autounattended-generator](https://github.com/j0p3s/autounattended-generator)) and your `$OEM$` folder |
 | ✓ | **Install check** | Finds what would break or stall a clean install, and fixes it |
-| 7 | **Slipstream + build ISO** | Services WinRE, `install.wim` and `boot.wim`, then writes the ISO. Options: no "press any key", Windows UEFI CA 2023 boot manager, split `install.wim` for FAT32, speed options (see below) |
+| 7 | **Slipstream + build ISO** | Services WinRE, `install.wim` and `boot.wim`, then writes the ISO. Options: no "press any key", Windows UEFI CA 2023 boot manager, split `install.wim` for FAT32, [speed options](#speed), output file name |
+| | **Options and clean up** | Work folder, **Clean up** (mounted images, temp files, and on request updates, media, ISOs, signed copies, copied drivers, answer file copy, logs — or **Everything**), defaults |
+| | **Tools** | Shows DISM, `oscdimg`, `Inf2Cat`, `signtool` and `curl`, and downloads what is missing |
+
+The **Activity** panel at the bottom shows the live log, a progress bar and what the current job is doing. **Run everything** (left) runs unpack → updates → slipstream → ISO with what you set on each page.
 
 ---
 
@@ -153,6 +167,22 @@ Any other Windows 10 / 11 image can still get drivers, signed packages, an answe
 
 ---
 
+## Privacy: what stays on your PC
+
+The tool talks only to Microsoft (Update Catalog, download servers, symbol server, nuget.org for the signing tools). It sends nothing about you or your PC anywhere.
+
+What is private — **never share or upload it:**
+
+| What | Why |
+|---|---|
+| `signing\DriverSigning.pfx` | Your signing key. Anyone with it can make drivers your PCs trust. |
+| The ISO / USB stick you build | It contains your `autounattend.xml` — account password and Wi‑Fi key in plain text — and your `$OEM$` folder. The Install check reminds you. |
+| The work folder (`C:\W10U`) | Copies of the above, your drivers and the logs (they show your paths and user name). |
+
+The repository's [`.gitignore`](.gitignore) excludes all of that, so a fork or pull request can't pick it up by accident. Before posting a log in an issue, look through it for names and paths you'd rather not show.
+
+---
+
 ## Files the tool creates
 
 | Path | Contents |
@@ -160,9 +190,9 @@ Any other Windows 10 / 11 image can still get drivers, signed packages, an answe
 | `tools\` (next to the .cmd) | Downloaded `oscdimg`, `Inf2Cat`, `signtool` — safe to delete |
 | `signing\` (next to the .cmd) | `DriverSigning.pfx` (**private**) + `DriverSigning.cer` |
 | `Win10-ISO-Updater.settings.json` | Your options |
-| `C:\W10U\` (work folder) | Unpacked media, updates, drivers, signed copies, logs, output ISO |
+| `C:\W10U\` (work folder) | Unpacked media, updates, drivers, signed copies, logs, `state.json`, output ISO — all removed by *Clean up → Everything* |
 
-Logs: `C:\W10U\logs\engine.log` and `dism.log`. During install, the driver script writes `C:\Windows\Temp\SetupComplete-drivers.log`.
+Logs: `C:\W10U\logs\engine.log` and `dism.log` (`dism-boot.log` for boot.wim when it runs in the background). During install, the driver script writes `C:\Windows\Temp\SetupComplete-drivers.log`.
 
 ---
 
@@ -214,6 +244,12 @@ pwsh tests/run-tests.ps1
 ```
 
 Eight suites (about 200 checks) run the PowerShell part on Linux / macOS with PowerShell 7: catalog parsing, signing with stand-ins for `signtool` / `Inf2Cat` (an NVCleanstall-style untrusted catalog, live Inf2Cat status from a worker runspace, keeping only this PC's INF files), `$OEM$` assembly, every install check finding and fix, an answer file made by the autounattend generator (`tests/fixtures`, personal data removed), the page refresh with Windows PowerShell 5.1's JSON behaviour simulated, and a whole slipstream against a stand-in `dism` (boot.wim in the background vs. sequential, the driver set, the Defender option). DISM, WPF and real driver installs still need a Windows test run.
+
+---
+
+## Contributing
+
+Bug reports and ideas are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md). Security problems: [SECURITY.md](SECURITY.md).
 
 ---
 

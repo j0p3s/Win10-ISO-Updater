@@ -660,7 +660,7 @@ function Invoke-Download([switch]$Auto) {
     $cap = if ($f.Build -ge 19041 -and $f.Build -le 19045) { [string]$Script:Cfg.Win10Cutoff } else { '' }
     if ($cap -and [string]::CompareOrdinal($cap, $max) -lt 0) {
         $max = $cap
-        Write-Warn "Capped at $max (Windows 10 ESU cutoff - change it in Options if you want to experiment)."
+        Write-Warn "Capped at $max (Windows 10 ESU cutoff - change it on the Windows updates page if you want to experiment)."
     }
     $found = @()
 
