@@ -4,6 +4,12 @@
 
 ### Fixed
 - **Clean up left the copied drivers, the answer file copy, the install check results, the logs and `state.json` behind.** New choices: *Copied drivers*, *Answer file copy and install check results*, *Logs*, and *Everything — empty the work folder and start from scratch*. "Everything" deletes only what the tool itself creates there (anything else in that folder is left alone) and resets the state; settings and the signing certificate next to the `.cmd` are kept.
+- The ESU-cutoff warning pointed to *Options*; the month is set on the *Windows updates* page.
+
+### Repository
+- README: contents, screenshots section, Options / Tools pages, Activity panel, privacy section, download from Releases.
+- New: `CONTRIBUTING.md`, `SECURITY.md`, issue forms (bug report, idea), pull request checklist, `.editorconfig`, `docs/screenshots/`.
+- GitHub Actions run the test suites and check that `Win10-ISO-Updater.cmd` is the build of `src/`.
 
 ## v2.1.0 — 2026-10-25
 
