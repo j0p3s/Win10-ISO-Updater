@@ -90,7 +90,7 @@ try {
         Question = $null; Answer = $null; Result = $null
     })
     $Script:Busy = $false
-    $Script:CfgToggles = @('KeepOnlySelected', 'NetFx3', 'NetFx481', 'ResetBase', 'BootDrivers', 'ForceUnsigned', 'NoPrompt', 'Boot2023', 'SplitFat32', 'SignCleanup', 'InstallOemDrivers')
+    $Script:CfgToggles = @('KeepOnlySelected', 'NetFx3', 'NetFx481', 'ResetBase', 'BootDrivers', 'ForceUnsigned', 'NoPrompt', 'Boot2023', 'SplitFat32', 'SignCleanup', 'InstallOemDrivers', 'SignOnlyThisPc')
     $Script:Cfg = Import-Settings
     Initialize-Paths
     $Script:S = Import-State
@@ -137,6 +137,11 @@ try {
         $cb.Add_Click({
             $Script:Cfg[$this.Tag] = [bool]$this.IsChecked
             Save-Settings
+            if ($this.Tag -eq 'SignOnlyThisPc' -and $this.IsChecked) {
+                Show-Msg ("Use this only when the ISO is for this PC. INF files for other hardware are removed from the signed copy, so the driver " +
+                          "installs only on hardware that matches this PC. NVIDIA's own setup.exe may refuse to run from that copy - pnputil installs " +
+                          'the driver anyway. Sign the package again for it to take effect.') 'Information'
+            }
             if ($this.Tag -eq 'Boot2023' -and $this.IsChecked) {
                 Show-Msg ("With Secure Boot on, this ISO only boots on PCs whose UEFI already trusts 'Windows UEFI CA 2023'. Older firmware needs that " +
                           'Secure Boot update first (or Secure Boot off). The image also needs a 2024-04 or newer update.') 'Warning'

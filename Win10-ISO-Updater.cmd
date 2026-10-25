@@ -1,6 +1,6 @@
 @echo off
 :: ===========================================================================
-::  Win10-ISO-Updater.cmd  (v2.0.5)  -  one file, graphical interface
+::  Win10-ISO-Updater.cmd  (v2.0.6)  -  one file, graphical interface
 ::  - unpacks a Windows 10 ISO and detects its build
 ::  - downloads its updates from the Microsoft Update Catalog
 ::  - slipstreams updates and drivers (this PC or a Drivers-Backup folder)
@@ -23,7 +23,7 @@ exit /b
 set "W10U_SELF=%~f0"
 set "PSEXE=%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe"
 if exist "%SystemRoot%\Sysnative\WindowsPowerShell\v1.0\powershell.exe" set "PSEXE=%SystemRoot%\Sysnative\WindowsPowerShell\v1.0\powershell.exe"
-echo Starting Win10 ISO Updater v2.0.5 ...  (this window hides when the program opens)
+echo Starting Win10 ISO Updater v2.0.6 ...  (this window hides when the program opens)
 "%PSEXE%" -NoProfile -STA -ExecutionPolicy Bypass -Command "$t=[IO.File]::ReadAllText($env:W10U_SELF);$i=$t.IndexOf('#'+'PS-BEGIN');Invoke-Expression $t.Substring($i)"
 if errorlevel 1 pause
 exit /b
@@ -38,7 +38,7 @@ $ErrorActionPreference = 'Stop'
 $ProgressPreference    = 'SilentlyContinue'
 
 $Script:AppName      = 'Win10-ISO-Updater'
-$Script:AppVersion   = '2.0.5'
+$Script:AppVersion   = '2.0.6'
 $Script:Root         = Split-Path -Parent $env:W10U_SELF
 $ToolsDir            = Join-Path $Script:Root 'tools'
 $IsoPath             = $null
@@ -129,6 +129,7 @@ function Get-DefaultSettings {
         LastDriverFolder = ''
         SignCleanup      = $true
         InstallOemDrivers = $false
+        SignOnlyThisPc   = $false
     }
 }
 function Import-Settings {
@@ -1235,6 +1236,62 @@ function Invoke-Native([string]$File, [string[]]$ArgList) {
     $out = @(& $File @ArgList 2>&1 | ForEach-Object { "$_" })
     return [pscustomobject]@{ Code = $LASTEXITCODE; Output = $out; Text = ($out -join "`r`n") }
 }
+# Quotes one argument the way .NET / CommandLineToArgvW read it back.
+function ConvertTo-ArgText([string]$A) {
+    if ($A -and $A -notmatch '[\s"]') { return $A }
+    $s = $A -replace '(\\*)"', '$1$1\"'
+    $s = $s -replace '(\\+)$', '$1$1'
+    return '"' + $s + '"'
+}
+function Format-Span([TimeSpan]$T) { return ('{0}:{1:mm\:ss}' -f [int][math]::Floor($T.TotalHours), $T) }
+# Inf2Cat can run for a long time on big packages (NVIDIA Display.Driver has dozens of INF files
+# that all point at the same ~1 GB of files). Its output is read live, so the status line shows
+# what it is doing and for how long, even while it prints nothing.
+function Invoke-Inf2Cat([string]$Exe, [string]$Dir, [string]$Os, [string]$Label) {
+    $argText = (@("/driver:$Dir", "/os:$Os", '/uselocaltime', '/verbose') | ForEach-Object { ConvertTo-ArgText $_ }) -join ' '
+    Add-Log "EXEC $Exe $argText"
+    $psi = New-Object Diagnostics.ProcessStartInfo
+    $psi.FileName = $Exe
+    $psi.Arguments = $argText
+    $psi.UseShellExecute = $false
+    $psi.RedirectStandardOutput = $true
+    $psi.RedirectStandardError = $true
+    $psi.CreateNoWindow = $true
+    $start = Get-Date
+    $p = [Diagnostics.Process]::Start($psi)
+    $errTask = $p.StandardError.ReadToEndAsync()
+    $out = New-Object System.Collections.Generic.List[string]
+    $what = 'starting'
+    $shown = [datetime]::MinValue
+    $beat = 5                      # engine.log gets a "still running" line every 5 minutes
+    $read =$p.StandardOutput.ReadLineAsync()
+    while ($true) {
+        if ($read.Wait(500)) {
+            $line = $read.Result
+            if ($null -eq $line) { break }
+            $out.Add($line)
+            $t = $line.Trim()
+            if ($t -and $t -notmatch '^[\.\s]+$') {
+                # full paths -> file names, so the line fits the status bar
+                $t = $t -replace '(?i)\b[A-Z]:\\(?:[^\\\r\n]*\\)+', '' -replace '(?<![\w:])(?:/[^/\s]+)+/', ''
+                if ($t.Length -gt 90) { $t = $t.Substring(0, 87) + '...' }
+                $what = $t
+            }
+            $read = $p.StandardOutput.ReadLineAsync()
+        }
+        $now = Get-Date
+        if (($now - $start).TotalMinutes -ge $beat) { Add-Log ('Inf2Cat {0} still running ({1}) - {2}' -f $Label, (Format-Span ($now - $start)), $what); $beat += 5 }
+        if ($Script:Sync -and ($now - $shown).TotalMilliseconds -ge 400) {
+            $Script:Sync.Status = ('Inf2Cat {0}  {1}  - {2}' -f $Label, (Format-Span ($now - $start)), $what)
+            $shown = $now
+        }
+    }
+    $p.WaitForExit()
+    foreach ($l in ($errTask.Result -split "`r?`n")) { if ($l.Trim()) { $out.Add($l) } }
+    if ($Script:Sync) { $Script:Sync.Status = '' }
+    $lines = @($out)
+    return [pscustomobject]@{ Code = [int]$p.ExitCode; Output = $lines; Text = ($lines -join "`r`n"); Time = ((Get-Date) - $start) }
+}
 # ok | untrusted (signed, but by a certificate Windows does not trust) | mismatch (edited / not in the catalog)
 function Get-VerifyState([string]$Cat, [string]$Inf) {
     $r = Invoke-Native $Script:SignTool @('verify', '/pa', '/c', $Cat, $Inf)
@@ -1466,6 +1523,79 @@ function Get-InfFolders([string]$Root) {
     }
     return $list
 }
+# Hardware + compatible IDs of every device present in this PC.
+function Get-HostHardwareIds {
+    $ids = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
+    try {
+        foreach ($d in @(Get-CimInstance -ClassName Win32_PnPEntity -ErrorAction Stop)) {
+            foreach ($h in @($d.HardwareID) + @($d.CompatibleID)) { if ($h) { [void]$ids.Add(([string]$h).Trim()) } }
+        }
+    } catch { Add-Log "Hardware IDs of this PC could not be read: $($_.Exception.Message)" }
+    return , $ids
+}
+# Device IDs an INF installs on (PCI\VEN_10DE&DEV_2206&SUBSYS_..., HDAUDIO\FUNC_01&VEN_10DE...).
+function Get-InfDeviceIds([string]$Inf) {
+    $set = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
+    $text = ''
+    try { $text = [IO.File]::ReadAllText($Inf) } catch { }
+    foreach ($line in ($text -split "`r?`n")) {
+        $l = $line -replace ';.*$', ''
+        if ($l -notmatch '=') { continue }
+        foreach ($m in [regex]::Matches($l, '(?i)(?<![\w\\])(?:PCI|HDAUDIO|USB|HID|ACPI|SWC|INTELAUDIO|BTHENUM)\\[^\s,;"]+')) { [void]$set.Add($m.Value) }
+    }
+    return , $set
+}
+function Get-InfIncludes([string]$Inf) {
+    $names = @()
+    foreach ($line in @(Get-Content -LiteralPath $Inf -ErrorAction SilentlyContinue)) {
+        if ($line -match '^\s*Include\s*=\s*(.+)$') {
+            $names += @(($Matches[1] -replace ';.*$', '') -split ',' | ForEach-Object { $_.Trim().Trim('"') } | Where-Object { $_ })
+        }
+    }
+    return @($names | Sort-Object -Unique)
+}
+# "Only this PC's hardware": in a folder with several INF files (NVIDIA Display.Driver has one per
+# laptop / desktop maker), keeps the INF files that list a hardware ID of this PC and removes the
+# others from the work copy, so Inf2Cat has a fraction of the work. INF files without device IDs
+# (components, software) and INF files that a kept one includes stay. A folder where nothing
+# matches this PC is left whole.
+function Limit-InfsToHost([string]$Root, $Pkgs) {
+    $res = [pscustomobject]@{ Removed = 0; Kept = @() }
+    $hw = Get-HostHardwareIds
+    if ($hw.Count -eq 0) { Write-Warn 'The hardware IDs of this PC could not be read - every INF file is kept.'; return $res }
+    foreach ($p in @($Pkgs)) {
+        if (@($p.Infs).Count -lt 2) { continue }
+        $rel = $p.Dir.Substring($Root.TrimEnd('\', '/').Length).TrimStart('\', '/'); if (-not $rel) { $rel = '.' }
+        $keep = New-Object System.Collections.Generic.List[string]
+        $other = New-Object System.Collections.Generic.List[string]
+        $hits = @()
+        foreach ($inf in $p.Infs) {
+            $ids = Get-InfDeviceIds $inf
+            if ($ids.Count -eq 0) { $keep.Add($inf); continue }
+            $hit = $null
+            foreach ($id in $ids) { if ($hw.Contains($id)) { $hit = $id; break } }
+            if ($hit) { $keep.Add($inf); $hits += ('{0} ({1})' -f (Split-Path $inf -Leaf), $hit) } else { $other.Add($inf) }
+        }
+        if ($hits.Count -eq 0) { Write-Info "$rel : no INF file lists this PC's hardware - all $(@($p.Infs).Count) are kept"; continue }
+        if ($other.Count -eq 0) { continue }
+        $more = $true
+        while ($more) {
+            $more = $false
+            foreach ($k in @($keep)) {
+                foreach ($inc in (Get-InfIncludes $k)) {
+                    $o = @($other | Where-Object { (Split-Path $_ -Leaf) -ieq $inc }) | Select-Object -First 1
+                    if ($o) { [void]$other.Remove($o); $keep.Add($o); $more = $true }
+                }
+            }
+        }
+        foreach ($o in $other) { Remove-Item -LiteralPath $o -Force }
+        $p.Infs = @($keep)
+        $res.Removed += $other.Count
+        $res.Kept += @($keep | ForEach-Object { Split-Path $_ -Leaf })
+        Write-Info ("{0} : kept {1} for this PC, removed {2} INF file(s) for other hardware from the work copy" -f $rel, (($hits | Select-Object -First 3) -join ', '), $other.Count)
+    }
+    return $res
+}
 # ok | mismatch | untrusted | catalog-missing | no-catalog-directive | unknown (no signtool to check)
 function Get-InfState([string]$Inf) {
     $cats = @(Get-InfCatalogs $Inf)
@@ -1498,28 +1628,44 @@ function Test-SignedCatalog([string]$CatFile, [string]$Inf) {
     }
     return ((Get-AuthenticodeSignature -FilePath $CatFile).Status -eq 'Valid')
 }
-function Invoke-SignFolder([string]$Root, $Cert, [string]$Inf2Cat, [bool]$All) {
+function Invoke-SignFolder([string]$Root, $Cert, [string]$Inf2Cat, [bool]$All, [bool]$OnlyThisPc = $false) {
     $os = if ($Script:S.Family -and $Script:S.Family.Arch -eq 'x86') { '10_X86' } else { '10_X64' }
     $pkgs = @(Get-InfFolders $Root)
+    $trim = [pscustomobject]@{ Removed = 0; Kept = @() }
+    if ($OnlyThisPc) { $trim = Limit-InfsToHost $Root $pkgs }
     $states = @{}
+    $total = 0; foreach ($p in $pkgs) { $total += @($p.Infs).Count }
     $n = 0
-    foreach ($p in $pkgs) { foreach ($inf in $p.Infs) { $n++; Write-Host "checking INF $n" -NoNewline; $states[$inf] = Get-InfState $inf } }
+    foreach ($p in $pkgs) { foreach ($inf in $p.Infs) { $n++; Write-Host "checking the signature of INF $n of $total" -NoNewline; $states[$inf] = Get-InfState $inf } }
+    if ($Script:Sync) { $Script:Sync.Status = '' }
     $bad = @($states.Keys | Where-Object { $states[$_] -in 'mismatch', 'untrusted', 'catalog-missing', 'unknown' })
     $untrusted = @($states.Keys | Where-Object { $states[$_] -eq 'untrusted' }).Count
     Write-Info ("{0} INF file(s) in {1} folder(s) - {2} need a new signature ({3} signed with a certificate Windows does not trust)" -f @($states.Keys).Count, $pkgs.Count, $bad.Count, $untrusted)
-    $res = [ordered]@{ Signed = 0; Failed = 0; Untouched = 0; Skipped = 0 }
+    $res = [ordered]@{ Signed = 0; Failed = 0; Untouched = 0; Skipped = 0; Removed = [int]$trim.Removed; Kept = @($trim.Kept) }
+    $todo = @()
     foreach ($p in $pkgs) {
-        $rel = $p.Dir.Substring($Root.TrimEnd('\').Length).TrimStart('\'); if (-not $rel) { $rel = '.' }
+        $rel = $p.Dir.Substring($Root.TrimEnd('\', '/').Length).TrimStart('\', '/'); if (-not $rel) { $rel = '.' }
         $withCat = @($p.Infs | Where-Object { $states[$_] -ne 'no-catalog-directive' })
         $need = @($p.Infs | Where-Object { $states[$_] -in 'mismatch', 'untrusted', 'catalog-missing', 'unknown' })
         if ($withCat.Count -eq 0) { Write-Info "$rel : no CatalogFile= line in the INF - left as is"; $res.Skipped++; continue }
         if (-not $All -and $need.Count -eq 0) { $res.Untouched++; continue }
-        Write-Sub $rel
+        $todo += [pscustomobject]@{ Pkg = $p; Rel = $rel; WithCat = $withCat }
+    }
+    $i = 0
+    foreach ($t in $todo) {
+        $i++
+        $p = $t.Pkg; $rel = $t.Rel; $withCat = $t.WithCat
+        $cnt = @($p.Infs).Count
+        Write-Sub ('{0}  ({1} INF file(s), folder {2} of {3})' -f $rel, $cnt, $i, $todo.Count)
+        if ($cnt -ge 10) {
+            Write-Info "Inf2Cat checks each of these INF files against every file of the package - this can take a long time (up to an hour for a full NVIDIA package). It is still working while the time in the status line keeps counting."
+            if (-not $OnlyThisPc) { Write-Info 'Faster next time: "Only keep the INF files for this PC''s hardware" on this page.' }
+        }
         $start = Get-Date
-        $r = Invoke-Native $Inf2Cat @("/driver:$($p.Dir)", "/os:$os", '/uselocaltime', '/verbose')
+        $r = Invoke-Inf2Cat $Inf2Cat $p.Dir $os ('{0} ({1} of {2})' -f $rel, $i, $todo.Count)
         $o = $r.Output
         $code = $r.Code
-        Add-Log ("[$rel] Inf2Cat exit $code`r`n" + ($o | Out-String))
+        Add-Log ("[$rel] Inf2Cat exit $code after $(Format-Span $r.Time)`r`n" + ($o | Out-String))
         if ($code -ne 0) {
             Write-Err "Inf2Cat failed for $rel"
             @($o | Out-String -Stream | Where-Object { $_.Trim() } | Select-Object -Last 4) | ForEach-Object { Write-Host "       $_" -ForegroundColor DarkYellow }
@@ -1533,12 +1679,12 @@ function Invoke-SignFolder([string]$Root, $Cert, [string]$Inf2Cat, [bool]$All) {
         if ($ok) {
             foreach ($inf in $withCat) { foreach ($c in (Get-InfCatalogs $inf)) { if (-not (Test-SignedCatalog (Join-Path $p.Dir $c) $inf)) { $ok = $false; Write-Err "Verification failed: $c" } } }
         }
-        if ($ok) { $res.Signed++; Write-Ok "$rel signed and verified" } else { $res.Failed++ }
+        if ($ok) { $res.Signed++; Write-Ok "$rel signed and verified (Inf2Cat took $(Format-Span $r.Time))" } else { $res.Failed++ }
     }
     if ($Script:Sync) { $Script:Sync.Status = '' }
     return $res
 }
-function Invoke-SignPackage([string]$Source, [string]$Name, $Password, [bool]$All) {
+function Invoke-SignPackage([string]$Source, [string]$Name, $Password, [bool]$All, [bool]$OnlyThisPc = $false) {
     if (-not (Test-Path -LiteralPath $Source -PathType Container)) { throw "Folder not found: $Source" }
     $Name = ($Name -replace '[^\w\.-]', '_').Trim('_')
     if (-not $Name) { $Name = 'Driver' }
@@ -1554,11 +1700,13 @@ function Invoke-SignPackage([string]$Source, [string]$Name, $Password, [bool]$Al
     $cer = Join-Path $Script:SignDir 'DriverSigning.cer'
     Write-Step 'Building new catalogs and signing them'
     $added = @(Add-TempTrust $cer)   # only while verifying - the ISO trusts it during setup
-    try { $res = Invoke-SignFolder $dest $cert $tools.Inf2Cat $All }
+    if ($OnlyThisPc) { Write-Info 'Only the INF files for this PC''s hardware are kept - the ISO installs this driver on this PC only.' }
+    try { $res = Invoke-SignFolder $dest $cert $tools.Inf2Cat $All $OnlyThisPc }
     finally { if ($added.Count) { Remove-TempTrust $cer $added } }
     $rec = [ordered]@{
         Name = $Name; Source = $Source; Path = $dest; InstallDir = "C:\Drivers\$Name"; When = (Get-Date).ToString('yyyy-MM-dd HH:mm')
         Signed = [int]$res.Signed; Failed = [int]$res.Failed; Untouched = [int]$res.Untouched; Thumbprint = $cert.Thumbprint
+        OnlyThisPc = [bool]($OnlyThisPc -and $res.Removed -gt 0); Removed = [int]$res.Removed; Kept = @($res.Kept)
     }
     $Script:S.Signed = @(@($Script:S.Signed | Where-Object { $_ -and $_.Name -ne $Name }) + @($rec))
     Save-State
@@ -2094,6 +2242,9 @@ function Test-SignedPackages([string]$OwnThumb) {
         if ($OwnThumb -and $x.Thumbprint -and $x.Thumbprint -ne $OwnThumb) { Add-Finding 'Error' 'Signed drivers' ('{0} was signed with another certificate than the one in the signing folder.' -f $x.Name) '' 'Sign it again on page 5'; continue }
         if ([int]$x.Failed -gt 0) { Add-Finding 'Warning' 'Signed drivers' ('{0}: {1} folder(s) failed to sign - those parts will not install.' -f $x.Name, $x.Failed) '' 'See logs\engine.log, then sign again' }
         else { Add-Finding 'OK' 'Signed drivers' ('{0}: {1} package folder(s) signed with your certificate, installs from {2}.' -f $x.Name, $x.Signed, $x.InstallDir) }
+        if ($x.OnlyThisPc) {
+            Add-Finding 'Info' 'Signed drivers' ('{0}: only the INF files for the PC it was signed on were kept ({1}; {2} removed) - it installs on that hardware only.' -f $x.Name, ((@($x.Kept) | Select-Object -First 4) -join ', '), [int]$x.Removed)
+        }
     }
 }
 function Test-DriverCoverage($Ctx) {
@@ -2394,6 +2545,13 @@ function Invoke-InstallCheck([switch]$NoDownload, [switch]$Quiet) {
             Add-Finding 'Warning' 'Signed drivers' ('{0} - but SetupComplete-drivers.cmd deletes that folder right after pnputil has installed the driver, so the file is gone when this runs.' -f (($refs | Select-Object -First 3) -join '; ')) 'keep-driver-copy' 'Keep the driver copy in C:\Drivers (turns off "Delete the driver copy")'
         } elseif ($refs.Count) {
             Add-Finding 'OK' 'Signed drivers' ('{0} - the signed copy stays in place for it.' -f (($refs | Select-Object -First 3) -join '; '))
+        }
+        foreach ($sp in @($Script:S.Signed | Where-Object { $_ -and $_.OnlyThisPc })) {
+            $rel = ([string]$sp.InstallDir) -replace '^[A-Za-z]:\\?', ''
+            $exe = @($refs | Where-Object { $_ -match ('(?i)' + [regex]::Escape($rel) + '\\[^\s"]*\.exe') })
+            if ($exe.Count) {
+                Add-Finding 'Warning' 'Signed drivers' ('{0} - but {1} only keeps the INF files for this PC, and NVIDIA''s installer may stop when the others are missing. pnputil installs the driver anyway.' -f $exe[0], $sp.Name) '' 'If the installer fails, turn off "Only keep the INF files for this PC" on page 5 and sign again'
+            }
         }
     } finally {
         if ($added.Count) { try { Remove-TempTrust $cer $added } catch { } }
@@ -2738,7 +2896,7 @@ function Invoke-Job([string]$Job, $A) {
                 Write-Ok "$(@($Script:Sync.Result).Count) driver(s) found."
             }
             'CommitImport' { Save-ImportDrivers $A.Dir $A.Pick }
-            'Sign'         { Invoke-SignPackage $A.Source $A.Name $A.Password ([bool]$A.All) }
+            'Sign'         { Invoke-SignPackage $A.Source $A.Name $A.Password ([bool]$A.All) ([bool]$Script:Cfg.SignOnlyThisPc) }
             'Service'      { Invoke-Service -Auto }
             'Build'        { Invoke-Build -Auto -OutIso ([string]$A.Out) }
             'All'          { Invoke-RunAll $A }
@@ -3230,6 +3388,8 @@ $Script:XPages = @'
               </Grid>
               <CheckBox x:Name="SignAll" Style="{StaticResource Toggle}" Margin="0,12,0,0" Content="Re-sign every package, not only the modified ones"/>
               <CheckBox x:Name="cfg_SignCleanup" Style="{StaticResource Toggle}" Content="Delete the driver copy from C:\Drivers once it is installed"/>
+              <CheckBox x:Name="cfg_SignOnlyThisPc" Style="{StaticResource Toggle}" Content="Faster: only keep the INF files for this PC's hardware (when the ISO is for this PC)"/>
+              <TextBlock Style="{StaticResource Sub}" Margin="48,-2,0,4" Text="NVIDIA's Display.Driver has one INF file per laptop and desktop maker, and Inf2Cat checks every one of them against the whole package - that can take up to an hour. With this on, only the INF files that list a device of this PC are signed (minutes instead), the others are removed from the copy. The original folder is not touched."/>
               <WrapPanel Margin="0,14,0,0">
                 <Button x:Name="SignBtn" Style="{StaticResource Primary}" Content="Sign and add to the ISO"/>
                 <Button x:Name="SignOpen" Style="{StaticResource Btn}" Content="Open signing folder"/>
@@ -3707,7 +3867,7 @@ function Update-Ui {
         } else { $U.DrvSum.Text = 'No drivers selected.' }
 
         # 5 signed
-        $U.SignGrid.ItemsSource = (New-Table @('Name', 'InstallsFrom', 'Signed:int', 'Failed:int', 'When', 'Source') @(foreach ($x in @($S.Signed | Where-Object { $_ })) { , @($x.Name, $x.InstallDir, [int]$x.Signed, [int]$x.Failed, $x.When, $x.Source) })).DefaultView
+        $U.SignGrid.ItemsSource = (New-Table @('Name', 'InstallsFrom', 'Signed:int', 'Failed:int', 'INFs', 'When', 'Source') @(foreach ($x in @($S.Signed | Where-Object { $_ })) { , @($x.Name, $x.InstallDir, [int]$x.Signed, [int]$x.Failed, $(if ($x.OnlyThisPc) { "this PC only ($(@($x.Kept).Count) kept)" } else { 'all' }), $x.When, $x.Source) })).DefaultView
         Update-SignDest
         $cs = 'create'; $c = $null
         try { $cs = Get-CertStatus; $c = Get-StoreCert } catch { }
@@ -3967,7 +4127,7 @@ try {
         Question = $null; Answer = $null; Result = $null
     })
     $Script:Busy = $false
-    $Script:CfgToggles = @('KeepOnlySelected', 'NetFx3', 'NetFx481', 'ResetBase', 'BootDrivers', 'ForceUnsigned', 'NoPrompt', 'Boot2023', 'SplitFat32', 'SignCleanup', 'InstallOemDrivers')
+    $Script:CfgToggles = @('KeepOnlySelected', 'NetFx3', 'NetFx481', 'ResetBase', 'BootDrivers', 'ForceUnsigned', 'NoPrompt', 'Boot2023', 'SplitFat32', 'SignCleanup', 'InstallOemDrivers', 'SignOnlyThisPc')
     $Script:Cfg = Import-Settings
     Initialize-Paths
     $Script:S = Import-State
@@ -4014,6 +4174,11 @@ try {
         $cb.Add_Click({
             $Script:Cfg[$this.Tag] = [bool]$this.IsChecked
             Save-Settings
+            if ($this.Tag -eq 'SignOnlyThisPc' -and $this.IsChecked) {
+                Show-Msg ("Use this only when the ISO is for this PC. INF files for other hardware are removed from the signed copy, so the driver " +
+                          "installs only on hardware that matches this PC. NVIDIA's own setup.exe may refuse to run from that copy - pnputil installs " +
+                          'the driver anyway. Sign the package again for it to take effect.') 'Information'
+            }
             if ($this.Tag -eq 'Boot2023' -and $this.IsChecked) {
                 Show-Msg ("With Secure Boot on, this ISO only boots on PCs whose UEFI already trusts 'Windows UEFI CA 2023'. Older firmware needs that " +
                           'Secure Boot update first (or Secure Boot off). The image also needs a 2024-04 or newer update.') 'Warning'

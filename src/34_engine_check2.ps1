@@ -274,6 +274,13 @@ function Invoke-InstallCheck([switch]$NoDownload, [switch]$Quiet) {
         } elseif ($refs.Count) {
             Add-Finding 'OK' 'Signed drivers' ('{0} - the signed copy stays in place for it.' -f (($refs | Select-Object -First 3) -join '; '))
         }
+        foreach ($sp in @($Script:S.Signed | Where-Object { $_ -and $_.OnlyThisPc })) {
+            $rel = ([string]$sp.InstallDir) -replace '^[A-Za-z]:\\?', ''
+            $exe = @($refs | Where-Object { $_ -match ('(?i)' + [regex]::Escape($rel) + '\\[^\s"]*\.exe') })
+            if ($exe.Count) {
+                Add-Finding 'Warning' 'Signed drivers' ('{0} - but {1} only keeps the INF files for this PC, and NVIDIA''s installer may stop when the others are missing. pnputil installs the driver anyway.' -f $exe[0], $sp.Name) '' 'If the installer fails, turn off "Only keep the INF files for this PC" on page 5 and sign again'
+            }
+        }
     } finally {
         if ($added.Count) { try { Remove-TempTrust $cer $added } catch { } }
         if ($Script:Sync) { $Script:Sync.Status = '' }

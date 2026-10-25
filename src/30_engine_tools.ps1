@@ -61,6 +61,62 @@ function Invoke-Native([string]$File, [string[]]$ArgList) {
     $out = @(& $File @ArgList 2>&1 | ForEach-Object { "$_" })
     return [pscustomobject]@{ Code = $LASTEXITCODE; Output = $out; Text = ($out -join "`r`n") }
 }
+# Quotes one argument the way .NET / CommandLineToArgvW read it back.
+function ConvertTo-ArgText([string]$A) {
+    if ($A -and $A -notmatch '[\s"]') { return $A }
+    $s = $A -replace '(\\*)"', '$1$1\"'
+    $s = $s -replace '(\\+)$', '$1$1'
+    return '"' + $s + '"'
+}
+function Format-Span([TimeSpan]$T) { return ('{0}:{1:mm\:ss}' -f [int][math]::Floor($T.TotalHours), $T) }
+# Inf2Cat can run for a long time on big packages (NVIDIA Display.Driver has dozens of INF files
+# that all point at the same ~1 GB of files). Its output is read live, so the status line shows
+# what it is doing and for how long, even while it prints nothing.
+function Invoke-Inf2Cat([string]$Exe, [string]$Dir, [string]$Os, [string]$Label) {
+    $argText = (@("/driver:$Dir", "/os:$Os", '/uselocaltime', '/verbose') | ForEach-Object { ConvertTo-ArgText $_ }) -join ' '
+    Add-Log "EXEC $Exe $argText"
+    $psi = New-Object Diagnostics.ProcessStartInfo
+    $psi.FileName = $Exe
+    $psi.Arguments = $argText
+    $psi.UseShellExecute = $false
+    $psi.RedirectStandardOutput = $true
+    $psi.RedirectStandardError = $true
+    $psi.CreateNoWindow = $true
+    $start = Get-Date
+    $p = [Diagnostics.Process]::Start($psi)
+    $errTask = $p.StandardError.ReadToEndAsync()
+    $out = New-Object System.Collections.Generic.List[string]
+    $what = 'starting'
+    $shown = [datetime]::MinValue
+    $beat = 5                      # engine.log gets a "still running" line every 5 minutes
+    $read =$p.StandardOutput.ReadLineAsync()
+    while ($true) {
+        if ($read.Wait(500)) {
+            $line = $read.Result
+            if ($null -eq $line) { break }
+            $out.Add($line)
+            $t = $line.Trim()
+            if ($t -and $t -notmatch '^[\.\s]+$') {
+                # full paths -> file names, so the line fits the status bar
+                $t = $t -replace '(?i)\b[A-Z]:\\(?:[^\\\r\n]*\\)+', '' -replace '(?<![\w:])(?:/[^/\s]+)+/', ''
+                if ($t.Length -gt 90) { $t = $t.Substring(0, 87) + '...' }
+                $what = $t
+            }
+            $read = $p.StandardOutput.ReadLineAsync()
+        }
+        $now = Get-Date
+        if (($now - $start).TotalMinutes -ge $beat) { Add-Log ('Inf2Cat {0} still running ({1}) - {2}' -f $Label, (Format-Span ($now - $start)), $what); $beat += 5 }
+        if ($Script:Sync -and ($now - $shown).TotalMilliseconds -ge 400) {
+            $Script:Sync.Status = ('Inf2Cat {0}  {1}  - {2}' -f $Label, (Format-Span ($now - $start)), $what)
+            $shown = $now
+        }
+    }
+    $p.WaitForExit()
+    foreach ($l in ($errTask.Result -split "`r?`n")) { if ($l.Trim()) { $out.Add($l) } }
+    if ($Script:Sync) { $Script:Sync.Status = '' }
+    $lines = @($out)
+    return [pscustomobject]@{ Code = [int]$p.ExitCode; Output = $lines; Text = ($lines -join "`r`n"); Time = ((Get-Date) - $start) }
+}
 # ok | untrusted (signed, but by a certificate Windows does not trust) | mismatch (edited / not in the catalog)
 function Get-VerifyState([string]$Cat, [string]$Inf) {
     $r = Invoke-Native $Script:SignTool @('verify', '/pa', '/c', $Cat, $Inf)

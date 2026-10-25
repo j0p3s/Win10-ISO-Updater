@@ -1,5 +1,16 @@
 # Changelog
 
+## v2.0.6 — 2026-10-25
+
+### Added
+- **Faster signing option: "Only keep the INF files for this PC's hardware"** (page 5, off by default). NVIDIA's `Display.Driver` has about 40 INF files, one per laptop / desktop maker, and Inf2Cat checks each of them against the whole ~1 GB package. With this on, only the INF files that list a device of this PC are kept in the work copy and signed, so it takes minutes instead of up to an hour.
+  - INF files without device IDs and INF files a kept one includes stay; a folder where nothing matches is kept whole.
+  - Use it only when the ISO is for this PC. The Install check notes such packages and warns when a script runs their `setup.exe`.
+
+### Changed
+- **Live Inf2Cat status.** The status line shows the folder (n of m), the running time and what Inf2Cat is doing. The log shows each folder's INF count and how long Inf2Cat took, explains the wait for big folders, and `engine.log` gets a "still running" line every 5 minutes.
+- The status line no longer keeps showing "checking INF 47" after the signature check.
+
 ## v2.0.5 — 2026-10-24
 
 ### Changed — Install check

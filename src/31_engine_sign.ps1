@@ -86,6 +86,79 @@ function Get-InfFolders([string]$Root) {
     }
     return $list
 }
+# Hardware + compatible IDs of every device present in this PC.
+function Get-HostHardwareIds {
+    $ids = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
+    try {
+        foreach ($d in @(Get-CimInstance -ClassName Win32_PnPEntity -ErrorAction Stop)) {
+            foreach ($h in @($d.HardwareID) + @($d.CompatibleID)) { if ($h) { [void]$ids.Add(([string]$h).Trim()) } }
+        }
+    } catch { Add-Log "Hardware IDs of this PC could not be read: $($_.Exception.Message)" }
+    return , $ids
+}
+# Device IDs an INF installs on (PCI\VEN_10DE&DEV_2206&SUBSYS_..., HDAUDIO\FUNC_01&VEN_10DE...).
+function Get-InfDeviceIds([string]$Inf) {
+    $set = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
+    $text = ''
+    try { $text = [IO.File]::ReadAllText($Inf) } catch { }
+    foreach ($line in ($text -split "`r?`n")) {
+        $l = $line -replace ';.*$', ''
+        if ($l -notmatch '=') { continue }
+        foreach ($m in [regex]::Matches($l, '(?i)(?<![\w\\])(?:PCI|HDAUDIO|USB|HID|ACPI|SWC|INTELAUDIO|BTHENUM)\\[^\s,;"]+')) { [void]$set.Add($m.Value) }
+    }
+    return , $set
+}
+function Get-InfIncludes([string]$Inf) {
+    $names = @()
+    foreach ($line in @(Get-Content -LiteralPath $Inf -ErrorAction SilentlyContinue)) {
+        if ($line -match '^\s*Include\s*=\s*(.+)$') {
+            $names += @(($Matches[1] -replace ';.*$', '') -split ',' | ForEach-Object { $_.Trim().Trim('"') } | Where-Object { $_ })
+        }
+    }
+    return @($names | Sort-Object -Unique)
+}
+# "Only this PC's hardware": in a folder with several INF files (NVIDIA Display.Driver has one per
+# laptop / desktop maker), keeps the INF files that list a hardware ID of this PC and removes the
+# others from the work copy, so Inf2Cat has a fraction of the work. INF files without device IDs
+# (components, software) and INF files that a kept one includes stay. A folder where nothing
+# matches this PC is left whole.
+function Limit-InfsToHost([string]$Root, $Pkgs) {
+    $res = [pscustomobject]@{ Removed = 0; Kept = @() }
+    $hw = Get-HostHardwareIds
+    if ($hw.Count -eq 0) { Write-Warn 'The hardware IDs of this PC could not be read - every INF file is kept.'; return $res }
+    foreach ($p in @($Pkgs)) {
+        if (@($p.Infs).Count -lt 2) { continue }
+        $rel = $p.Dir.Substring($Root.TrimEnd('\', '/').Length).TrimStart('\', '/'); if (-not $rel) { $rel = '.' }
+        $keep = New-Object System.Collections.Generic.List[string]
+        $other = New-Object System.Collections.Generic.List[string]
+        $hits = @()
+        foreach ($inf in $p.Infs) {
+            $ids = Get-InfDeviceIds $inf
+            if ($ids.Count -eq 0) { $keep.Add($inf); continue }
+            $hit = $null
+            foreach ($id in $ids) { if ($hw.Contains($id)) { $hit = $id; break } }
+            if ($hit) { $keep.Add($inf); $hits += ('{0} ({1})' -f (Split-Path $inf -Leaf), $hit) } else { $other.Add($inf) }
+        }
+        if ($hits.Count -eq 0) { Write-Info "$rel : no INF file lists this PC's hardware - all $(@($p.Infs).Count) are kept"; continue }
+        if ($other.Count -eq 0) { continue }
+        $more = $true
+        while ($more) {
+            $more = $false
+            foreach ($k in @($keep)) {
+                foreach ($inc in (Get-InfIncludes $k)) {
+                    $o = @($other | Where-Object { (Split-Path $_ -Leaf) -ieq $inc }) | Select-Object -First 1
+                    if ($o) { [void]$other.Remove($o); $keep.Add($o); $more = $true }
+                }
+            }
+        }
+        foreach ($o in $other) { Remove-Item -LiteralPath $o -Force }
+        $p.Infs = @($keep)
+        $res.Removed += $other.Count
+        $res.Kept += @($keep | ForEach-Object { Split-Path $_ -Leaf })
+        Write-Info ("{0} : kept {1} for this PC, removed {2} INF file(s) for other hardware from the work copy" -f $rel, (($hits | Select-Object -First 3) -join ', '), $other.Count)
+    }
+    return $res
+}
 # ok | mismatch | untrusted | catalog-missing | no-catalog-directive | unknown (no signtool to check)
 function Get-InfState([string]$Inf) {
     $cats = @(Get-InfCatalogs $Inf)
@@ -118,28 +191,44 @@ function Test-SignedCatalog([string]$CatFile, [string]$Inf) {
     }
     return ((Get-AuthenticodeSignature -FilePath $CatFile).Status -eq 'Valid')
 }
-function Invoke-SignFolder([string]$Root, $Cert, [string]$Inf2Cat, [bool]$All) {
+function Invoke-SignFolder([string]$Root, $Cert, [string]$Inf2Cat, [bool]$All, [bool]$OnlyThisPc = $false) {
     $os = if ($Script:S.Family -and $Script:S.Family.Arch -eq 'x86') { '10_X86' } else { '10_X64' }
     $pkgs = @(Get-InfFolders $Root)
+    $trim = [pscustomobject]@{ Removed = 0; Kept = @() }
+    if ($OnlyThisPc) { $trim = Limit-InfsToHost $Root $pkgs }
     $states = @{}
+    $total = 0; foreach ($p in $pkgs) { $total += @($p.Infs).Count }
     $n = 0
-    foreach ($p in $pkgs) { foreach ($inf in $p.Infs) { $n++; Write-Host "checking INF $n" -NoNewline; $states[$inf] = Get-InfState $inf } }
+    foreach ($p in $pkgs) { foreach ($inf in $p.Infs) { $n++; Write-Host "checking the signature of INF $n of $total" -NoNewline; $states[$inf] = Get-InfState $inf } }
+    if ($Script:Sync) { $Script:Sync.Status = '' }
     $bad = @($states.Keys | Where-Object { $states[$_] -in 'mismatch', 'untrusted', 'catalog-missing', 'unknown' })
     $untrusted = @($states.Keys | Where-Object { $states[$_] -eq 'untrusted' }).Count
     Write-Info ("{0} INF file(s) in {1} folder(s) - {2} need a new signature ({3} signed with a certificate Windows does not trust)" -f @($states.Keys).Count, $pkgs.Count, $bad.Count, $untrusted)
-    $res = [ordered]@{ Signed = 0; Failed = 0; Untouched = 0; Skipped = 0 }
+    $res = [ordered]@{ Signed = 0; Failed = 0; Untouched = 0; Skipped = 0; Removed = [int]$trim.Removed; Kept = @($trim.Kept) }
+    $todo = @()
     foreach ($p in $pkgs) {
-        $rel = $p.Dir.Substring($Root.TrimEnd('\').Length).TrimStart('\'); if (-not $rel) { $rel = '.' }
+        $rel = $p.Dir.Substring($Root.TrimEnd('\', '/').Length).TrimStart('\', '/'); if (-not $rel) { $rel = '.' }
         $withCat = @($p.Infs | Where-Object { $states[$_] -ne 'no-catalog-directive' })
         $need = @($p.Infs | Where-Object { $states[$_] -in 'mismatch', 'untrusted', 'catalog-missing', 'unknown' })
         if ($withCat.Count -eq 0) { Write-Info "$rel : no CatalogFile= line in the INF - left as is"; $res.Skipped++; continue }
         if (-not $All -and $need.Count -eq 0) { $res.Untouched++; continue }
-        Write-Sub $rel
+        $todo += [pscustomobject]@{ Pkg = $p; Rel = $rel; WithCat = $withCat }
+    }
+    $i = 0
+    foreach ($t in $todo) {
+        $i++
+        $p = $t.Pkg; $rel = $t.Rel; $withCat = $t.WithCat
+        $cnt = @($p.Infs).Count
+        Write-Sub ('{0}  ({1} INF file(s), folder {2} of {3})' -f $rel, $cnt, $i, $todo.Count)
+        if ($cnt -ge 10) {
+            Write-Info "Inf2Cat checks each of these INF files against every file of the package - this can take a long time (up to an hour for a full NVIDIA package). It is still working while the time in the status line keeps counting."
+            if (-not $OnlyThisPc) { Write-Info 'Faster next time: "Only keep the INF files for this PC''s hardware" on this page.' }
+        }
         $start = Get-Date
-        $r = Invoke-Native $Inf2Cat @("/driver:$($p.Dir)", "/os:$os", '/uselocaltime', '/verbose')
+        $r = Invoke-Inf2Cat $Inf2Cat $p.Dir $os ('{0} ({1} of {2})' -f $rel, $i, $todo.Count)
         $o = $r.Output
         $code = $r.Code
-        Add-Log ("[$rel] Inf2Cat exit $code`r`n" + ($o | Out-String))
+        Add-Log ("[$rel] Inf2Cat exit $code after $(Format-Span $r.Time)`r`n" + ($o | Out-String))
         if ($code -ne 0) {
             Write-Err "Inf2Cat failed for $rel"
             @($o | Out-String -Stream | Where-Object { $_.Trim() } | Select-Object -Last 4) | ForEach-Object { Write-Host "       $_" -ForegroundColor DarkYellow }
@@ -153,12 +242,12 @@ function Invoke-SignFolder([string]$Root, $Cert, [string]$Inf2Cat, [bool]$All) {
         if ($ok) {
             foreach ($inf in $withCat) { foreach ($c in (Get-InfCatalogs $inf)) { if (-not (Test-SignedCatalog (Join-Path $p.Dir $c) $inf)) { $ok = $false; Write-Err "Verification failed: $c" } } }
         }
-        if ($ok) { $res.Signed++; Write-Ok "$rel signed and verified" } else { $res.Failed++ }
+        if ($ok) { $res.Signed++; Write-Ok "$rel signed and verified (Inf2Cat took $(Format-Span $r.Time))" } else { $res.Failed++ }
     }
     if ($Script:Sync) { $Script:Sync.Status = '' }
     return $res
 }
-function Invoke-SignPackage([string]$Source, [string]$Name, $Password, [bool]$All) {
+function Invoke-SignPackage([string]$Source, [string]$Name, $Password, [bool]$All, [bool]$OnlyThisPc = $false) {
     if (-not (Test-Path -LiteralPath $Source -PathType Container)) { throw "Folder not found: $Source" }
     $Name = ($Name -replace '[^\w\.-]', '_').Trim('_')
     if (-not $Name) { $Name = 'Driver' }
@@ -174,11 +263,13 @@ function Invoke-SignPackage([string]$Source, [string]$Name, $Password, [bool]$Al
     $cer = Join-Path $Script:SignDir 'DriverSigning.cer'
     Write-Step 'Building new catalogs and signing them'
     $added = @(Add-TempTrust $cer)   # only while verifying - the ISO trusts it during setup
-    try { $res = Invoke-SignFolder $dest $cert $tools.Inf2Cat $All }
+    if ($OnlyThisPc) { Write-Info 'Only the INF files for this PC''s hardware are kept - the ISO installs this driver on this PC only.' }
+    try { $res = Invoke-SignFolder $dest $cert $tools.Inf2Cat $All $OnlyThisPc }
     finally { if ($added.Count) { Remove-TempTrust $cer $added } }
     $rec = [ordered]@{
         Name = $Name; Source = $Source; Path = $dest; InstallDir = "C:\Drivers\$Name"; When = (Get-Date).ToString('yyyy-MM-dd HH:mm')
         Signed = [int]$res.Signed; Failed = [int]$res.Failed; Untouched = [int]$res.Untouched; Thumbprint = $cert.Thumbprint
+        OnlyThisPc = [bool]($OnlyThisPc -and $res.Removed -gt 0); Removed = [int]$res.Removed; Kept = @($res.Kept)
     }
     $Script:S.Signed = @(@($Script:S.Signed | Where-Object { $_ -and $_.Name -ne $Name }) + @($rec))
     Save-State

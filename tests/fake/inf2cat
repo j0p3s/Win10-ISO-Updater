@@ -1,7 +1,9 @@
 #!/bin/sh
 # fake Inf2Cat: /driver:<dir> -> writes every CatalogFile named in the INFs, unsigned
+# FAKE_INF2CAT_SLOW=1 prints one line per INF (full path) with a pause, like a long real run.
 for a in "$@"; do case "$a" in /driver:*) d="${a#/driver:}";; esac; done
 for inf in "$d"/*.inf; do
+  if [ -n "$FAKE_INF2CAT_SLOW" ]; then echo "Processing INF: $inf"; echo "......"; sleep 1; fi
   c=$(grep -i '^ *CatalogFile' "$inf" | head -1 | sed 's/.*= *//; s/[ ;].*//' | tr -d '\r')
   [ -n "$c" ] && printf 'catalog-unsigned' > "$d/$c"
 done

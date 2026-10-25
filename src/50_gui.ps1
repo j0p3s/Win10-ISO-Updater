@@ -249,7 +249,7 @@ function Update-Ui {
         } else { $U.DrvSum.Text = 'No drivers selected.' }
 
         # 5 signed
-        $U.SignGrid.ItemsSource = (New-Table @('Name', 'InstallsFrom', 'Signed:int', 'Failed:int', 'When', 'Source') @(foreach ($x in @($S.Signed | Where-Object { $_ })) { , @($x.Name, $x.InstallDir, [int]$x.Signed, [int]$x.Failed, $x.When, $x.Source) })).DefaultView
+        $U.SignGrid.ItemsSource = (New-Table @('Name', 'InstallsFrom', 'Signed:int', 'Failed:int', 'INFs', 'When', 'Source') @(foreach ($x in @($S.Signed | Where-Object { $_ })) { , @($x.Name, $x.InstallDir, [int]$x.Signed, [int]$x.Failed, $(if ($x.OnlyThisPc) { "this PC only ($(@($x.Kept).Count) kept)" } else { 'all' }), $x.When, $x.Source) })).DefaultView
         Update-SignDest
         $cs = 'create'; $c = $null
         try { $cs = Get-CertStatus; $c = Get-StoreCert } catch { }

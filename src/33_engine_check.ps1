@@ -415,6 +415,9 @@ function Test-SignedPackages([string]$OwnThumb) {
         if ($OwnThumb -and $x.Thumbprint -and $x.Thumbprint -ne $OwnThumb) { Add-Finding 'Error' 'Signed drivers' ('{0} was signed with another certificate than the one in the signing folder.' -f $x.Name) '' 'Sign it again on page 5'; continue }
         if ([int]$x.Failed -gt 0) { Add-Finding 'Warning' 'Signed drivers' ('{0}: {1} folder(s) failed to sign - those parts will not install.' -f $x.Name, $x.Failed) '' 'See logs\engine.log, then sign again' }
         else { Add-Finding 'OK' 'Signed drivers' ('{0}: {1} package folder(s) signed with your certificate, installs from {2}.' -f $x.Name, $x.Signed, $x.InstallDir) }
+        if ($x.OnlyThisPc) {
+            Add-Finding 'Info' 'Signed drivers' ('{0}: only the INF files for the PC it was signed on were kept ({1}; {2} removed) - it installs on that hardware only.' -f $x.Name, ((@($x.Kept) | Select-Object -First 4) -join ', '), [int]$x.Removed)
+        }
     }
 }
 function Test-DriverCoverage($Ctx) {

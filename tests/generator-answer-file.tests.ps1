@@ -55,6 +55,13 @@ $ns = New-Object System.Xml.XmlNamespaceManager($fx.NameTable); $ns.AddNamespace
 $orders = @($fx.SelectNodes("//u:settings[@pass='specialize']/u:component[@name='Microsoft-Windows-Deployment']/u:RunSynchronous/u:RunSynchronousCommand/u:Order", $ns) | % InnerText) -join ','
 Check "his specialize commands kept, ours appended as 4 ($orders)" ($orders -eq '1,2,3,4')
 Check 'Extensions block untouched' ($fx.OuterXml -match 'WinTweaks-FirstBoot' -and @($fx.SelectNodes("//*[local-name()='File']")).Count -eq 3)
-"warnings left: " + (@($res | ? Level -eq 'Warning' | % { $_.Area + ': ' + (Limit-Text $_.Finding 110) }) -join "`n  ")
+# package signed with "only this PC's hardware": reported, and firstboot.ps1 running setup.exe from it is flagged
+$Script:S.Signed = @([ordered]@{ Name = 'NVIDIA'; Source = 'C:\Users\User\Desktop\NVCleanstall'; Path = $pkg; InstallDir = 'C:\Drivers\NVIDIA'; Signed = 3; Failed = 0
+                                 OnlyThisPc = $true; Removed = 42; Kept = @('nvcvi.inf') })
+$res = @(Invoke-InstallCheck -NoDownload)
+Check 'this-PC-only package reported as Info' (Has 'Info' 'only the INF files for the PC it was signed on were kept \(nvcvi\.inf; 42 removed\)')
+Check 'setup.exe from a trimmed package -> warning' (Has 'Warning' "setup\.exe - but NVIDIA only keeps the INF files for this PC")
+$Script:S.Signed[0].OnlyThisPc = $false
+"warnings left: " +(@($res | ? Level -eq 'Warning' | % { $_.Area + ': ' + (Limit-Text $_.Finding 110) }) -join "`n  ")
 Remove-Item $tmp -Recurse -Force
 if ($fails) { Microsoft.PowerShell.Utility\Write-Host "$fails FAILED" -ForegroundColor Red; exit 1 } else { Microsoft.PowerShell.Utility\Write-Host 'ALL ANSWER-FILE TESTS PASSED' -ForegroundColor Green; exit 0 }

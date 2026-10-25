@@ -1,6 +1,6 @@
 # Win10 ISO Updater
 
-![version](https://img.shields.io/badge/version-2.0.5-2F9BFF) ![platform](https://img.shields.io/badge/Windows-10%20%7C%2011-8B5CF6) ![license](https://img.shields.io/badge/license-MIT-3DDC97)
+![version](https://img.shields.io/badge/version-2.0.6-2F9BFF) ![platform](https://img.shields.io/badge/Windows-10%20%7C%2011-8B5CF6) ![license](https://img.shields.io/badge/license-MIT-3DDC97)
 
 **One file. Double-click. Get a fully updated Windows 10 ISO with your drivers, your signed NVIDIA mod, your answer file and your `$OEM$` folder baked in.**
 
@@ -27,7 +27,7 @@ Missing tools (`oscdimg`, `Inf2Cat`, `signtool`) are downloaded automatically fr
 
 That's it. The new ISO lands in `C:\W10U\output` (the work folder can be changed under *Options*).
 
-The console line at start shows the version (`Starting Win10 ISO Updater v2.0.5 ...`), then the console hides and the window opens.
+The console line at start shows the version (`Starting Win10 ISO Updater v2.0.6 ...`), then the console hides and the window opens.
 
 **Updating:** replace `Win10-ISO-Updater.cmd` with the new one. Your settings, the `signing` folder and the work folder (unpacked media, updates, drivers) are kept — the tool picks up where you left off.
 
@@ -62,6 +62,7 @@ On page **5**:
    - extracts only `Inf2Cat` + `signtool` from Microsoft's NuGet packages (Windows SDK build tools / Windows Driver Kit) — nothing is installed
    - creates a **self-signed code-signing certificate** the first time (you choose the password for its backup `DriverSigning.pfx`)
    - builds a new catalog for **every modified package only** and signs and verifies it. "Modified" covers an edited INF and a catalog signed with a certificate Windows doesn't trust (NVCleanstall signs its packages with its own).
+   - shows what `Inf2Cat` is doing and for how long in the status line, and logs how long each folder took
 3. When the ISO is built, the package goes to `$OEM$\$1\Drivers\NVIDIA` together with the public `DriverSigning.cer`, and `SetupComplete-drivers.cmd` is generated. During Windows setup that script:
    - trusts the certificate (`Trusted Root` + `Trusted Publishers`)
    - runs `pnputil /add-driver ... /subdirs /install`
@@ -69,6 +70,16 @@ On page **5**:
    - runs only once, even when it is also started from the answer file's `specialize` pass (see Install check)
 
 If your `$OEM$` already has a `SetupComplete.cmd`, a `call "%~dp0SetupComplete-drivers.cmd"` line is added to the copy that goes into the ISO. Your own file is not changed.
+
+### Why signing NVIDIA takes so long, and the faster option
+
+NVIDIA's `Display.Driver` folder has one INF file per laptop and desktop maker (about 40), all pointing at the same ~1 GB of files. `Inf2Cat` checks every one of them against the whole package, so a full NVIDIA package can take **up to an hour**. The status line keeps counting while it works; `engine.log` gets a "still running" line every 5 minutes.
+
+**Faster: only keep the INF files for this PC's hardware** (page 5, off by default) reads the hardware IDs of this PC and, in folders with several INF files, keeps only the ones that list a device of this PC — for example the INF you added your GPU's ID to with NVCleanstall. The others are removed from the work copy (the original folder is not touched), so signing takes minutes.
+- INF files without device IDs, and INF files that a kept one includes (`Include=`), stay.
+- A folder where no INF matches this PC is kept whole.
+- Use it only when the ISO is for **this PC**: the driver then installs only on matching hardware.
+- NVIDIA's own `setup.exe` may refuse to run from a trimmed copy; `pnputil` installs the driver anyway. The Install check warns when a script of yours runs that `setup.exe`.
 
 The kernel driver files keep NVIDIA's own signature. Only the catalog is yours, so **Secure Boot can stay on**.
 
@@ -109,6 +120,7 @@ The **Install check** page (it also runs automatically before every build) compa
 **Drivers and setup scripts**
 - slipstreamed drivers that are not validly signed (for example, a modded NVIDIA driver exported from this PC) → **fix**: remove them
 - signed packages made with a different certificate or missing from the work folder
+- packages signed with *only the INF files for this PC* (noted), and a script that runs their `setup.exe` (warning)
 - something that uses a file inside a signed package while the driver copy is deleted after installation → **fix**: keep the copy
 - **SetupComplete.cmd is skipped by Windows on Home/Pro installs activated with an OEM key** (PCs sold with Windows keep the key in the firmware; the tool checks this PC too) → **fix**: the driver script also runs from the `specialize` pass of the answer file, and runs only once
 
@@ -146,6 +158,7 @@ Logs: `C:\W10U\logs\engine.log` and `dism.log`. During install, the driver scrip
 | Cumulative update fails with an ESU-related error | Set the month on page 3 back to `2025-10` |
 | Drivers didn't install after setup | Read `C:\Windows\Temp\SetupComplete-drivers.log`, and run the **Install check** (OEM-key fallback) |
 | `Inf2Cat` "Signability test failed" | Delete `inf2cat.exe.manifest` next to `Inf2Cat.exe` and sign again |
+| *Re-sign drivers* runs for a very long time on `Display.Driver` | Normal for a full NVIDIA package (up to an hour). Check that `Inf2Cat.exe` uses CPU in Task Manager → Details. Next time turn on *Only keep the INF files for this PC's hardware* |
 | "Could not start: The property 'ItemsSource' cannot be found" / "SignTool Error: ... terminated in a root" / check list shows `System.Object[]` | Bugs of v2.0.0 – v2.0.3. Make sure the copy you start is the newest: the first console line shows the version |
 | A line starting with `Interface error:` in the Activity log | Something in the window failed but the program kept running — please open an issue with that line and `C:\W10U\logs\engine.log` |
 | The full Windows SDK / WDK got installed (v2.0.0) | Not needed any more — uninstall *Windows Software Development Kit* and *Windows Driver Kit* under Settings → Apps if you like |
@@ -181,7 +194,7 @@ python src/build.py
 pwsh tests/run-tests.ps1
 ```
 
-Six suites (about 130 checks) run the PowerShell part on Linux / macOS with PowerShell 7: catalog parsing, signing with stand-ins for `signtool` / `Inf2Cat` (including an NVCleanstall-style untrusted catalog), `$OEM$` assembly, every install check finding and fix, an answer file made by the autounattend generator (`tests/fixtures`, personal data removed), and the page refresh with Windows PowerShell 5.1's JSON behaviour simulated. DISM, WPF and real driver installs still need a Windows test run.
+Six suites (about 165 checks) run the PowerShell part on Linux / macOS with PowerShell 7: catalog parsing, signing with stand-ins for `signtool` / `Inf2Cat` (an NVCleanstall-style untrusted catalog, live Inf2Cat status from a worker runspace, keeping only this PC's INF files), `$OEM$` assembly, every install check finding and fix, an answer file made by the autounattend generator (`tests/fixtures`, personal data removed), and the page refresh with Windows PowerShell 5.1's JSON behaviour simulated. DISM, WPF and real driver installs still need a Windows test run.
 
 ---
 
