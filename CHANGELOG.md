@@ -1,5 +1,17 @@
 # Changelog
 
+## v2.1.0 — 2026-10-25
+
+### Added — faster slipstream (page 7, *Speed*)
+- **boot.wim is updated at the same time as install.wim** (on by default). It runs in a second background worker with its own DISM log (`dism-boot.log`); its Activity log follows after install.wim and is merged into `engine.log`, and the status line shows both jobs. If the worker can't start, boot.wim is updated afterwards as before; an error in either job stops both and discards the mounts.
+- **Windows Defender can skip the work folder while a job runs** (off by default). Added for unpack, download, sign, slipstream and build only, removed at the end, and cleaned up at the next start after a crash. An exclusion you set yourself is not touched.
+- **Leave boot.wim index 1 (Windows PE for WDS) as it is** (off by default) - USB / DVD setup boots index 2.
+
+### Changed
+- Storage / network drivers go into WinRE and boot.wim with one DISM call (one driver set) instead of one call per driver.
+- DISM servicing uses a scratch folder inside the work folder instead of `%TEMP%`.
+- The slipstream code moved from the v1 engine into `src/35_engine_service.ps1`.
+
 ## v2.0.8 — 2026-10-25
 
 ### Changed

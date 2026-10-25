@@ -22,7 +22,7 @@ Check 'no duplicate function names' (-not $dups)
 $defined = @($funcs | ForEach-Object Name)
 $cmds = $ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.CommandAst] }, $true) | ForEach-Object { $_.GetCommandName() } | Where-Object { $_ } | Sort-Object -Unique
 $missing = @($cmds | Where-Object { $_ -match '^(Invoke|Write|Read|Format|Limit|Test|Select|ConvertFrom|ConvertTo|Get|Import|Save|Initialize|New|Mount|Dismount|Add|Clear|Reset|Find|Search|Resolve|Assert|Show|Remove|Sync|Set|Export|Q)(-|$)' -and $defined -notcontains $_ -and -not (Get-Command $_ -ErrorAction SilentlyContinue) })
-$winOnly = @('Get-WindowsImage', 'Export-WindowsDriver', 'Mount-DiskImage', 'Dismount-DiskImage', 'Get-DiskImage', 'Get-Volume', 'Start-BitsTransfer', 'Out-GridView', 'Get-AuthenticodeSignature', 'Set-AuthenticodeSignature', 'New-SelfSignedCertificate', 'Import-PfxCertificate', 'Export-PfxCertificate', 'Export-Certificate', 'Get-CimInstance')
+$winOnly = @('Get-WindowsImage', 'Export-WindowsDriver', 'Mount-DiskImage', 'Dismount-DiskImage', 'Get-DiskImage', 'Get-Volume', 'Start-BitsTransfer', 'Out-GridView', 'Get-AuthenticodeSignature', 'Set-AuthenticodeSignature', 'New-SelfSignedCertificate', 'Import-PfxCertificate', 'Export-PfxCertificate', 'Export-Certificate', 'Get-CimInstance', 'Get-MpPreference', 'Add-MpPreference', 'Remove-MpPreference')
 $missing = @($missing | Where-Object { $winOnly -notcontains $_ })
 Check "all called functions defined ($($missing -join ', '))" ($missing.Count -eq 0)
 

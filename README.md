@@ -1,6 +1,6 @@
 # Win10 ISO Updater
 
-![version](https://img.shields.io/badge/version-2.0.8-2F9BFF) ![platform](https://img.shields.io/badge/Windows-10%20%7C%2011-8B5CF6) ![license](https://img.shields.io/badge/license-MIT-3DDC97)
+![version](https://img.shields.io/badge/version-2.1.0-2F9BFF) ![platform](https://img.shields.io/badge/Windows-10%20%7C%2011-8B5CF6) ![license](https://img.shields.io/badge/license-MIT-3DDC97)
 
 **One file. Double-click. Get a fully updated Windows 10 ISO with your drivers, your signed NVIDIA mod, your answer file and your `$OEM$` folder baked in.**
 
@@ -27,7 +27,7 @@ Missing tools (`oscdimg`, `Inf2Cat`, `signtool`) are downloaded automatically fr
 
 That's it. The new ISO lands in `C:\W10U\output` (the work folder can be changed under *Options*).
 
-The console line at start shows the version (`Starting Win10 ISO Updater v2.0.8 ...`), then the console hides and the window opens.
+The console line at start shows the version (`Starting Win10 ISO Updater v2.1.0 ...`), then the console hides and the window opens.
 
 **Updating:** replace `Win10-ISO-Updater.cmd` with the new one. Your settings, the `signing` folder and the work folder (unpacked media, updates, drivers) are kept — the tool picks up where you left off.
 
@@ -46,7 +46,23 @@ The console line at start shows the version (`Starting Win10 ISO Updater v2.0.8 
 | 5 | **Signed NVIDIA / modded** | Re-signs edited driver packages so Windows accepts them (see below) |
 | 6 | **Answer file + `$OEM$`** | Your `autounattend.xml` (from [autounattended-generator](https://github.com/j0p3s/autounattended-generator)) and your `$OEM$` folder |
 | ✓ | **Install check** | Finds what would break or stall a clean install, and fixes it |
-| 7 | **Slipstream + build ISO** | Services WinRE, `install.wim` and `boot.wim`, then writes the ISO. Options: no "press any key", Windows UEFI CA 2023 boot manager, split `install.wim` for FAT32 |
+| 7 | **Slipstream + build ISO** | Services WinRE, `install.wim` and `boot.wim`, then writes the ISO. Options: no "press any key", Windows UEFI CA 2023 boot manager, split `install.wim` for FAT32, speed options (see below) |
+
+---
+
+## Speed
+
+DISM applies each update with a single process, so servicing **one** image can't use more cores. What the tool does instead (page 7, *Speed*):
+
+| Option | Default | Effect |
+|---|---|---|
+| **Update boot.wim at the same time as install.wim** | on | `boot.wim` doesn't depend on `install.wim`, so it is serviced in a second background worker while WinRE and `install.wim` are updated. Its log follows after `install.wim`; the status line shows both. Saves the whole `boot.wim` time (often 5–8 minutes). |
+| **Let Windows Defender skip the work folder while a job runs** | off | Real-time scanning of every file DISM, robocopy and oscdimg write is often the biggest slowdown (20–40%). The work folder is excluded only for the job and removed again at the end — and at the next start if the program was closed during a job. An exclusion you set yourself is left alone. |
+| **Leave boot.wim index 1 as it is** | off | Index 1 is Windows PE for WDS servers; USB / DVD setup boots index 2. Microsoft updates both, hence off. |
+
+Always on: storage / network drivers go into WinRE and `boot.wim` with **one** DISM call instead of one per driver, and servicing uses a scratch folder inside the work folder (`temp\scratch`) instead of `%TEMP%`.
+
+Putting the work folder on an NVMe drive (*Options*) helps too.
 
 ---
 
@@ -183,6 +199,7 @@ python src/build.py
 | `00_header.cmd` | batch launcher: elevation, starts the PowerShell part of the same file |
 | `10_engine_head.ps1` | constants, log sink (every `Write-Host` goes to the Activity panel), Yes/No questions from the worker |
 | `30_engine_tools.ps1` | console tools with live output and progress, oscdimg / Inf2Cat / signtool download |
+| `35_engine_service.ps1` | slipstream: WinRE, install.wim, boot.wim (optionally in a background runspace), media update |
 | `31_engine_sign.ps1` | certificate, catalogs, re-signing, `$OEM$` assembly, `SetupComplete-drivers.cmd` |
 | `33_engine_check.ps1`, `34_engine_check2.ps1` | install check and its fixes |
 | `32_engine_jobs.ps1` | driver scan / import, answer file, run everything, job entry point for the background worker |
@@ -195,7 +212,7 @@ python src/build.py
 pwsh tests/run-tests.ps1
 ```
 
-Seven suites (about 170 checks) run the PowerShell part on Linux / macOS with PowerShell 7: catalog parsing, signing with stand-ins for `signtool` / `Inf2Cat` (an NVCleanstall-style untrusted catalog, live Inf2Cat status from a worker runspace, keeping only this PC's INF files), `$OEM$` assembly, every install check finding and fix, an answer file made by the autounattend generator (`tests/fixtures`, personal data removed), and the page refresh with Windows PowerShell 5.1's JSON behaviour simulated. DISM, WPF and real driver installs still need a Windows test run.
+Eight suites (about 200 checks) run the PowerShell part on Linux / macOS with PowerShell 7: catalog parsing, signing with stand-ins for `signtool` / `Inf2Cat` (an NVCleanstall-style untrusted catalog, live Inf2Cat status from a worker runspace, keeping only this PC's INF files), `$OEM$` assembly, every install check finding and fix, an answer file made by the autounattend generator (`tests/fixtures`, personal data removed), the page refresh with Windows PowerShell 5.1's JSON behaviour simulated, and a whole slipstream against a stand-in `dism` (boot.wim in the background vs. sequential, the driver set, the Defender option). DISM, WPF and real driver installs still need a Windows test run.
 
 ---
 

@@ -349,7 +349,7 @@ __PAGES__
           <Grid Grid.Column="1" Margin="18,0,18,0" VerticalAlignment="Center">
             <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
             <ProgressBar x:Name="Prog" Height="6" Minimum="0" Maximum="100" Background="#1A2133" BorderThickness="0" Foreground="#2F9BFF" Visibility="Hidden"/>
-            <TextBlock x:Name="StatusText" Grid.Column="1" Foreground="#8A94A8" Margin="12,0,0,0" FontSize="11" MaxWidth="420" TextTrimming="CharacterEllipsis"/>
+            <TextBlock x:Name="StatusText" Grid.Column="1" Foreground="#8A94A8" Margin="12,0,0,0" FontSize="11" MaxWidth="680" TextTrimming="CharacterEllipsis"/>
           </Grid>
           <StackPanel Grid.Column="2" Orientation="Horizontal">
             <Button x:Name="LogOpen" Style="{StaticResource Btn}" Content="Logs folder" Padding="10,4" FontSize="12"/>

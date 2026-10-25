@@ -199,6 +199,33 @@ function Invoke-CleanJob($A) {
     }
     Save-State
 }
+# Option "Let Windows Defender skip the work folder while a job runs": real-time scanning of
+# every file DISM, robocopy and oscdimg touch slows servicing a lot. The exclusion is added for
+# the job only and removed afterwards; a marker file makes sure a crash cannot leave it behind.
+function Enable-DefenderSkip {
+    if (-not $Script:Cfg.DefenderExclude) { return }
+    $w = [IO.Path]::GetFullPath($Script:P.Work).TrimEnd('\')
+    try {
+        $pref = Get-MpPreference -ErrorAction Stop
+        if (@($pref.ExclusionPath) -contains $w) { Add-Log "Defender already excludes $w (left as it is)"; return }
+        New-Item -ItemType Directory -Force -Path $w | Out-Null
+        Add-MpPreference -ExclusionPath $w -ErrorAction Stop
+        Set-Content -LiteralPath (Join-Path $w 'defender-exclusion.txt') -Value $w -Encoding ASCII
+        $Script:DefenderAdded = $w
+        Write-Info "Windows Defender skips $w during this job (removed again at the end)."
+    } catch { Write-Warn "Could not add the Defender exclusion ($($_.Exception.Message)) - normal scanning stays on." }
+}
+function Disable-DefenderSkip {
+    $w = $Script:DefenderAdded
+    $marker = $null
+    if ($Script:P -and $Script:P.Work) { $marker = Join-Path $Script:P.Work 'defender-exclusion.txt' }
+    if (-not $w -and $marker -and (Test-Path -LiteralPath $marker)) { $w = [string](Get-Content -LiteralPath $marker -TotalCount 1) }
+    if (-not $w) { return }
+    try { Remove-MpPreference -ExclusionPath $w -ErrorAction Stop; Add-Log "Defender exclusion removed: $w" }
+    catch { Add-Log "Defender exclusion not removed: $($_.Exception.Message)" }
+    if ($marker) { Remove-Item -LiteralPath $marker -Force -ErrorAction SilentlyContinue }
+    $Script:DefenderAdded = $null
+}
 # Entry point of the background worker. State is re-read from disk for every job.
 function Invoke-Job([string]$Job, $A) {
     if ($null -eq $A) { $A = @{} }
@@ -212,6 +239,8 @@ function Invoke-Job([string]$Job, $A) {
     $Script:DismLog = Join-Path $Script:P.Logs 'dism.log'
     Add-Log "---- $Script:AppName $Script:AppVersion  job=$Job"
     try {
+        Disable-DefenderSkip       # leftover from a run that was killed
+        if ($Job -in 'Unpack', 'Download', 'Sign', 'Service', 'Build', 'All') { Enable-DefenderSkip }
         switch ($Job) {
             'Unpack'       { $Script:IsoPath = [string]$A.Iso; Invoke-Unpack }
             'Analyze'      { Invoke-Analyze }
@@ -239,7 +268,8 @@ function Invoke-Job([string]$Job, $A) {
         Add-Log ($_ | Out-String)
         throw
     } finally {
-        if ($Script:Sync) { $Script:Sync.Pct = -1; $Script:Sync.Status = '' }
+        try { Disable-DefenderSkip } catch { }
+        if ($Script:Sync) { $Script:Sync.Pct = -1; $Script:Sync.Status = ''; $Script:Sync.SideSync = $null }
     }
 }
 #endregion

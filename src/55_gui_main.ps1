@@ -90,10 +90,11 @@ try {
         Question = $null; Answer = $null; Result = $null
     })
     $Script:Busy = $false
-    $Script:CfgToggles = @('KeepOnlySelected', 'NetFx3', 'NetFx481', 'ResetBase', 'BootDrivers', 'ForceUnsigned', 'NoPrompt', 'Boot2023', 'SplitFat32', 'SignCleanup', 'InstallOemDrivers', 'SignOnlyThisPc')
+    $Script:CfgToggles = @('KeepOnlySelected', 'NetFx3', 'NetFx481', 'ResetBase', 'BootDrivers', 'ForceUnsigned', 'NoPrompt', 'Boot2023', 'SplitFat32', 'SignCleanup', 'InstallOemDrivers', 'SignOnlyThisPc', 'ParallelBoot', 'DefenderExclude', 'BootSkipPE')
     $Script:Cfg = Import-Settings
     Initialize-Paths
     $Script:S = Import-State
+    try { Disable-DefenderSkip } catch { }     # exclusion left behind if the program was closed during a job
 
     # background worker with its own copy of the engine
     $all = [IO.File]::ReadAllText($env:W10U_SELF)
@@ -137,6 +138,11 @@ try {
         $cb.Add_Click({
             $Script:Cfg[$this.Tag] = [bool]$this.IsChecked
             Save-Settings
+            if ($this.Tag -eq 'DefenderExclude' -and $this.IsChecked) {
+                Show-Msg ("While a job runs (unpack, download, sign, slipstream, build), Windows Defender does not scan the work folder " +
+                          "($($Script:P.Work)). The exclusion is removed when the job ends, and at the next start if the program was closed during a job. " +
+                          'Everything in there comes from Microsoft, your drivers and this tool - do not put other downloads in that folder.') 'Information'
+            }
             if ($this.Tag -eq 'SignOnlyThisPc' -and $this.IsChecked) {
                 Show-Msg ("Use this only when the ISO is for this PC. INF files for other hardware are removed from the signed copy, so the driver " +
                           "installs only on hardware that matches this PC. NVIDIA's own setup.exe may refuse to run from that copy - pnputil installs " +

@@ -16,7 +16,7 @@ $i    = $cmd.IndexOf("`r`n#PS-BEGIN")
 if ($i -lt 0) { throw '#PS-BEGIN not found in Win10-ISO-Updater.cmd' }
 $body = Join-Path $here 'v2body.ps1'
 [IO.File]::WriteAllText($body, $cmd.Substring($i + 2).Replace("`r`n", "`n"))
-if (Get-Command chmod -ErrorAction SilentlyContinue) { chmod +x (Join-Path $here 'fake/inf2cat') (Join-Path $here 'fake/signtool') }
+if (Get-Command chmod -ErrorAction SilentlyContinue) { chmod +x (Join-Path $here 'fake/inf2cat') (Join-Path $here 'fake/signtool') (Join-Path $here 'fake/dism') }
 
 $suites = @(
     @{ File = 'engine-catalog.tests.ps1';        Args = @('-Engine', $body) }   # catalog parsing, families, state (v1 engine)
@@ -25,6 +25,7 @@ $suites = @(
     @{ File = 'install-check.tests.ps1';         Args = @() }                   # install check findings + fixes
     @{ File = 'generator-answer-file.tests.ps1'; Args = @() }                   # a real autounattend-generator file
     @{ File = 'ui-refresh.tests.ps1';            Args = @() }                   # page refresh, check list, PS 5.1 JSON
+    @{ File = 'service.tests.ps1';               Args = @() }                   # boot.wim in the background, driver set, Defender option
     @{ File = 'output-path.tests.ps1';           Args = @() }                   # output ISO path from the Build page
 )
 $failed = @()

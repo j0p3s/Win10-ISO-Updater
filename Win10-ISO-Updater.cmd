@@ -1,6 +1,6 @@
 @echo off
 :: ===========================================================================
-::  Win10-ISO-Updater.cmd  (v2.0.8)  -  one file, graphical interface
+::  Win10-ISO-Updater.cmd  (v2.1.0)  -  one file, graphical interface
 ::  - unpacks a Windows 10 ISO and detects its build
 ::  - downloads its updates from the Microsoft Update Catalog
 ::  - slipstreams updates and drivers (this PC or a Drivers-Backup folder)
@@ -23,7 +23,7 @@ exit /b
 set "W10U_SELF=%~f0"
 set "PSEXE=%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe"
 if exist "%SystemRoot%\Sysnative\WindowsPowerShell\v1.0\powershell.exe" set "PSEXE=%SystemRoot%\Sysnative\WindowsPowerShell\v1.0\powershell.exe"
-echo Starting Win10 ISO Updater v2.0.8 ...  (this window hides when the program opens)
+echo Starting Win10 ISO Updater v2.1.0 ...  (this window hides when the program opens)
 "%PSEXE%" -NoProfile -STA -ExecutionPolicy Bypass -Command "$t=[IO.File]::ReadAllText($env:W10U_SELF);$i=$t.IndexOf('#'+'PS-BEGIN');Invoke-Expression $t.Substring($i)"
 if errorlevel 1 pause
 exit /b
@@ -38,7 +38,7 @@ $ErrorActionPreference = 'Stop'
 $ProgressPreference    = 'SilentlyContinue'
 
 $Script:AppName      = 'Win10-ISO-Updater'
-$Script:AppVersion   = '2.0.8'
+$Script:AppVersion   = '2.1.0'
 $Script:Root         = Split-Path -Parent $env:W10U_SELF
 $ToolsDir            = Join-Path $Script:Root 'tools'
 $IsoPath             = $null
@@ -130,6 +130,9 @@ function Get-DefaultSettings {
         SignCleanup      = $true
         InstallOemDrivers = $false
         SignOnlyThisPc   = $false
+        ParallelBoot     = $true
+        BootSkipPE       = $false
+        DefenderExclude  = $false
     }
 }
 function Import-Settings {
@@ -160,6 +163,7 @@ function Initialize-Paths {
         Logs     = Join-Path $w 'logs'
         Output   = Join-Path $w 'output'
         Signed   = Join-Path $w 'signed'
+        Scratch  = Join-Path $w 'temp\scratch'
         State    = Join-Path $w 'state.json'
         Unattend = Join-Path $w 'autounattend.xml'
     }
@@ -217,7 +221,12 @@ function Invoke-Dism {
     param([string]$Arguments, [string]$What = 'DISM', [string[]]$OkHex = @(), [switch]$Soft)
     $ok = @(0, 3010)
     foreach ($h in $OkHex) { $ok += [Convert]::ToInt32($h, 16) }
-    $code = Invoke-Exe $Script:Dism ('/English /LogPath:' + (Q $Script:DismLog) + ' ' + $Arguments)
+    $sd = ''
+    if ($Arguments -match '^/Image:' -and $Script:P -and $Script:P.Scratch) {
+        New-Item -ItemType Directory -Force -Path $Script:P.Scratch | Out-Null
+        $sd = ' /ScratchDir:' + (Q $Script:P.Scratch)
+    }
+    $code = Invoke-Exe $Script:Dism ('/English /LogPath:' + (Q $Script:DismLog) + $sd + ' ' + $Arguments)
     $Script:LastDism = $code
     if ($ok -contains $code) { return }
     $msg = "$What failed - DISM error 0x$($code.ToString('X8'))"
@@ -862,7 +871,6 @@ function Test-UnattendSelection {
 }
 #endregion
 
-
 #region ---------------------------------------------------------------- [6] Slipstream
 function Save-BootFiles2023([string]$MountDir, [string]$Dest) {
     $boot = Join-Path $MountDir 'Windows\Boot'
@@ -896,6 +904,176 @@ function Set-Boot2023([string]$Src) {
         Copy-Item -LiteralPath $ttf.FullName -Destination (Join-Path $fonts ($ttf.Name -replace '_EX', '')) -Force
     }
 }
+
+# ---- storage / network drivers for WinRE and boot.wim: one DISM call instead of one per driver
+# Each driver folder is copied into one set (only its own INF kept), so /Recurse adds exactly
+# those drivers. Very big folders (vendor packs) are added one INF at a time instead.
+function New-BootDriverSet([string[]]$Infs, [string]$Dest) {
+    $set = [pscustomobject]@{ Folder = $null; Singles = @(); Count = @($Infs).Count }
+    if ($set.Count -eq 0) { return $set }
+    Reset-Dir $Dest
+    $n = 0
+    foreach ($inf in $Infs) {
+        $dir = Split-Path $inf -Parent
+        $size = [double](Get-ChildItem -LiteralPath $dir -Recurse -File -Force -ErrorAction SilentlyContinue | Measure-Object Length -Sum).Sum
+        if ($size -gt 300MB) { $set.Singles += $inf; continue }
+        $n++
+        $to = Join-Path $Dest ('{0:D3}' -f $n)
+        New-Item -ItemType Directory -Force -Path $to | Out-Null
+        Get-ChildItem -LiteralPath $dir -Force | Copy-Item -Destination $to -Recurse -Force
+        $keep = Split-Path $inf -Leaf
+        Get-ChildItem -LiteralPath $to -Recurse -File -Force | Where-Object { $_.Extension -ieq '.inf' -and -not ($_.DirectoryName -eq $to -and $_.Name -ieq $keep) } | Remove-Item -Force
+    }
+    if ($n -gt 0) { $set.Folder = $Dest }
+    return $set
+}
+function Add-BootDrivers([string]$MountDir, $Set, [string]$Fu, [string]$Label) {
+    if (-not $Set -or $Set.Count -eq 0) { return }
+    Write-Sub "Storage/network drivers ($($Set.Count))"
+    if ($Set.Folder) { Invoke-Dism "/Image:$(Q $MountDir) /Add-Driver /Driver:$(Q $Set.Folder) /Recurse$Fu" "$Label drivers" -Soft }
+    foreach ($inf in @($Set.Singles)) { Invoke-Dism "/Image:$(Q $MountDir) /Add-Driver /Driver:$(Q $inf)$Fu" "$Label driver" -Soft }
+}
+
+function Set-BootLabel([string]$Text) { if ($Script:Sync) { $Script:Sync.Label = $Text } }
+# ---- boot.wim (WinPE + Setup). Runs in its own runspace while install.wim is serviced
+# (Options: "Update boot.wim at the same time"), or inline. Returns what the media step needs.
+function Invoke-BootWimService($Ctx) {
+    $res = [pscustomobject]@{ ExSaved = $false; Count = 0 }
+    Write-Title 'Updating boot.wim (WinPE / Setup)'
+    Copy-Item -LiteralPath (Join-Path $Ctx.Media 'sources\boot.wim') -Destination $Ctx.BootSt -Force
+    (Get-Item -LiteralPath $Ctx.BootSt -Force).Attributes = 'Normal'
+    $bootCount = @(Get-WindowsImage -ImagePath $Ctx.BootSt).Count
+    $res.Count = $bootCount
+    $upd = $Ctx.Upd
+    for ($b = 1; $b -le $bootCount; $b++) {
+        Set-BootLabel "boot.wim $b/$bootCount"
+        if ($Ctx.SkipPE -and $b -eq 1 -and $bootCount -ge 2) {
+            Write-Step "boot.wim index 1 of $bootCount (Windows PE) - kept as it is (option)"
+            Export-Img $Ctx.BootSt $b $Ctx.BootFin
+            continue
+        }
+        Write-Step "boot.wim index $b of $bootCount"
+        Mount-Img $Ctx.BootSt $b $Ctx.MountPE
+        foreach ($x in @($upd.SSU)) { Set-BootLabel "boot.wim $b/$bootCount servicing stack"; Add-Pkg $Ctx.MountPE $x 'Servicing stack' -Soft }
+        foreach ($x in @($upd.LCU)) {
+            Set-BootLabel "boot.wim $b/$bootCount cumulative update"
+            Add-Pkg $Ctx.MountPE $x 'Servicing stack via LCU' -IgnoreHex @('8007007E', '800F081E') -Soft
+            Add-Pkg $Ctx.MountPE $x 'Cumulative update' -IgnoreHex @('800F081E') -Soft
+        }
+        Set-BootLabel "boot.wim $b/$bootCount drivers"
+        Add-BootDrivers $Ctx.MountPE $Ctx.BootSet $Ctx.Fu 'WinPE'
+        Set-BootLabel "boot.wim $b/$bootCount cleanup"
+        Invoke-ImageCleanup $Ctx.MountPE 'WinPE'
+        if (Test-Path -LiteralPath (Join-Path $Ctx.MountPE 'sources\setup.exe')) {
+            Copy-Item -LiteralPath (Join-Path $Ctx.MountPE 'sources\setup.exe') -Destination (Join-Path $Ctx.BfDir 'setup.exe') -Force
+            foreach ($n in 'bootmgfw.efi', 'bootmgr.efi', 'boot.stl') {
+                $f = Join-Path $Ctx.MountPE "Windows\Boot\EFI\$n"
+                if (Test-Path -LiteralPath $f) { Copy-Item -LiteralPath $f -Destination (Join-Path $Ctx.BfDir $n) -Force }
+            }
+        }
+        if ($Ctx.Boot2023 -and -not $res.ExSaved) { $res.ExSaved = [bool](Save-BootFiles2023 $Ctx.MountPE $Ctx.ExDir) }
+        Set-BootLabel "boot.wim $b/$bootCount saving"
+        Dismount-Img $Ctx.MountPE -Commit
+        Export-Img $Ctx.BootSt $b $Ctx.BootFin
+    }
+    Set-BootLabel ''
+    return $res
+}
+# The engine text (to load it into another runspace): this file, between the engine markers.
+function Get-EngineText {
+    if ($Script:EngineText) { return $Script:EngineText }
+    try {
+        $all = [IO.File]::ReadAllText($env:W10U_SELF)
+        $b = $all.IndexOf('#ENGINE-' + 'BEGIN'); $e = $all.IndexOf('#ENGINE-' + 'END')
+        if ($b -ge 0 -and $e -gt $b) { return $all.Substring($b, $e - $b) }
+    } catch { }
+    return $null
+}
+function Start-BootWimJob($Ctx) {
+    $engine = Get-EngineText
+    if (-not $engine) { return $null }
+    $sync = [hashtable]::Synchronized(@{ Queue = (New-Object 'System.Collections.Concurrent.ConcurrentQueue[object]'); Pct = -1; Status = ''; Label = 'boot.wim starting' })
+    $p = @{}; foreach ($k in $Script:P.Keys) { $p[$k] = $Script:P[$k] }
+    $p.Scratch = Join-Path $Script:P.Temp 'scratch-pe'
+    $rs = [runspacefactory]::CreateRunspace([Management.Automation.Runspaces.InitialSessionState]::CreateDefault())
+    $rs.Open()
+    $rs.SessionStateProxy.SetVariable('Sync', $sync)
+    $rs.SessionStateProxy.SetVariable('IsWorker', $false)       # no Yes/No questions from here
+    $init = [PowerShell]::Create(); $init.Runspace = $rs
+    $why = $null
+    try { [void]$init.AddScript($engine).Invoke(); if ($init.HadErrors) { $why = [string]$init.Streams.Error[0] } }
+    catch { $why = $_.Exception.Message }
+    $init.Dispose()
+    if ($why) { Add-Log "boot.wim background worker: $why"; $rs.Dispose(); return $null }
+    $log = Join-Path $Script:P.Logs 'engine-boot.log'
+    Remove-Item -LiteralPath $log -Force -ErrorAction SilentlyContinue
+    foreach ($kv in @{ P = $p; Cfg = $Script:Cfg; S = $Script:S; Dism = $Script:Dism; LogFile = $log; DismLog = (Join-Path $Script:P.Logs 'dism-boot.log') }.GetEnumerator()) {
+        $rs.SessionStateProxy.SetVariable($kv.Key, $kv.Value)
+    }
+    $ps = [PowerShell]::Create(); $ps.Runspace = $rs
+    [void]$ps.AddCommand('Invoke-BootWimService').AddParameter('Ctx', $Ctx)
+    $job = [pscustomobject]@{ Ps = $ps; Rs = $rs; Handle = $ps.BeginInvoke(); Sync = $sync; Log = $log; Start = (Get-Date) }
+    if ($Script:Sync) { $Script:Sync.SideSync = $sync }
+    Write-Info 'boot.wim is updated at the same time in the background - its log follows after install.wim.'
+    return $job
+}
+function Receive-BootWimLines($Job) {
+    $it = $null
+    while ($Job.Sync.Queue.TryDequeue([ref]$it)) {
+        if ($Script:Sync) { $Script:Sync.Queue.Enqueue($it) } else { Microsoft.PowerShell.Utility\Write-Host $it[1] }
+    }
+}
+function Close-BootWimJob($Job) {
+    if ($Script:Sync) { $Script:Sync.SideSync = $null }
+    if ($Job.Log -and (Test-Path -LiteralPath $Job.Log) -and $Script:LogFile) {
+        try {
+            Add-Content -LiteralPath $Script:LogFile -Value ("---- boot.wim (background) log`r`n" + [IO.File]::ReadAllText($Job.Log) + "---- end of boot.wim log") -Encoding UTF8
+            Remove-Item -LiteralPath $Job.Log -Force
+        } catch { }
+    }
+    try { $Job.Ps.Dispose() } catch { }
+    try { $Job.Rs.Dispose() } catch { }
+}
+# Waits for the background boot.wim job, shows its log, returns its result (or throws its error).
+function Wait-BootWimJob($Job) {
+    while (-not $Job.Handle.IsCompleted) {
+        Receive-BootWimLines $Job
+        $pct = [double]$Job.Sync.Pct
+        $st = "waiting for $($Job.Sync.Label)"
+        if ($pct -ge 0) { $st += (' {0:N0}%' -f $pct) }
+        Write-Host $st -NoNewline
+        Start-Sleep -Milliseconds 300
+    }
+    Receive-BootWimLines $Job
+    if ($Script:Sync) { $Script:Sync.Status = '' }
+    $err = $null; $out = $null
+    try { $out = @($Job.Ps.EndInvoke($Job.Handle)) } catch { $err = $_.Exception }
+    if (-not $err -and $Job.Ps.HadErrors -and $Job.Ps.Streams.Error.Count) { $err = $Job.Ps.Streams.Error[0].Exception }
+    Receive-BootWimLines $Job
+    Close-BootWimJob $Job
+    if ($err) {
+        $m = $err.Message
+        if ($err.InnerException) { $m = $err.InnerException.Message }
+        throw "boot.wim: $m"
+    }
+    Write-Ok ('boot.wim done (ran alongside install.wim, {0:mm\:ss} in total)' -f ((Get-Date) - $Job.Start))
+    return @($out | Where-Object { $_ -and $_.PSObject.Properties['ExSaved'] })[0]
+}
+# Stops the background job after an error (its dism.exe is ended too, so the mounts can be discarded).
+function Stop-BootWimJob($Job) {
+    if (-not $Job) { return }
+    try { [void]$Job.Ps.BeginStop($null, $null) } catch { }
+    try {
+        $rx = [regex]::Escape((Split-Path $Job.Log -Parent | Split-Path -Parent)) + '.*(boot_stage|boot_final|mnt\\pe|scratch-pe)'
+        Get-CimInstance Win32_Process -Filter "Name='dism.exe'" -ErrorAction Stop | Where-Object { $_.CommandLine -match $rx } |
+            ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+    } catch { }
+    $t = Get-Date
+    while (-not $Job.Handle.IsCompleted -and ((Get-Date) - $t).TotalSeconds -lt 60) { Start-Sleep -Milliseconds 300 }
+    Receive-BootWimLines $Job
+    Close-BootWimJob $Job
+}
+
 function Invoke-Service([switch]$Auto) {
     Assert-Analyzed
     $S = $Script:S; $P = $Script:P; $Cfg = $Script:Cfg
@@ -921,8 +1099,6 @@ function Invoke-Service([switch]$Auto) {
     $final    = Join-Path $P.Temp 'install_final.wim'
     $reWim    = Join-Path $P.Temp 'winre.wim'
     $reNew    = Join-Path $P.Temp 'winre_new.wim'
-    $bootSt   = Join-Path $P.Temp 'boot_stage.wim'
-    $bootFin  = Join-Path $P.Temp 'boot_final.wim'
     $bfDir    = Join-Path $P.Temp 'bootfiles'
     $exDir    = Join-Path $P.Temp 'boot2023'
     $hasDrv   = @($S.Drivers).Count -gt 0 -and (Test-Path -LiteralPath $P.DrvSel)
@@ -930,12 +1106,25 @@ function Invoke-Service([switch]$Auto) {
     $fu       = if ($Cfg.ForceUnsigned) { ' /ForceUnsigned' } else { '' }
     $lcuTip   = 'If this is a Windows 10 update newer than 2025-10, Microsoft blocks offline ESU integration - set the month back in Options.'
     New-Item -ItemType Directory -Force -Path $bfDir | Out-Null
+    $bootSet  = New-BootDriverSet $bootInfs (Join-Path $P.Temp 'bootdrivers')
+    $bootCtx  = @{
+        Upd = $upd; Media = $P.Media; MountPE = $P.MountPE; BfDir = $bfDir; ExDir = (Join-Path $P.Temp 'boot2023_pe')
+        BootSt = (Join-Path $P.Temp 'boot_stage.wim'); BootFin = (Join-Path $P.Temp 'boot_final.wim')
+        BootSet = $bootSet; Fu = $fu; Boot2023 = [bool]$Cfg.Boot2023; SkipPE = [bool]$Cfg.BootSkipPE
+    }
 
     $all = @($S.Images | ForEach-Object { [int]$_.Index })
     $exportIdx = @(if ($Cfg.KeepOnlySelected) { $S.Selected } else { $all })
     $reReady = $false; $exSaved = $false
+    $bootJob = $null; $bootRes = $null
 
     try {
+        # ---- boot.wim in the background (it does not depend on install.wim)
+        if ($Cfg.ParallelBoot) {
+            $bootJob = Start-BootWimJob $bootCtx
+            if (-not $bootJob) { Write-Warn 'The background worker for boot.wim could not start - boot.wim is updated after install.wim.' }
+        }
+
         # ---- stage editions (also converts install.esd -> wim)
         Write-Step "Staging $($exportIdx.Count) edition(s) from $(Split-Path $src -Leaf)"
         foreach ($i in $exportIdx) { Export-Img $src $i $stage -Max }
@@ -959,10 +1148,7 @@ function Invoke-Service([switch]$Auto) {
                             foreach ($x in $upd.SSU) { Add-Pkg $P.MountRE $x 'Servicing stack' -Soft }
                             foreach ($x in $upd.LCU) { Add-Pkg $P.MountRE $x 'Servicing stack via LCU' -IgnoreHex @('8007007E', '800F081E') -Soft }
                             foreach ($x in $upd.SAFEOS) { Add-Pkg $P.MountRE $x 'Safe OS Dynamic Update' -Soft }
-                            if ($bootInfs.Count -gt 0) {
-                                Write-Sub "Storage/network drivers ($($bootInfs.Count))"
-                                foreach ($inf in $bootInfs) { Invoke-Dism "/Image:$(Q $P.MountRE) /Add-Driver /Driver:$(Q $inf)$fu" 'WinRE driver' -Soft }
-                            }
+                            Add-BootDrivers $P.MountRE $bootSet $fu 'WinRE'
                             Invoke-ImageCleanup $P.MountRE 'WinRE'
                             Dismount-Img $P.MountRE -Commit
                             Export-Img $reWim 1 $reNew
@@ -1004,44 +1190,19 @@ function Invoke-Service([switch]$Auto) {
             Export-Img $stage $k $final -Max
         }
 
-        # ---- boot.wim (WinPE + Setup)
-        Write-Title 'Updating boot.wim (WinPE / Setup)'
-        Copy-Item -LiteralPath (Join-Path $P.Media 'sources\boot.wim') -Destination $bootSt -Force
-        (Get-Item -LiteralPath $bootSt -Force).Attributes = 'Normal'
-        $bootCount = @(Get-WindowsImage -ImagePath $bootSt).Count
-        for ($b = 1; $b -le $bootCount; $b++) {
-            Write-Step "boot.wim index $b of $bootCount"
-            Mount-Img $bootSt $b $P.MountPE
-            foreach ($x in $upd.SSU) { Add-Pkg $P.MountPE $x 'Servicing stack' -Soft }
-            foreach ($x in $upd.LCU) {
-                Add-Pkg $P.MountPE $x 'Servicing stack via LCU' -IgnoreHex @('8007007E', '800F081E') -Soft
-                Add-Pkg $P.MountPE $x 'Cumulative update' -IgnoreHex @('800F081E') -Soft
-            }
-            if ($bootInfs.Count -gt 0) {
-                Write-Sub "Storage/network drivers ($($bootInfs.Count))"
-                foreach ($inf in $bootInfs) { Invoke-Dism "/Image:$(Q $P.MountPE) /Add-Driver /Driver:$(Q $inf)$fu" 'WinPE driver' -Soft }
-            }
-            Invoke-ImageCleanup $P.MountPE 'WinPE'
-            if (Test-Path -LiteralPath (Join-Path $P.MountPE 'sources\setup.exe')) {
-                Copy-Item -LiteralPath (Join-Path $P.MountPE 'sources\setup.exe') -Destination (Join-Path $bfDir 'setup.exe') -Force
-                foreach ($n in 'bootmgfw.efi', 'bootmgr.efi', 'boot.stl') {
-                    $f = Join-Path $P.MountPE "Windows\Boot\EFI\$n"
-                    if (Test-Path -LiteralPath $f) { Copy-Item -LiteralPath $f -Destination (Join-Path $bfDir $n) -Force }
-                }
-            }
-            if ($Cfg.Boot2023 -and $b -eq 1) {
-                $ok = Save-BootFiles2023 $P.MountPE $exDir
-                if ($ok) { $exSaved = $true }
-            }
-            Dismount-Img $P.MountPE -Commit
-            Export-Img $bootSt $b $bootFin
-        }
+        # ---- boot.wim: join the background job, or run it now
+        if ($bootJob) { $j = $bootJob; $bootJob = $null; $bootRes = Wait-BootWimJob $j }
+        else { $bootRes = Invoke-BootWimService $bootCtx }
+        if ($bootRes -and $bootRes.ExSaved) { $exDir = $bootCtx.ExDir; $exSaved = $true }   # WinPE's 2023 boot files are preferred, as before
     } catch {
         Write-Err $_.Exception.Message
+        if ($bootJob) { Write-Warn 'Stopping the boot.wim background job...'; Stop-BootWimJob $bootJob }
         Write-Warn 'Discarding mounted images - your unpacked media was not changed.'
         Clear-Mounts
         throw
     }
+    $bootFin = $bootCtx.BootFin
+
 
     # ---- write results into the media folder
     Write-Title 'Updating the media folder'
@@ -2894,6 +3055,33 @@ function Invoke-CleanJob($A) {
     }
     Save-State
 }
+# Option "Let Windows Defender skip the work folder while a job runs": real-time scanning of
+# every file DISM, robocopy and oscdimg touch slows servicing a lot. The exclusion is added for
+# the job only and removed afterwards; a marker file makes sure a crash cannot leave it behind.
+function Enable-DefenderSkip {
+    if (-not $Script:Cfg.DefenderExclude) { return }
+    $w = [IO.Path]::GetFullPath($Script:P.Work).TrimEnd('\')
+    try {
+        $pref = Get-MpPreference -ErrorAction Stop
+        if (@($pref.ExclusionPath) -contains $w) { Add-Log "Defender already excludes $w (left as it is)"; return }
+        New-Item -ItemType Directory -Force -Path $w | Out-Null
+        Add-MpPreference -ExclusionPath $w -ErrorAction Stop
+        Set-Content -LiteralPath (Join-Path $w 'defender-exclusion.txt') -Value $w -Encoding ASCII
+        $Script:DefenderAdded = $w
+        Write-Info "Windows Defender skips $w during this job (removed again at the end)."
+    } catch { Write-Warn "Could not add the Defender exclusion ($($_.Exception.Message)) - normal scanning stays on." }
+}
+function Disable-DefenderSkip {
+    $w = $Script:DefenderAdded
+    $marker = $null
+    if ($Script:P -and $Script:P.Work) { $marker = Join-Path $Script:P.Work 'defender-exclusion.txt' }
+    if (-not $w -and $marker -and (Test-Path -LiteralPath $marker)) { $w = [string](Get-Content -LiteralPath $marker -TotalCount 1) }
+    if (-not $w) { return }
+    try { Remove-MpPreference -ExclusionPath $w -ErrorAction Stop; Add-Log "Defender exclusion removed: $w" }
+    catch { Add-Log "Defender exclusion not removed: $($_.Exception.Message)" }
+    if ($marker) { Remove-Item -LiteralPath $marker -Force -ErrorAction SilentlyContinue }
+    $Script:DefenderAdded = $null
+}
 # Entry point of the background worker. State is re-read from disk for every job.
 function Invoke-Job([string]$Job, $A) {
     if ($null -eq $A) { $A = @{} }
@@ -2907,6 +3095,8 @@ function Invoke-Job([string]$Job, $A) {
     $Script:DismLog = Join-Path $Script:P.Logs 'dism.log'
     Add-Log "---- $Script:AppName $Script:AppVersion  job=$Job"
     try {
+        Disable-DefenderSkip       # leftover from a run that was killed
+        if ($Job -in 'Unpack', 'Download', 'Sign', 'Service', 'Build', 'All') { Enable-DefenderSkip }
         switch ($Job) {
             'Unpack'       { $Script:IsoPath = [string]$A.Iso; Invoke-Unpack }
             'Analyze'      { Invoke-Analyze }
@@ -2934,7 +3124,8 @@ function Invoke-Job([string]$Job, $A) {
         Add-Log ($_ | Out-String)
         throw
     } finally {
-        if ($Script:Sync) { $Script:Sync.Pct = -1; $Script:Sync.Status = '' }
+        try { Disable-DefenderSkip } catch { }
+        if ($Script:Sync) { $Script:Sync.Pct = -1; $Script:Sync.Status = ''; $Script:Sync.SideSync = $null }
     }
 }
 #endregion
@@ -3290,7 +3481,7 @@ __PAGES__
           <Grid Grid.Column="1" Margin="18,0,18,0" VerticalAlignment="Center">
             <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
             <ProgressBar x:Name="Prog" Height="6" Minimum="0" Maximum="100" Background="#1A2133" BorderThickness="0" Foreground="#2F9BFF" Visibility="Hidden"/>
-            <TextBlock x:Name="StatusText" Grid.Column="1" Foreground="#8A94A8" Margin="12,0,0,0" FontSize="11" MaxWidth="420" TextTrimming="CharacterEllipsis"/>
+            <TextBlock x:Name="StatusText" Grid.Column="1" Foreground="#8A94A8" Margin="12,0,0,0" FontSize="11" MaxWidth="680" TextTrimming="CharacterEllipsis"/>
           </Grid>
           <StackPanel Grid.Column="2" Orientation="Horizontal">
             <Button x:Name="LogOpen" Style="{StaticResource Btn}" Content="Logs folder" Padding="10,4" FontSize="12"/>
@@ -3466,6 +3657,13 @@ $Script:XPages = @'
               <CheckBox x:Name="cfg_NoPrompt" Style="{StaticResource Toggle}" Content="UEFI boot without 'Press any key to boot from CD or DVD'"/>
               <CheckBox x:Name="cfg_Boot2023" Style="{StaticResource Toggle}" Content="Boot manager signed by Windows UEFI CA 2023 (needs firmware that trusts it)"/>
               <CheckBox x:Name="cfg_SplitFat32" Style="{StaticResource Toggle}" Content="Split install.wim into 3.8 GB parts (FAT32 USB sticks)"/>
+            </StackPanel></Border>
+            <Border Style="{StaticResource Card}"><StackPanel>
+              <TextBlock Style="{StaticResource H2}" Text="Speed"/>
+              <CheckBox x:Name="cfg_ParallelBoot" Style="{StaticResource Toggle}" Content="Update boot.wim at the same time as install.wim (faster, uses more CPU and disk)"/>
+              <CheckBox x:Name="cfg_DefenderExclude" Style="{StaticResource Toggle}" Content="Let Windows Defender skip the work folder while a job runs (removed again afterwards)"/>
+              <CheckBox x:Name="cfg_BootSkipPE" Style="{StaticResource Toggle}" Content="Leave boot.wim index 1 (Windows PE for WDS servers) as it is - USB / DVD setup uses index 2"/>
+              <TextBlock Style="{StaticResource Sub}" Margin="0,4,0,0" Text="DISM applies each update with one process, so servicing one image cannot use more cores - updating boot.wim alongside install.wim can. Defender scanning every file DISM writes is often the biggest slowdown. Storage / network drivers go into WinRE and boot.wim with one DISM call."/>
             </StackPanel></Border>
             <Border Style="{StaticResource Card}"><StackPanel>
               <TextBlock Style="{StaticResource H2}" Text="Output ISO"/>
@@ -3803,6 +4001,11 @@ function Invoke-Tick {
         $Script:U.BusyText.Text = ('{0}  {1:hh\:mm\:ss}' -f $Script:JobLabel, $el)
         $st = [string]$Script:Sync.Status
         if ($pct -ge 0) { $st = ('{0:N1}%  {1}' -f $pct, $st) }
+        $side = $Script:Sync.SideSync
+        if ($side -and $side.Label) {
+            $sp = [double]$side.Pct
+            $st = ('{0}    |    {1}{2}' -f $st, $side.Label, $(if ($sp -ge 0) { ' {0:N0}%' -f $sp } else { '' }))
+        }
         $Script:U.StatusText.Text = $st
         if ($Script:Handle.IsCompleted) { Complete-Work }
     }
@@ -4150,10 +4353,11 @@ try {
         Question = $null; Answer = $null; Result = $null
     })
     $Script:Busy = $false
-    $Script:CfgToggles = @('KeepOnlySelected', 'NetFx3', 'NetFx481', 'ResetBase', 'BootDrivers', 'ForceUnsigned', 'NoPrompt', 'Boot2023', 'SplitFat32', 'SignCleanup', 'InstallOemDrivers', 'SignOnlyThisPc')
+    $Script:CfgToggles = @('KeepOnlySelected', 'NetFx3', 'NetFx481', 'ResetBase', 'BootDrivers', 'ForceUnsigned', 'NoPrompt', 'Boot2023', 'SplitFat32', 'SignCleanup', 'InstallOemDrivers', 'SignOnlyThisPc', 'ParallelBoot', 'DefenderExclude', 'BootSkipPE')
     $Script:Cfg = Import-Settings
     Initialize-Paths
     $Script:S = Import-State
+    try { Disable-DefenderSkip } catch { }     # exclusion left behind if the program was closed during a job
 
     # background worker with its own copy of the engine
     $all = [IO.File]::ReadAllText($env:W10U_SELF)
@@ -4197,6 +4401,11 @@ try {
         $cb.Add_Click({
             $Script:Cfg[$this.Tag] = [bool]$this.IsChecked
             Save-Settings
+            if ($this.Tag -eq 'DefenderExclude' -and $this.IsChecked) {
+                Show-Msg ("While a job runs (unpack, download, sign, slipstream, build), Windows Defender does not scan the work folder " +
+                          "($($Script:P.Work)). The exclusion is removed when the job ends, and at the next start if the program was closed during a job. " +
+                          'Everything in there comes from Microsoft, your drivers and this tool - do not put other downloads in that folder.') 'Information'
+            }
             if ($this.Tag -eq 'SignOnlyThisPc' -and $this.IsChecked) {
                 Show-Msg ("Use this only when the ISO is for this PC. INF files for other hardware are removed from the signed copy, so the driver " +
                           "installs only on hardware that matches this PC. NVIDIA's own setup.exe may refuse to run from that copy - pnputil installs " +

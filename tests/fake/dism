@@ -1,0 +1,23 @@
+#!/bin/sh
+# fake dism.exe: logs its arguments, simulates mount / unmount / export.
+# FAKE_DISM_LOG=file   FAKE_DISM_SLEEP=sec (per call)   FAKE_DISM_FAIL=text (exit 2 when an argument contains it)
+[ -n "$FAKE_DISM_LOG" ] && echo "$*" >> "$FAKE_DISM_LOG"
+[ -n "$FAKE_DISM_SLEEP" ] && sleep "$FAKE_DISM_SLEEP"
+for a in "$@"; do
+  case "$a" in *"$FAKE_DISM_FAIL"*) [ -n "$FAKE_DISM_FAIL" ] && { echo "Error: 0x80070002"; exit 2; } ;; esac
+done
+op=""; for a in "$@"; do
+  case "$a" in
+    /Mount-Image) op=mount;; /Unmount-Image) op=unmount;; /Export-Image) op=export;;
+    /MountDir:*) md="${a#/MountDir:}";; /DestinationImageFile:*) dst="${a#/DestinationImageFile:}";;
+  esac
+done
+case "$op" in
+  mount) mkdir -p "$md/sources" "$md/Windows/Boot/EFI" "$md/Windows/Boot/EFI_EX" "$md/Windows/Boot/FONTS_EX" "$md/Windows/Boot/DVD_EX"
+         echo setup > "$md/sources/setup.exe"; echo efi > "$md/Windows/Boot/EFI/bootmgfw.efi";;
+  unmount) rm -rf "$md"/* ;;
+  export) echo wim >> "$dst";;
+esac
+echo "[==========================100.0%==========================]"
+echo "The operation completed successfully."
+exit 0

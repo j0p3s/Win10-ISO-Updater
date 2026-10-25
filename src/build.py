@@ -19,9 +19,17 @@ def edit(text, old, new, count=1):
 # ---- kept regions of the v1 engine -----------------------------------------
 settings = rng(162, 353)          # settings/state + process/DISM helpers
 settings = edit(settings, "        LastDriverFolder = ''\n",
-                "        LastDriverFolder = ''\n        SignCleanup      = $true\n        InstallOemDrivers = $false\n        SignOnlyThisPc   = $false\n")
+                "        LastDriverFolder = ''\n        SignCleanup      = $true\n        InstallOemDrivers = $false\n        SignOnlyThisPc   = $false\n        ParallelBoot     = $true\n        BootSkipPE       = $false\n        DefenderExclude  = $false\n")
 settings = edit(settings, "        Output   = Join-Path $w 'output'\n",
-                "        Output   = Join-Path $w 'output'\n        Signed   = Join-Path $w 'signed'\n")
+                "        Output   = Join-Path $w 'output'\n        Signed   = Join-Path $w 'signed'\n        Scratch  = Join-Path $w 'temp\\scratch'\n")
+# servicing commands use a scratch folder inside the work folder (covered by the Defender option)
+settings = edit(settings, "    $code = Invoke-Exe $Script:Dism ('/English /LogPath:' + (Q $Script:DismLog) + ' ' + $Arguments)",
+                """    $sd = ''
+    if ($Arguments -match '^/Image:' -and $Script:P -and $Script:P.Scratch) {
+        New-Item -ItemType Directory -Force -Path $Script:P.Scratch | Out-Null
+        $sd = ' /ScratchDir:' + (Q $Script:P.Scratch)
+    }
+    $code = Invoke-Exe $Script:Dism ('/English /LogPath:' + (Q $Script:DismLog) + $sd + ' ' + $Arguments)""")
 settings = edit(settings, "        Updates = @(); Drivers = @(); Unattend = $null; Serviced = $null; Iso = $null\n",
                 "        Updates = @(); Drivers = @(); Unattend = $null; Serviced = $null; Iso = $null\n"
                 "        Oem = $null; Signed = @(); OemSynced = $false\n")
@@ -72,9 +80,7 @@ drivers_b = edit(drivers_b, """        New-Item -ItemType Directory -Force -Path
         Get-ChildItem -LiteralPath $Source -Force | Copy-Item -Destination $Dest -Recurse -Force""")
 unattend = rng(1103, 1138) + '\n#endregion'
 
-service = rng(1177, 1419)
-service = edit(service, "    if (@($S.Selected).Count -eq 0) { Invoke-Editions }",
-               "    if (@($S.Selected).Count -eq 0) { throw 'No edition selected - tick at least one on the Editions page.' }")
+# v1 lines 1177-1419 (slipstream) now live in src/35_engine_service.ps1
 
 build = rng(1420, 1481)
 build = edit(build, 'function Invoke-Build([switch]$Auto) {', 'function Invoke-Build([switch]$Auto, [string]$OutIso) {')
@@ -103,7 +109,7 @@ def part(name):
 engine = '\n\n'.join([
     part('10_engine_head.ps1'),
     settings, detect_catalog, unpack, download,
-    drivers_a, drivers_b, '#endregion', unattend, service, build,
+    drivers_a, drivers_b, '#endregion', unattend, part('35_engine_service.ps1'), build,
     part('30_engine_tools.ps1'), part('31_engine_sign.ps1'), part('33_engine_check.ps1'), part('34_engine_check2.ps1'), part('32_engine_jobs.ps1'),
 ])
 
