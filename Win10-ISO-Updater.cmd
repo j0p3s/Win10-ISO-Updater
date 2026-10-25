@@ -1,6 +1,6 @@
 @echo off
 :: ===========================================================================
-::  Win10-ISO-Updater.cmd  (v2.1.1)  -  one file, graphical interface
+::  Win10-ISO-Updater.cmd  (v2.1.2)  -  one file, graphical interface
 ::  - unpacks a Windows 10 ISO and detects its build
 ::  - downloads its updates from the Microsoft Update Catalog
 ::  - slipstreams updates and drivers (this PC or a Drivers-Backup folder)
@@ -23,7 +23,7 @@ exit /b
 set "W10U_SELF=%~f0"
 set "PSEXE=%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe"
 if exist "%SystemRoot%\Sysnative\WindowsPowerShell\v1.0\powershell.exe" set "PSEXE=%SystemRoot%\Sysnative\WindowsPowerShell\v1.0\powershell.exe"
-echo Starting Win10 ISO Updater v2.1.1 ...  (this window hides when the program opens)
+echo Starting Win10 ISO Updater v2.1.2 ...  (this window hides when the program opens)
 "%PSEXE%" -NoProfile -STA -ExecutionPolicy Bypass -Command "$t=[IO.File]::ReadAllText($env:W10U_SELF);$i=$t.IndexOf('#'+'PS-BEGIN');Invoke-Expression $t.Substring($i)"
 if errorlevel 1 pause
 exit /b
@@ -38,7 +38,7 @@ $ErrorActionPreference = 'Stop'
 $ProgressPreference    = 'SilentlyContinue'
 
 $Script:AppName      = 'Win10-ISO-Updater'
-$Script:AppVersion   = '2.1.1'
+$Script:AppVersion   = '2.1.2'
 $Script:Root         = Split-Path -Parent $env:W10U_SELF
 $ToolsDir            = Join-Path $Script:Root 'tools'
 $IsoPath             = $null
@@ -3184,17 +3184,19 @@ $Script:XRes = @'
       <Setter Property="Margin" Value="0,0,0,14"/>
     </Style>
     <Style x:Key="H1" TargetType="TextBlock">
+      <Setter Property="Foreground" Value="#F4F6FB"/>
       <Setter Property="FontSize" Value="24"/>
       <Setter Property="FontWeight" Value="SemiBold"/>
       <Setter Property="Margin" Value="0,0,0,4"/>
     </Style>
     <Style x:Key="H2" TargetType="TextBlock">
+      <Setter Property="Foreground" Value="#DCE3F0"/>
       <Setter Property="FontSize" Value="15"/>
       <Setter Property="FontWeight" Value="SemiBold"/>
       <Setter Property="Margin" Value="0,0,0,10"/>
     </Style>
     <Style x:Key="Sub" TargetType="TextBlock">
-      <Setter Property="Foreground" Value="#8A94A8"/>
+      <Setter Property="Foreground" Value="#A3ADC2"/>
       <Setter Property="TextWrapping" Value="Wrap"/>
     </Style>
     <Style x:Key="Btn" TargetType="Button">
@@ -3535,7 +3537,7 @@ __PAGES__
 '@
 $Script:XPages = @'
           <!-- 1 source -->
-          <TabItem Visibility="Collapsed"><ScrollViewer VerticalScrollBarVisibility="Auto"><StackPanel Margin="24,18,24,18">
+          <TabItem Visibility="Collapsed" Foreground="#E6EAF2"><ScrollViewer VerticalScrollBarVisibility="Auto"><StackPanel Margin="24,18,24,18">
             <TextBlock Style="{StaticResource H1}" Text="Source ISO"/>
             <TextBlock Style="{StaticResource Sub}" Margin="0,0,0,14" Text="Pick a Windows 10 ISO (1607 / LTSB 2016, 1809 / LTSC 2019, 2004-22H2 or LTSC 2021). It is copied into the work folder and its build and editions are detected."/>
             <Border Style="{StaticResource Card}"><StackPanel>
@@ -3559,7 +3561,7 @@ $Script:XPages = @'
           </StackPanel></ScrollViewer></TabItem>
 
           <!-- 2 editions -->
-          <TabItem Visibility="Collapsed"><ScrollViewer VerticalScrollBarVisibility="Auto"><StackPanel Margin="24,18,24,18">
+          <TabItem Visibility="Collapsed" Foreground="#E6EAF2"><ScrollViewer VerticalScrollBarVisibility="Auto"><StackPanel Margin="24,18,24,18">
             <TextBlock Style="{StaticResource H1}" Text="Editions"/>
             <TextBlock Style="{StaticResource Sub}" Margin="0,0,0,14" Text="Tick the editions to update. With the option below on, unticked editions are left out of the new ISO (smaller and faster)."/>
             <Border Style="{StaticResource Card}"><StackPanel>
@@ -3579,7 +3581,7 @@ $Script:XPages = @'
           </StackPanel></ScrollViewer></TabItem>
 
           <!-- 3 updates -->
-          <TabItem Visibility="Collapsed"><ScrollViewer VerticalScrollBarVisibility="Auto"><StackPanel Margin="24,18,24,18">
+          <TabItem Visibility="Collapsed" Foreground="#E6EAF2"><ScrollViewer VerticalScrollBarVisibility="Auto"><StackPanel Margin="24,18,24,18">
             <TextBlock Style="{StaticResource H1}" Text="Windows updates"/>
             <TextBlock Style="{StaticResource Sub}" Margin="0,0,0,14" Text="Finds the newest cumulative update, servicing stack, Safe OS and Setup Dynamic Updates and .NET updates for this build in the Microsoft Update Catalog and downloads them (SHA-1 checked)."/>
             <Border Style="{StaticResource Card}"><StackPanel>
@@ -3602,7 +3604,7 @@ $Script:XPages = @'
           </StackPanel></ScrollViewer></TabItem>
 
           <!-- 4 drivers -->
-          <TabItem Visibility="Collapsed"><ScrollViewer VerticalScrollBarVisibility="Auto"><StackPanel Margin="24,18,24,18">
+          <TabItem Visibility="Collapsed" Foreground="#E6EAF2"><ScrollViewer VerticalScrollBarVisibility="Auto"><StackPanel Margin="24,18,24,18">
             <TextBlock Style="{StaticResource H1}" Text="Drivers"/>
             <TextBlock Style="{StaticResource Sub}" Margin="0,0,0,14" Text="Signed drivers are slipstreamed into install.wim with DISM, so Windows installs them on first boot. Storage and network drivers also go into boot.wim and WinRE, so Setup sees RAID / VMD disks. Modded drivers (edited INF) belong on the next page."/>
             <Border Style="{StaticResource Card}"><StackPanel>
@@ -3620,7 +3622,7 @@ $Script:XPages = @'
           </StackPanel></ScrollViewer></TabItem>
 
           <!-- 5 signed / modded -->
-          <TabItem Visibility="Collapsed"><ScrollViewer VerticalScrollBarVisibility="Auto"><StackPanel Margin="24,18,24,18">
+          <TabItem Visibility="Collapsed" Foreground="#E6EAF2"><ScrollViewer VerticalScrollBarVisibility="Auto"><StackPanel Margin="24,18,24,18">
             <TextBlock Style="{StaticResource H1}" Text="Signed NVIDIA / modded drivers"/>
             <TextBlock Style="{StaticResource Sub}" Margin="0,0,0,14" Text="For driver packages whose INF was edited - NVCleanstall hardware-ID mods for an unsupported GPU, custom INF files. The edit breaks the catalog signature, so Windows refuses them. Every subfolder is scanned; each modified package gets a new catalog (Inf2Cat) signed with your own certificate. The package is added to the ISO through $OEM$ and installed by SetupComplete.cmd at the end of Windows setup, right after the certificate is trusted."/>
             <Border Style="{StaticResource Card}"><StackPanel>
@@ -3657,7 +3659,7 @@ $Script:XPages = @'
           </StackPanel></ScrollViewer></TabItem>
 
           <!-- 6 answer file + oem -->
-          <TabItem Visibility="Collapsed"><ScrollViewer VerticalScrollBarVisibility="Auto"><StackPanel Margin="24,18,24,18">
+          <TabItem Visibility="Collapsed" Foreground="#E6EAF2"><ScrollViewer VerticalScrollBarVisibility="Auto"><StackPanel Margin="24,18,24,18">
             <TextBlock Style="{StaticResource H1}" Text="Answer file and $OEM$"/>
             <TextBlock Style="{StaticResource Sub}" Margin="0,0,0,14" Text="Both are optional and copied into the media when the ISO is built."/>
             <Border Style="{StaticResource Card}"><StackPanel>
@@ -3684,7 +3686,7 @@ $Script:XPages = @'
           </StackPanel></ScrollViewer></TabItem>
 
           <!-- 7 build -->
-          <TabItem Visibility="Collapsed"><ScrollViewer VerticalScrollBarVisibility="Auto"><StackPanel Margin="24,18,24,18">
+          <TabItem Visibility="Collapsed" Foreground="#E6EAF2"><ScrollViewer VerticalScrollBarVisibility="Auto"><StackPanel Margin="24,18,24,18">
             <TextBlock Style="{StaticResource H1}" Text="Slipstream and build"/>
             <TextBlock Style="{StaticResource Sub}" Margin="0,0,0,14" Text="Slipstream applies updates, drivers and options to WinRE, install.wim and boot.wim (30-90 minutes). Build writes the bootable BIOS + UEFI ISO with your answer file, $OEM$ and signed drivers."/>
             <Border Style="{StaticResource Card}"><StackPanel>
@@ -3721,7 +3723,7 @@ $Script:XPages = @'
           </StackPanel></ScrollViewer></TabItem>
 
           <!-- 8 options -->
-          <TabItem Visibility="Collapsed"><ScrollViewer VerticalScrollBarVisibility="Auto"><StackPanel Margin="24,18,24,18">
+          <TabItem Visibility="Collapsed" Foreground="#E6EAF2"><ScrollViewer VerticalScrollBarVisibility="Auto"><StackPanel Margin="24,18,24,18">
             <TextBlock Style="{StaticResource H1}" Text="Options and clean up"/>
             <Border Style="{StaticResource Card}" Margin="0,14,0,14"><StackPanel>
               <TextBlock Style="{StaticResource H2}" Text="Work folder"/>
@@ -3752,7 +3754,7 @@ $Script:XPages = @'
           </StackPanel></ScrollViewer></TabItem>
 
           <!-- 9 tools -->
-          <TabItem Visibility="Collapsed"><ScrollViewer VerticalScrollBarVisibility="Auto"><StackPanel Margin="24,18,24,18">
+          <TabItem Visibility="Collapsed" Foreground="#E6EAF2"><ScrollViewer VerticalScrollBarVisibility="Auto"><StackPanel Margin="24,18,24,18">
             <TextBlock Style="{StaticResource H1}" Text="Tools"/>
             <TextBlock Style="{StaticResource Sub}" Margin="0,0,0,14" Text="Everything missing is downloaded automatically when a step needs it, into the tools folder next to this file. oscdimg.exe comes from the Microsoft symbol server (SHA-256 checked) or the Windows ADK; Inf2Cat and signtool are extracted from Microsoft's NuGet packages (Windows SDK build tools / Windows Driver Kit) - only those tools are kept, nothing is installed."/>
             <Border Style="{StaticResource Card}"><StackPanel>
@@ -3770,7 +3772,7 @@ $Script:XPages = @'
           </StackPanel></ScrollViewer></TabItem>
 
           <!-- 10 install check -->
-          <TabItem Visibility="Collapsed"><ScrollViewer VerticalScrollBarVisibility="Auto"><StackPanel Margin="24,18,24,18">
+          <TabItem Visibility="Collapsed" Foreground="#E6EAF2"><ScrollViewer VerticalScrollBarVisibility="Auto"><StackPanel Margin="24,18,24,18">
             <TextBlock Style="{StaticResource H1}" Text="Install check"/>
             <TextBlock Style="{StaticResource Sub}" Margin="0,0,0,14" Text="Checks your autounattend.xml, $OEM$ folder and drivers against the ISO you are building and points out what would break or stall a clean install: wrong edition index or language, invalid computer / account names or time zone, duplicate command numbers, scripts that wait for a key, missing files, drivers that nothing installs or that Windows will refuse, and SetupComplete.cmd being skipped on PCs with an OEM key. Fixes change only the copies that go into the ISO - your own files stay as they are. The check also runs before every ISO build."/>
             <Border Style="{StaticResource Card}"><StackPanel>

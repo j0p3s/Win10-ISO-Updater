@@ -17,17 +17,19 @@ $Script:XRes = @'
       <Setter Property="Margin" Value="0,0,0,14"/>
     </Style>
     <Style x:Key="H1" TargetType="TextBlock">
+      <Setter Property="Foreground" Value="#F4F6FB"/>
       <Setter Property="FontSize" Value="24"/>
       <Setter Property="FontWeight" Value="SemiBold"/>
       <Setter Property="Margin" Value="0,0,0,4"/>
     </Style>
     <Style x:Key="H2" TargetType="TextBlock">
+      <Setter Property="Foreground" Value="#DCE3F0"/>
       <Setter Property="FontSize" Value="15"/>
       <Setter Property="FontWeight" Value="SemiBold"/>
       <Setter Property="Margin" Value="0,0,0,10"/>
     </Style>
     <Style x:Key="Sub" TargetType="TextBlock">
-      <Setter Property="Foreground" Value="#8A94A8"/>
+      <Setter Property="Foreground" Value="#A3ADC2"/>
       <Setter Property="TextWrapping" Value="Wrap"/>
     </Style>
     <Style x:Key="Btn" TargetType="Button">

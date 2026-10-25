@@ -1,5 +1,10 @@
 # Changelog
 
+## v2.1.2 — 2026-10-25
+
+### Fixed
+- Page titles, card headings, labels (*Folder*, *Name*, *Newest month to integrate*), the detected image line, the certificate status and the answer file / `$OEM$` lines were nearly black on the dark background. They now use the theme's light text colours, and the grey help text is a little lighter.
+
 ## v2.1.1 — 2026-10-25
 
 ### Fixed
