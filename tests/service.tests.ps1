@@ -164,7 +164,7 @@ $env:FAKE_DISM_SLEEP = ''
 function New-WorkLeftovers {
     foreach ($d in 'drivers/selected/host/x', 'logs', 'signed/NVIDIA', 'output', 'updates/LCU') { New-Item -ItemType Directory -Force (Join-Path $P.Work $d) | Out-Null }
     foreach ($f in 'autounattend.xml', 'autounattend.original.xml', 'install-check.json', 'logs/engine.log', 'logs/dism.log') { Set-Content (Join-Path $P.Work $f) 'x' }
-    $Script:S = New-State; $Script:S.Drivers = @(@{ Inf = 'a.inf' }); $Script:S.Unattend = @{ Source = 'C:\Users\Joao\Desktop\autounattend.xml' }; $Script:S.Check = @{ Errors = 0 }
+    $Script:S = New-State; $Script:S.Drivers = @(@{ Inf = 'a.inf' }); $Script:S.Unattend = @{ Source = 'C:\Users\User\Desktop\autounattend.xml' }; $Script:S.Check = @{ Errors = 0 }
     Save-State
 }
 New-WorkLeftovers
