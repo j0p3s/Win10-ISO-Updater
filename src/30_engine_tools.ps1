@@ -5,7 +5,7 @@ function Push-ExeLine([string]$Line) {
     if (-not $t -or $t -match '^[#=O\-\s]+$') { return }
     # progress bars (DISM "[====  45.0%  ]", curl "####  45.0%") drive the GUI progress bar
     $m = [regex]::Match($t, '(\d{1,3}(?:[\.,]\d+)?)\s*%')
-    if ($m.Success -and ($t -replace '[\d\.,%\[\]=#\-\sO>]', '').Length -lt 3) {
+    if ($m.Success -and (($t -replace '[\d\.,%\[\]=#\-\sO>]', '').Length -lt 3 -or $t -match '^\d{1,3}(\.\d+)?% complete$')) {
         $v = 0.0
         if ($Script:Sync -and [double]::TryParse(($m.Groups[1].Value -replace ',', '.'), [Globalization.NumberStyles]::Float, $Script:Inv, [ref]$v)) {
             $Script:Sync.Pct = [math]::Min(100.0, $v)

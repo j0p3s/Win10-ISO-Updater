@@ -25,6 +25,8 @@ Push-ExeLine '[==========================45.0%                          ]'
 Check 'DISM progress bar -> 45%' ($Script:Sync.Pct -eq 45)
 Push-ExeLine '######################################################################## 100.0%'
 Check 'curl progress bar -> 100%' ($Script:Sync.Pct -eq 100)
+Push-ExeLine '37% complete'
+Check 'oscdimg "37% complete" -> progress bar, not a log line' ($Script:Sync.Pct -eq 37)
 Push-ExeLine 'Error: 0x800f081e'; Push-ExeLine 'The operation completed successfully.'
 $q = Drain
 Check 'error lines red, others dim' ($q.Count -eq 2 -and $q[0][0] -eq 'Red' -and $q[1][0] -eq 'DarkGray')

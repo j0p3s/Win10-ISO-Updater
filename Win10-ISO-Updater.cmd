@@ -1,6 +1,6 @@
 @echo off
 :: ===========================================================================
-::  Win10-ISO-Updater.cmd  (v2.0.7)  -  one file, graphical interface
+::  Win10-ISO-Updater.cmd  (v2.0.8)  -  one file, graphical interface
 ::  - unpacks a Windows 10 ISO and detects its build
 ::  - downloads its updates from the Microsoft Update Catalog
 ::  - slipstreams updates and drivers (this PC or a Drivers-Backup folder)
@@ -23,7 +23,7 @@ exit /b
 set "W10U_SELF=%~f0"
 set "PSEXE=%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe"
 if exist "%SystemRoot%\Sysnative\WindowsPowerShell\v1.0\powershell.exe" set "PSEXE=%SystemRoot%\Sysnative\WindowsPowerShell\v1.0\powershell.exe"
-echo Starting Win10 ISO Updater v2.0.7 ...  (this window hides when the program opens)
+echo Starting Win10 ISO Updater v2.0.8 ...  (this window hides when the program opens)
 "%PSEXE%" -NoProfile -STA -ExecutionPolicy Bypass -Command "$t=[IO.File]::ReadAllText($env:W10U_SELF);$i=$t.IndexOf('#'+'PS-BEGIN');Invoke-Expression $t.Substring($i)"
 if errorlevel 1 pause
 exit /b
@@ -38,7 +38,7 @@ $ErrorActionPreference = 'Stop'
 $ProgressPreference    = 'SilentlyContinue'
 
 $Script:AppName      = 'Win10-ISO-Updater'
-$Script:AppVersion   = '2.0.7'
+$Script:AppVersion   = '2.0.8'
 $Script:Root         = Split-Path -Parent $env:W10U_SELF
 $ToolsDir            = Join-Path $Script:Root 'tools'
 $IsoPath             = $null
@@ -1181,7 +1181,7 @@ function Push-ExeLine([string]$Line) {
     if (-not $t -or $t -match '^[#=O\-\s]+$') { return }
     # progress bars (DISM "[====  45.0%  ]", curl "####  45.0%") drive the GUI progress bar
     $m = [regex]::Match($t, '(\d{1,3}(?:[\.,]\d+)?)\s*%')
-    if ($m.Success -and ($t -replace '[\d\.,%\[\]=#\-\sO>]', '').Length -lt 3) {
+    if ($m.Success -and (($t -replace '[\d\.,%\[\]=#\-\sO>]', '').Length -lt 3 -or $t -match '^\d{1,3}(\.\d+)?% complete$')) {
         $v = 0.0
         if ($Script:Sync -and [double]::TryParse(($m.Groups[1].Value -replace ',', '.'), [Globalization.NumberStyles]::Float, $Script:Inv, [ref]$v)) {
             $Script:Sync.Pct = [math]::Min(100.0, $v)

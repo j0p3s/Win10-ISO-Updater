@@ -1,5 +1,10 @@
 # Changelog
 
+## v2.0.8 — 2026-10-25
+
+### Changed
+- oscdimg's "N% complete" lines drive the progress bar instead of filling the Activity log with 100 lines.
+
 ## v2.0.7 — 2026-10-25
 
 ### Fixed
