@@ -1,6 +1,6 @@
 @echo off
 :: ===========================================================================
-::  Win10-ISO-Updater.cmd  (v2.0.6)  -  one file, graphical interface
+::  Win10-ISO-Updater.cmd  (v2.0.7)  -  one file, graphical interface
 ::  - unpacks a Windows 10 ISO and detects its build
 ::  - downloads its updates from the Microsoft Update Catalog
 ::  - slipstreams updates and drivers (this PC or a Drivers-Backup folder)
@@ -23,7 +23,7 @@ exit /b
 set "W10U_SELF=%~f0"
 set "PSEXE=%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe"
 if exist "%SystemRoot%\Sysnative\WindowsPowerShell\v1.0\powershell.exe" set "PSEXE=%SystemRoot%\Sysnative\WindowsPowerShell\v1.0\powershell.exe"
-echo Starting Win10 ISO Updater v2.0.6 ...  (this window hides when the program opens)
+echo Starting Win10 ISO Updater v2.0.7 ...  (this window hides when the program opens)
 "%PSEXE%" -NoProfile -STA -ExecutionPolicy Bypass -Command "$t=[IO.File]::ReadAllText($env:W10U_SELF);$i=$t.IndexOf('#'+'PS-BEGIN');Invoke-Expression $t.Substring($i)"
 if errorlevel 1 pause
 exit /b
@@ -38,7 +38,7 @@ $ErrorActionPreference = 'Stop'
 $ProgressPreference    = 'SilentlyContinue'
 
 $Script:AppName      = 'Win10-ISO-Updater'
-$Script:AppVersion   = '2.0.6'
+$Script:AppVersion   = '2.0.7'
 $Script:Root         = Split-Path -Parent $env:W10U_SELF
 $ToolsDir            = Join-Path $Script:Root 'tools'
 $IsoPath             = $null
@@ -1151,7 +1151,8 @@ function Invoke-Build([switch]$Auto, [string]$OutIso) {
     if ($label.Length -gt 32) { $label = $label.Substring(0, 32) }
     New-Item -ItemType Directory -Force -Path $P.Output | Out-Null
     $iso = Join-Path $P.Output ('Win10_{0}_{1}_{2}_{3:yyyyMMdd}.iso' -f $tag, $build, $arch, (Get-Date))
-    if ($OutIso) { $iso = $OutIso.Trim().Trim('"'); if ($iso -notmatch '\.iso$') { $iso += '.iso' } }
+    if ($OutIso) { $iso = Resolve-OutIso $OutIso $iso }
+    Write-Info "Output: $iso"
     New-Item -ItemType Directory -Force -Path (Split-Path $iso -Parent) | Out-Null
     if (Test-Path -LiteralPath $iso) { Remove-Item -LiteralPath $iso -Force }
 
@@ -2848,6 +2849,28 @@ function Invoke-RunAll($A) {
     Invoke-Build -Auto -OutIso $A.Out
     Write-Title 'Everything done'
     Write-Ok $Script:S.Iso
+}
+# Turns what is typed in "Output ISO" into a full file path: a folder gets the default file name,
+# a bare name goes into the output folder, ".iso" is added. Bad input gets a clear message
+# instead of .NET's "The path is not of a legal form".
+function Resolve-OutIso([string]$Want, [string]$Default) {
+    $w = ([string]$Want).Trim().Trim('"').Trim()
+    if (-not $w) { return $Default }
+    $hint = ' - clear the "Output ISO" box on the Build page to use the default name, or pick a file with "Save as...".'
+    if ($w.IndexOfAny([char[]]'*?<>|"') -ge 0 -or $w.IndexOfAny([IO.Path]::GetInvalidPathChars()) -ge 0) { throw "The output ISO path has characters Windows does not allow: $w$hint" }
+    $outDir = Split-Path $Default -Parent
+    $isDir = $w -match '[\\/]$' -or (Test-Path -LiteralPath $w -PathType Container)
+    if ($isDir) { $w = Join-Path $w (Split-Path $Default -Leaf) }
+    elseif ($w -match '^[A-Za-z]:[^\\/]' -or -not [IO.Path]::IsPathRooted($w)) {
+        # "Win10.iso" or "E:Win10.iso" - no folder given
+        $w = Join-Path $outDir ($w -replace '^[A-Za-z]:', '')
+    }
+    if ($w -notmatch '(?i)\.iso$') { $w += '.iso' }
+    try { $full = [IO.Path]::GetFullPath($w) } catch { throw "The output ISO path is not valid: $w$hint" }
+    if ($full.Substring(2) -match ':') { throw "The output ISO path is not valid (':' inside the name): $w$hint" }
+    $root = [IO.Path]::GetPathRoot($full)
+    if ($root -and -not (Test-Path -LiteralPath $root)) { throw "Drive $root does not exist (output ISO: $full)$hint" }
+    return $full
 }
 function Invoke-CleanJob($A) {
     Write-Title 'Clean up'

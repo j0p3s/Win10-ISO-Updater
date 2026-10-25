@@ -92,7 +92,8 @@ build = edit(build, "    Sync-Unattend\n    Test-UnattendSelection", """    Sync
 build = edit(build, """    if (-not $Auto) {
         $ans = Read-Host "  Output file (Enter = $iso)"
         if ($ans) { $iso = $ans.Trim().Trim('"'); if ($iso -notmatch '\\.iso$') { $iso += '.iso' } }
-    }""", """    if ($OutIso) { $iso = $OutIso.Trim().Trim('"'); if ($iso -notmatch '\\.iso$') { $iso += '.iso' } }""")
+    }""", """    if ($OutIso) { $iso = Resolve-OutIso $OutIso $iso }
+    Write-Info "Output: $iso"\n""".rstrip('\n'))
 build = edit(build, 'Invoke-Exe $osc ("-m -o -u2 -udfver102 -l$label $bootdata $(Q $m) $(Q $iso)")',
              'Invoke-Exe $osc ("-m -o -u2 -udfver102 -l$label $bootdata $(Q $m) $(Q $iso)") -MergeErr')
 

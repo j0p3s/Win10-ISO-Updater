@@ -155,6 +155,28 @@ function Invoke-RunAll($A) {
     Write-Title 'Everything done'
     Write-Ok $Script:S.Iso
 }
+# Turns what is typed in "Output ISO" into a full file path: a folder gets the default file name,
+# a bare name goes into the output folder, ".iso" is added. Bad input gets a clear message
+# instead of .NET's "The path is not of a legal form".
+function Resolve-OutIso([string]$Want, [string]$Default) {
+    $w = ([string]$Want).Trim().Trim('"').Trim()
+    if (-not $w) { return $Default }
+    $hint = ' - clear the "Output ISO" box on the Build page to use the default name, or pick a file with "Save as...".'
+    if ($w.IndexOfAny([char[]]'*?<>|"') -ge 0 -or $w.IndexOfAny([IO.Path]::GetInvalidPathChars()) -ge 0) { throw "The output ISO path has characters Windows does not allow: $w$hint" }
+    $outDir = Split-Path $Default -Parent
+    $isDir = $w -match '[\\/]$' -or (Test-Path -LiteralPath $w -PathType Container)
+    if ($isDir) { $w = Join-Path $w (Split-Path $Default -Leaf) }
+    elseif ($w -match '^[A-Za-z]:[^\\/]' -or -not [IO.Path]::IsPathRooted($w)) {
+        # "Win10.iso" or "E:Win10.iso" - no folder given
+        $w = Join-Path $outDir ($w -replace '^[A-Za-z]:', '')
+    }
+    if ($w -notmatch '(?i)\.iso$') { $w += '.iso' }
+    try { $full = [IO.Path]::GetFullPath($w) } catch { throw "The output ISO path is not valid: $w$hint" }
+    if ($full.Substring(2) -match ':') { throw "The output ISO path is not valid (':' inside the name): $w$hint" }
+    $root = [IO.Path]::GetPathRoot($full)
+    if ($root -and -not (Test-Path -LiteralPath $root)) { throw "Drive $root does not exist (output ISO: $full)$hint" }
+    return $full
+}
 function Invoke-CleanJob($A) {
     Write-Title 'Clean up'
     Clear-Mounts

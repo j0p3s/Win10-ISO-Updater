@@ -25,6 +25,7 @@ $suites = @(
     @{ File = 'install-check.tests.ps1';         Args = @() }                   # install check findings + fixes
     @{ File = 'generator-answer-file.tests.ps1'; Args = @() }                   # a real autounattend-generator file
     @{ File = 'ui-refresh.tests.ps1';            Args = @() }                   # page refresh, check list, PS 5.1 JSON
+    @{ File = 'output-path.tests.ps1';           Args = @() }                   # output ISO path from the Build page
 )
 $failed = @()
 foreach ($s in $suites) {

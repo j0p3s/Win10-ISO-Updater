@@ -1,5 +1,10 @@
 # Changelog
 
+## v2.0.7 — 2026-10-25
+
+### Fixed
+- **Build ISO stopped with "The path is not of a legal form"** when the *Output ISO* box held a name without a folder (or a folder). The box now accepts a full path, a folder (the default file name is used) or a bare name (saved in the output folder); `.iso` is added, and invalid input gets a clear message. The log shows the output path before oscdimg runs.
+
 ## v2.0.6 — 2026-10-25
 
 ### Added
