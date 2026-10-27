@@ -27,6 +27,15 @@ Open an issue with the **Bug report** form. The most useful things to include:
 4. Test on Windows too for anything that touches DISM, WPF or driver installs — the test suite uses stand-ins for those.
 5. Commit both `src/` and the rebuilt `Win10-ISO-Updater.cmd`, and add a line to [CHANGELOG.md](CHANGELOG.md).
 
+## Releasing
+
+1. In `src/`, set the version in `00_header.cmd` (2 places) and `10_engine_head.ps1`. Also update the README badge and start line, and the bug report form.
+2. Add a `## vX.Y.Z — date` entry to `CHANGELOG.md`. It becomes the release notes.
+3. Rebuild, run the tests and merge to `main`.
+4. Go to **Actions → release → Run workflow** on `main`. Enter the version and, optionally, a title.
+
+The workflow checks the version and the changelog entry, rebuilds and tests. It then creates the tag and the GitHub release, with `Win10-ISO-Updater.cmd` and its `.sha256` attached.
+
 ## Code notes
 
 - The engine runs under **Windows PowerShell 5.1**: variable names are case-insensitive (`$u` and `$U` are the same variable), `ConvertFrom-Json` does not unroll top-level arrays, and stderr of console tools becomes an error under `$ErrorActionPreference = 'Stop'` — use `Invoke-Native` / `Invoke-Exe` for console tools.

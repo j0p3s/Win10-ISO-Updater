@@ -29,6 +29,7 @@ Faster slipstream and downloads, a PC that stays awake through long jobs, progre
 - The slipstream suite now covers WinRE: in the background vs. inline, and a failed WinRE update with two editions.
 - The UI suite now covers the taskbar progress and several background jobs on the status line.
 - In total there are 10 suites with about 250 checks.
+- New `release` workflow (Actions → release → Run workflow). It checks the version and this changelog entry, rebuilds and tests, then publishes the tag and the GitHub release with `Win10-ISO-Updater.cmd` and its SHA-256 attached.
 
 ## v2.1.2 — 2026-10-25
 
