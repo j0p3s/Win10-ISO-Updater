@@ -1,5 +1,5 @@
 #!/bin/sh
-# fake dism.exe: logs its arguments, simulates mount / unmount / export.
+# fake dism.exe: logs its arguments, simulates mount / unmount / export (an install.wim edition has a winre.wim).
 # FAKE_DISM_LOG=file   FAKE_DISM_SLEEP=sec (per call)   FAKE_DISM_FAIL=text (exit 2 when an argument contains it)
 [ -n "$FAKE_DISM_LOG" ] && echo "$*" >> "$FAKE_DISM_LOG"
 [ -n "$FAKE_DISM_SLEEP" ] && sleep "$FAKE_DISM_SLEEP"
@@ -9,12 +9,13 @@ done
 op=""; for a in "$@"; do
   case "$a" in
     /Mount-Image) op=mount;; /Unmount-Image) op=unmount;; /Export-Image) op=export;;
-    /MountDir:*) md="${a#/MountDir:}";; /DestinationImageFile:*) dst="${a#/DestinationImageFile:}";;
+    /MountDir:*) md="${a#/MountDir:}";; /DestinationImageFile:*) dst="${a#/DestinationImageFile:}";; /ImageFile:*) img="${a#/ImageFile:}";;
   esac
 done
 case "$op" in
   mount) mkdir -p "$md/sources" "$md/Windows/Boot/EFI" "$md/Windows/Boot/EFI_EX" "$md/Windows/Boot/FONTS_EX" "$md/Windows/Boot/DVD_EX"
-         echo setup > "$md/sources/setup.exe"; echo efi > "$md/Windows/Boot/EFI/bootmgfw.efi";;
+         echo setup > "$md/sources/setup.exe"; echo efi > "$md/Windows/Boot/EFI/bootmgfw.efi"
+         case "$img" in *install_stage*) mkdir -p "$md/Windows/System32/Recovery"; echo winre > "$md/Windows/System32/Recovery/winre.wim";; esac;;
   unmount) rm -rf "$md"/* ;;
   export) echo wim >> "$dst";;
 esac

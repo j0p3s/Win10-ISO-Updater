@@ -77,7 +77,7 @@ function Invoke-RunAllClick {
     $lines += "Editions: $(if (@($Script:S.Selected).Count) { "$(@($Script:S.Selected).Count) ticked" } else { 'asked after unpacking' })"
     $lines += "Drivers: $(@($Script:S.Drivers).Count)   Signed packages: $(@($Script:S.Signed | Where-Object { $_ }).Count)"
     $lines += "Answer file: $(if ($Script:S.Unattend) { 'yes' } else { 'no' })   `$OEM`$: $(if ($Script:S.Oem) { 'yes' } else { 'no' })"
-    if (-not (Confirm-Ui ("Run everything now? It takes 30-90 minutes.`n`n" + ($lines -join "`n")))) { return }
+    if (-not (Confirm-Ui ("Run everything now? It takes 30-90 minutes - the PC is kept awake until it is done.`n`n" + ($lines -join "`n")))) { return }
     Start-Work 'All' @{ Iso = $iso; Out = $Script:U.OutBox.Text.Trim().Trim('"') }
 }
 #endregion
@@ -113,6 +113,8 @@ try {
     $Script:W = $M.W; $Script:U = $M.U
     $W = $Script:W; $U = $Script:U
     $U.VerRun.Text = "  v$Script:AppVersion"
+    try { $W.TaskbarItemInfo = New-Object System.Windows.Shell.TaskbarItemInfo } catch { }
+    $W.Add_Activated({ if (-not $Script:Busy) { Set-TaskbarState 'None' } })
 
     # title bar
     $U.MinBtn.Add_Click({ $Script:W.WindowState = 'Minimized' })
@@ -324,7 +326,20 @@ try {
     else { Write-Info 'Start on page 1: choose a Windows 10 ISO and unpack it - or set everything up and press Run everything.' }
 
     try {
-        Add-Type -Namespace W10U -Name Con -MemberDefinition '[DllImport("kernel32.dll")] public static extern IntPtr GetConsoleWindow(); [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h, int n);'
+        # console window, keep-awake during jobs (Set-KeepAwake), taskbar flash (Request-Attention)
+        Add-Type -Namespace W10U -Name Con -MemberDefinition @'
+[DllImport("kernel32.dll")] public static extern IntPtr GetConsoleWindow();
+[DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h, int n);
+[DllImport("kernel32.dll")] public static extern uint SetThreadExecutionState(uint flags);
+[StructLayout(LayoutKind.Sequential)] public struct FLASHWINFO { public uint cbSize; public IntPtr hwnd; public uint dwFlags; public uint uCount; public uint dwTimeout; }
+[DllImport("user32.dll")] static extern bool FlashWindowEx(ref FLASHWINFO fi);
+public static bool Flash(IntPtr h) {
+    FLASHWINFO fi = new FLASHWINFO();
+    fi.cbSize = (uint)Marshal.SizeOf(fi); fi.hwnd = h;
+    fi.dwFlags = 2 | 12;    // FLASHW_TRAY | FLASHW_TIMERNOFG: the taskbar button, until the window is in front
+    return FlashWindowEx(ref fi);
+}
+'@
         [void][W10U.Con]::ShowWindow([W10U.Con]::GetConsoleWindow(), 0)
     } catch { }
     [void]$W.ShowDialog()

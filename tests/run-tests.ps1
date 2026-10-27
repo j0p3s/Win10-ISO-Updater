@@ -27,6 +27,8 @@ $suites = @(
     @{ File = 'ui-refresh.tests.ps1';            Args = @() }                   # page refresh, check list, PS 5.1 JSON
     @{ File = 'service.tests.ps1';               Args = @() }                   # boot.wim in the background, driver set, Defender option
     @{ File = 'output-path.tests.ps1';           Args = @() }                   # output ISO path from the Build page
+    @{ File = 'build.tests.ps1';                 Args = @() }                   # ISO build: .part file, old ISO kept, ISO in use, free space
+    @{ File = 'download.tests.ps1';              Args = @() }                   # servicing stack lookup in a side job while the rest downloads
 )
 $failed = @()
 foreach ($s in $suites) {

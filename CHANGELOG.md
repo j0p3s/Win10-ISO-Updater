@@ -1,5 +1,35 @@
 # Changelog
 
+## v3.0.0 — 2026-10-27
+
+Faster slipstream and downloads, a PC that stays awake through long jobs, progress on the taskbar, and an ISO build that never loses the previous ISO.
+
+**Upgrading from 2.x:** replace `Win10-ISO-Updater.cmd`. Your settings, the `signing` folder and the work folder are kept, and all options keep their values.
+
+### Faster
+- **WinRE is updated in the background**, at the same time as the first edition of `install.wim` (and `boot.wim`). The edition waits for it only just before it is saved. Before, `install.wim` waited for the whole WinRE update (mount, servicing stack, Safe OS update, cleanup, export). The same option controls it, now *Update boot.wim and WinRE at the same time as install.wim* (page 7); with it off, everything runs one after the other, as before.
+- WinRE is updated once. If that fails, it is no longer tried again for every following edition.
+- **Find and download updates:** the standalone servicing stack lookup walks back up to 36 months of the catalog, one search per month. It now runs in the background while the cumulative update and the other packages are found and downloaded.
+- *Run everything* with no edition ticked now says that keeping all editions takes about that many times as long as one.
+- The status line shows every background job (boot.wim, WinRE, servicing stack lookup) next to the main one.
+
+### Added — long jobs
+- **The PC stays awake while a job runs.** Windows used to go to sleep partway through a 30–90 minute slipstream if nobody touched it. Sleep is now blocked until the job ends; the screen can still turn off.
+- **Progress on the taskbar button.** It follows the progress bar, turns yellow while a question is waiting and red after an error. When a job ends or asks something while the window is in the background, the button flashes until you switch back.
+
+### Changed — Build ISO
+- **A failed build no longer deletes the previous ISO.** Before, an ISO with the same name and its `.sha256` were deleted before oscdimg started. Now oscdimg writes `<name>.iso.part`, which replaces the old ISO only when it is complete. A half-written `.part` file is removed.
+- **Free space on the output drive is checked before oscdimg starts.** If an older ISO of the same name has to make room, it is deleted first, as before. Otherwise you are asked before a build that would run out of space.
+- **An ISO that is mounted in Explorer or open in a virtual machine is reported up front**, with what to do, instead of as a "file in use" error.
+
+### Code and tests
+- The ISO build and the download step moved from the v1 engine into `src/36_engine_build.ps1` and `src/37_engine_download.ps1`.
+- The background jobs share one set of functions (`Start-SideJob` / `Wait-SideJob` / `Stop-SideJob`), which used to be boot.wim only.
+- Two new test suites: the ISO build against a stand-in `oscdimg`, and the download step against a stand-in catalog.
+- The slipstream suite now covers WinRE: in the background vs. inline, and a failed WinRE update with two editions.
+- The UI suite now covers the taskbar progress and several background jobs on the status line.
+- In total there are 10 suites with about 250 checks.
+
 ## v2.1.2 — 2026-10-25
 
 ### Fixed

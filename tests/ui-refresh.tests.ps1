@@ -47,6 +47,24 @@ Check 'check rows hold text, not System.Object[]' ($v[0].Row['Level'] -eq 'Error
 Invoke-FixClick
 Check 'Apply sends each fix separately' (($Script:Started.A.Fixes -join '|') -eq 'arch=amd64|order')
 Check 'sidebar status lines' ($Script:U.S3.Text -like 'KB5066791*' -and $Script:U.S5.Text -eq 'NVIDIA' -and $Script:U.S8.Text -like '1 error*')
+# the taskbar button follows the progress bar; keep-awake and the taskbar flash are harmless where Windows is missing
+$Script:W = [pscustomobject]@{ TaskbarItemInfo = [pscustomobject]@{ ProgressState = 'None'; ProgressValue = 0.0 }; IsActive = $false }
+$Script:U.Prog | Add-Member -NotePropertyMembers @{ IsIndeterminate = $true; Value = 0.0 } -Force
+$Script:Busy = $true; $Script:JobLabel = 'Slipstream'; $Script:JobStart = Get-Date; $Script:Handle = [pscustomobject]@{ IsCompleted = $false }
+$Script:Sync.Pct = 42.0; $Script:Sync.Status = 'install.wim'
+Invoke-Tick
+$tb = $Script:W.TaskbarItemInfo
+Check 'taskbar shows the job percentage' ($tb.ProgressState -eq 'Normal' -and [math]::Abs($tb.ProgressValue - 0.42) -lt 0.0001 -and $Script:U.Prog.Value -eq 42.0)
+$Script:Sync.Pct = -1
+Invoke-Tick
+Check 'taskbar is indeterminate without a percentage' ($tb.ProgressState -eq 'Indeterminate' -and $Script:U.Prog.IsIndeterminate)
+$Script:Sync.SideSync = @([hashtable]::Synchronized(@{ Label = 'boot.wim 1/2 cumulative update'; Pct = 45.0 }), [hashtable]::Synchronized(@{ Label = 'WinRE cleanup'; Pct = -1 }))
+Invoke-Tick
+Check "status line shows every background job ($($Script:U.StatusText.Text))" ($Script:U.StatusText.Text -match '\|    boot\.wim 1/2 cumulative update 45%    \|    WinRE cleanup$')
+$Script:Sync.SideSync = $null
+$ok = $true
+try { Set-KeepAwake $true; Set-KeepAwake $false; Request-Attention; $Script:W = $null; Set-TaskbarState 'Error' 1 } catch { $ok = $false }
+Check 'keep-awake, taskbar flash and a window without a taskbar button never throw' $ok
 Remove-Item $tmp -Recurse -Force
 if ($fails) { exit 1 }
 exit 0
