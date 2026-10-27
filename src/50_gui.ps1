@@ -193,8 +193,8 @@ function Invoke-Tick {
         $Script:U.BusyText.Text = ('{0}  {1:hh\:mm\:ss}' -f $Script:JobLabel, $el)
         $st = [string]$Script:Sync.Status
         if ($pct -ge 0) { $st = ('{0:N1}%  {1}' -f $pct, $st) }
-        $side = $Script:Sync.SideSync
-        if ($side -and $side.Label) {
+        foreach ($side in @($Script:Sync.SideSync)) {      # boot.wim / WinRE / servicing stack lookup in the background
+            if (-not $side -or -not $side.Label) { continue }
             $sp = [double]$side.Pct
             $st = ('{0}    |    {1}{2}' -f $st, $side.Label, $(if ($sp -ge 0) { ' {0:N0}%' -f $sp } else { '' }))
         }

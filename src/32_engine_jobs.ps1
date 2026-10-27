@@ -145,7 +145,7 @@ function Invoke-RunAll($A) {
     } else { Invoke-Analyze }
     $n = @($Script:S.Images).Count
     if (@($Script:S.Selected).Count -eq 0) {
-        if ($n -gt 1 -and -not (Read-YesNo "No edition is ticked. Update and keep all $n editions?" $true)) { throw 'Tick the editions on page 2, then run again.' }
+        if ($n -gt 1 -and -not (Read-YesNo "No edition is ticked. Update and keep all $n editions? They are updated one after the other, so this takes about $n times as long as one edition - No stops here, so you can tick only the ones you need on page 2." $true)) { throw 'Tick the editions on page 2, then run again.' }
         $Script:S.Selected = @($Script:S.Images | ForEach-Object { [int]$_.Index })
         Save-State
     }

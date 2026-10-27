@@ -74,11 +74,17 @@ DISM applies each update with a single process, so servicing **one** image can't
 
 | Option | Default | Effect |
 |---|---|---|
-| **Update boot.wim at the same time as install.wim** | on | `boot.wim` doesn't depend on `install.wim`, so it is serviced in a second background worker while WinRE and `install.wim` are updated. Its log follows after `install.wim`; the status line shows both. Saves the whole `boot.wim` time (often 5–8 minutes). |
+| **Update boot.wim and WinRE at the same time as install.wim** | on | Neither depends on `install.wim`. `boot.wim` is serviced in a background worker from the start. WinRE is serviced in a second one as soon as the first edition is mounted, and the edition only waits for it just before it is saved. Their logs follow in the Activity panel, and the status line shows all jobs. Saves the whole `boot.wim` time (often 5–8 minutes) and most of the WinRE time. Off: both are updated one after the other, as before. |
 | **Let Windows Defender skip the work folder while a job runs** | off | Real-time scanning of every file DISM, robocopy and oscdimg write is often the biggest slowdown (20–40%). The work folder is excluded only for the job and removed again at the end — and at the next start if the program was closed during a job. An exclusion you set yourself is left alone. |
 | **Leave boot.wim index 1 as it is** | off | Index 1 is Windows PE for WDS servers; USB / DVD setup boots index 2. Microsoft updates both, hence off. |
 
-Always on: storage / network drivers go into WinRE and `boot.wim` with **one** DISM call instead of one per driver, and servicing uses a scratch folder inside the work folder (`temp\scratch`) instead of `%TEMP%`.
+Always on:
+- Storage / network drivers go into WinRE and `boot.wim` with **one** DISM call instead of one per driver.
+- Servicing uses a scratch folder inside the work folder (`temp\scratch`) instead of `%TEMP%`.
+- WinRE is updated once and copied into every edition. If its update fails, it is not tried again for the next edition.
+- *Find and download updates*: the lookup for a standalone servicing stack update walks back up to 36 months of the catalog, one search per month, and usually finds nothing. It runs in the background while the other updates are found and downloaded.
+
+The biggest factor is the number of editions: each ticked edition is updated one after the other and adds the full `install.wim` time. Tick only the editions you need on page 2.
 
 Putting the work folder on an NVMe drive (*Options*) helps too.
 
@@ -238,6 +244,7 @@ python src/build.py
 | `30_engine_tools.ps1` | console tools with live output and progress, oscdimg / Inf2Cat / signtool download |
 | `35_engine_service.ps1` | slipstream: WinRE, install.wim, boot.wim (optionally in a background runspace), media update |
 | `36_engine_build.ps1` | ISO build: free space and "in use" checks, oscdimg into a `.part` file, SHA-256 |
+| `37_engine_download.ps1` | finds and downloads the updates (servicing stack lookup in a background job) |
 | `31_engine_sign.ps1` | certificate, catalogs, re-signing, `$OEM$` assembly, `SetupComplete-drivers.cmd` |
 | `33_engine_check.ps1`, `34_engine_check2.ps1` | install check and its fixes |
 | `32_engine_jobs.ps1` | driver scan / import, answer file, run everything, job entry point for the background worker |
@@ -250,7 +257,7 @@ python src/build.py
 pwsh tests/run-tests.ps1
 ```
 
-Nine suites (about 230 checks) run the PowerShell part on Linux / macOS with PowerShell 7: catalog parsing, signing with stand-ins for `signtool` / `Inf2Cat` (an NVCleanstall-style untrusted catalog, live Inf2Cat status from a worker runspace, keeping only this PC's INF files), `$OEM$` assembly, every install check finding and fix, an answer file made by the autounattend generator (`tests/fixtures`, personal data removed), the page refresh with Windows PowerShell 5.1's JSON behaviour simulated (and the taskbar progress), a whole slipstream against a stand-in `dism` (boot.wim in the background vs. sequential, the driver set, the Defender option), and the ISO build against a stand-in `oscdimg` (failed build, ISO in use, free space). DISM, WPF and real driver installs still need a Windows test run.
+Ten suites (about 250 checks) run the PowerShell part on Linux / macOS with PowerShell 7: catalog parsing, signing with stand-ins for `signtool` / `Inf2Cat` (an NVCleanstall-style untrusted catalog, live Inf2Cat status from a worker runspace, keeping only this PC's INF files), `$OEM$` assembly, every install check finding and fix, an answer file made by the autounattend generator (`tests/fixtures`, personal data removed), the page refresh with Windows PowerShell 5.1's JSON behaviour simulated (and the taskbar progress), a whole slipstream against a stand-in `dism` (boot.wim and WinRE in the background vs. sequential, a failed WinRE update, the driver set, the Defender option), the ISO build against a stand-in `oscdimg` (failed build, ISO in use, free space), and the download step with a stand-in catalog (the servicing stack lookup running while the other updates download). DISM, WPF and real driver installs still need a Windows test run.
 
 ---
 

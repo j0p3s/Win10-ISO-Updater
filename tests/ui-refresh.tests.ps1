@@ -58,6 +58,10 @@ Check 'taskbar shows the job percentage' ($tb.ProgressState -eq 'Normal' -and [m
 $Script:Sync.Pct = -1
 Invoke-Tick
 Check 'taskbar is indeterminate without a percentage' ($tb.ProgressState -eq 'Indeterminate' -and $Script:U.Prog.IsIndeterminate)
+$Script:Sync.SideSync = @([hashtable]::Synchronized(@{ Label = 'boot.wim 1/2 cumulative update'; Pct = 45.0 }), [hashtable]::Synchronized(@{ Label = 'WinRE cleanup'; Pct = -1 }))
+Invoke-Tick
+Check "status line shows every background job ($($Script:U.StatusText.Text))" ($Script:U.StatusText.Text -match '\|    boot\.wim 1/2 cumulative update 45%    \|    WinRE cleanup$')
+$Script:Sync.SideSync = $null
 $ok = $true
 try { Set-KeepAwake $true; Set-KeepAwake $false; Request-Attention; $Script:W = $null; Set-TaskbarState 'Error' 1 } catch { $ok = $false }
 Check 'keep-awake, taskbar flash and a window without a taskbar button never throw' $ok

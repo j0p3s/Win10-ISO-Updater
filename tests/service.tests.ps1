@@ -85,13 +85,13 @@ Check 'background job started' ($null -ne $job)
 $started = ((Get-Date) - $t).TotalSeconds
 Check "start returns at once ($([math]::Round($started,1)) s), not after boot.wim" ($started -lt 3 -and -not $job.Handle.IsCompleted)
 Start-Sleep -Milliseconds 900
-$side = $Script:Sync.SideSync
+$side = @($Script:Sync.SideSync)[0]
 Check "side status visible to the window ($($side.Label))" ($side -and $side.Label -match '^boot\.wim [12]/2')
-$r = Wait-BootWimJob $job
+$r = Wait-SideJob $job
 $log = @(Drain)
 $c = @(Calls)
 Check 'background: result returned (2023 boot files saved)' ($r -and $r.ExSaved)
-Check 'background: boot.wim log shown in the Activity log' (@($log | Where-Object { $_ -match 'Updating boot\.wim' }).Count -eq 1 -and @($log | Where-Object { $_ -match 'boot\.wim done \(ran alongside install\.wim' }).Count -eq 1)
+Check 'background: boot.wim log shown in the Activity log' (@($log | Where-Object { $_ -match 'Updating boot\.wim' }).Count -eq 1 -and @($log | Where-Object { $_ -match 'boot\.wim: background job finished after' }).Count -eq 1)
 Check 'background: own DISM log and scratch folder' (@($c | Where-Object { $_ -match 'dism-boot\.log' -and $_ -match '/Image:' -and $_ -match 'scratch-pe' }).Count -gt 0)
 Check 'background: its engine log is merged into engine.log' ((Get-Content $Script:LogFile -Raw) -match 'boot\.wim \(background\) log' -and -not (Test-Path (Join-Path $P.Logs 'engine-boot.log')))
 Check 'background: side status cleared' ($null -eq $Script:Sync.SideSync)
@@ -101,7 +101,7 @@ Remove-Item $dlog, $ctx.BootFin -ErrorAction SilentlyContinue
 $env:FAKE_DISM_SLEEP = ''; $env:FAKE_DISM_FAIL = 'boot_stage.wim'
 $job = Start-BootWimJob (New-Ctx $false)
 $msg = $null
-try { [void](Wait-BootWimJob $job) } catch { $msg = $_.Exception.Message }
+try { [void](Wait-SideJob $job) } catch { $msg = $_.Exception.Message }
 Check "background error surfaces as 'boot.wim: ...' ($msg)" ($msg -match '^boot\.wim: Mount boot_stage\.wim #1 failed')
 $env:FAKE_DISM_FAIL = ''
 $null = Drain
@@ -157,8 +157,38 @@ foreach ($parallel in $true, $false) {
         Check "parallel run was faster ($([math]::Round($tPar,1)) s vs $([math]::Round($took,1)) s)" ($tPar -lt $took)
     }
     Check "parallel=${parallel}: slipstream finished" (@($log | Where-Object { $_ -match 'Slipstream finished' }).Count -eq 1)
+    $reExport = [array]::FindIndex([string[]]$c, [Predicate[string]]{ param($x) $x -match '/Export-Image' -and $x -match 'winre_new\.wim' })
+    $osCommit = [array]::FindIndex([string[]]$c, [Predicate[string]]{ param($x) $x -match '/Unmount-Image' -and $x -match 'mnt.os' -and $x -match '/Commit' })
+    Check "parallel=${parallel}: WinRE updated and copied into the edition before it is saved" ($reExport -ge 0 -and $reExport -lt $osCommit -and @($log | Where-Object { $_ -match 'Updated WinRE copied into the image' }).Count -eq 1)
+    $reOwn = @($c | Where-Object { $_ -match 'dism-re\.log' -and $_ -match 'scratch-re' }).Count
+    if ($parallel) {
+        Check 'parallel: WinRE ran in its own runspace (own DISM log and scratch folder)' ($reOwn -gt 0 -and @($log | Where-Object { $_ -match 'WinRE: background job finished after' }).Count -eq 1)
+        $reMount = [array]::FindIndex([string[]]$c, [Predicate[string]]{ param($x) $x -match '/Mount-Image' -and $x -match 'winre\.wim' })
+        $osAfter = @($c[($reMount + 1)..($reExport - 1)] | Where-Object { $_ -match 'mnt.os' }).Count
+        Check "parallel: install.wim kept being serviced while WinRE was ($osAfter install.wim calls in between)" ($reMount -ge 0 -and $osAfter -gt 0)
+    } else {
+        Check 'sequential: WinRE inline, as before' ($reOwn -eq 0 -and @($c | Where-Object { $_ -match '/Mount-Image' -and $_ -match 'winre\.wim' -and $_ -match 'dism\.log' }).Count -eq 1)
+    }
 }
 $env:FAKE_DISM_SLEEP = ''
+
+# ---- WinRE fails: warned once, not tried again for the next edition, the slipstream goes on
+foreach ($parallel in $true, $false) {
+    Remove-Item $dlog -ErrorAction SilentlyContinue
+    $env:FAKE_DISM_FAIL = 'winre.wim'
+    Set-Content (Join-Path $P.Media 'sources/install.wim') 'installwim'; Set-Content (Join-Path $P.Media 'sources/boot.wim') 'bootwim'
+    $Script:S = New-State
+    $Script:S.Unpacked = $true; $Script:S.Family = [ordered]@{ Arch = 'x64'; Supported = $true }
+    $Script:S.Images = @([ordered]@{ Index = 1; Name = 'Windows 10 Home'; Edition = 'Core'; Arch = 'x64'; Version = '19045.6456'; Size = 1 },
+                         [ordered]@{ Index = 2; Name = 'Windows 10 Pro'; Edition = 'Professional'; Arch = 'x64'; Version = '19045.6456'; Size = 1 })
+    $Script:S.Selected = @(1, 2)
+    $Script:Cfg.ParallelBoot = $parallel
+    Invoke-Service -Auto
+    $env:FAKE_DISM_FAIL = ''
+    $c = @(Calls); $log = @(Drain)
+    Check "parallel=${parallel}: failed WinRE tried once for 2 editions, both editions still saved" (@($c | Where-Object { $_ -match '/Mount-Image' -and $_ -match 'winre\.wim' }).Count -eq 1 -and @($c | Where-Object { $_ -match '/Unmount-Image' -and $_ -match 'mnt.os' -and $_ -match '/Commit' }).Count -eq 2)
+    Check "parallel=${parallel}: failed WinRE is a warning, the original WinRE stays" (@($log | Where-Object { $_ -match 'WinRE update skipped' }).Count -eq 1 -and @($log | Where-Object { $_ -match 'Updated WinRE copied' }).Count -eq 0 -and $Script:S.Serviced)
+}
 
 # ---- Clean up: the new options leave nothing behind
 function New-WorkLeftovers {

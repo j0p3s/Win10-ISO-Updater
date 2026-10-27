@@ -6,6 +6,14 @@
 - **The PC stays awake while a job runs.** Windows used to go to sleep partway through a 30–90 minute slipstream if nobody touched it. Sleep is now blocked until the job ends; the screen can still turn off.
 - **Progress on the taskbar button.** It follows the progress bar, turns yellow while a question is waiting and red after an error. When a job ends or asks something while the window is in the background, the button flashes until you switch back.
 
+### Faster
+- **WinRE is updated in the background**, at the same time as the first edition of `install.wim` (and `boot.wim`). The edition waits for it only just before it is saved. Before, `install.wim` waited for the whole WinRE update (mount, servicing stack, Safe OS update, cleanup, export). The same option controls it, now *Update boot.wim and WinRE at the same time as install.wim* (page 7); with it off, everything runs one after the other, as before.
+- WinRE is updated once. If that fails, it is no longer tried again for every following edition.
+- **Find and download updates:** the standalone servicing stack lookup walks back up to 36 months of the catalog, one search per month. It now runs in the background while the cumulative update and the other packages are found and downloaded.
+- *Run everything* with no edition ticked now says that keeping all editions takes about that many times as long as one.
+- The status line shows every background job (boot.wim, WinRE, servicing stack lookup) next to the main one.
+- The download step moved from the v1 engine into `src/37_engine_download.ps1`. The background jobs share one set of functions (`Start-SideJob` / `Wait-SideJob` / `Stop-SideJob`). New test suite: the download step against a stand-in catalog; the slipstream suite now covers WinRE (background vs. inline, a failed WinRE update with two editions).
+
 ### Changed — Build ISO
 - **A failed build no longer deletes the previous ISO.** Before, an ISO with the same name and its `.sha256` were deleted before oscdimg started. Now oscdimg writes `<name>.iso.part`, which replaces the old ISO only when it is complete. A half-written `.part` file is removed.
 - **Free space on the output drive is checked before oscdimg starts.** If an older ISO of the same name has to make room, it is deleted first, as before. Otherwise you are asked before a build that would run out of space.

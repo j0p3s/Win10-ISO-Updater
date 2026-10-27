@@ -648,8 +648,13 @@ function Invoke-Analyze {
 }
 #endregion
 
-
 #region ---------------------------------------------------------------- [3] Download
+# The standalone servicing stack lookup walks back up to 36 months of the catalog, one search per month,
+# and mostly finds nothing - it runs as a side job while the other updates are looked up and downloaded.
+function Find-UpdateJob($Ctx) {
+    Set-SideLabel 'servicing stack lookup'
+    return (Find-Update $Ctx.Kind $Ctx.Fam $Ctx.MaxMonth $Ctx.Lookback)
+}
 function Invoke-Download([switch]$Auto) {
     Assert-Analyzed
     $f = $Script:S.Family
@@ -672,43 +677,66 @@ function Invoke-Download([switch]$Auto) {
     $month = $lcu.Title.Substring(0, 7)
 
     Write-Step 'Standalone servicing stack update (only published when needed)'
-    $ssu = Find-Update 'SSU' $f $month 36
-    if ($ssu) { Write-Ok $ssu.Title; $found += , @('SSU', $ssu) } else { Write-Info 'None needed - the LCU carries the servicing stack.' }
-
-    Write-Step 'Safe OS Dynamic Update (WinRE)'
-    $safe = Find-Update 'SAFEOS' $f $month 12
-    if ($safe) { Write-Ok $safe.Title; $found += , @('SAFEOS', $safe) } else { Write-Warn 'Not found - WinRE gets the servicing stack only.' }
-
-    Write-Step 'Setup Dynamic Update (setup binaries on the media)'
-    $setup = Find-Update 'SETUP' $f $month 12
-    if ($setup) { Write-Ok $setup.Title; $found += , @('SETUP', $setup) } else { Write-Warn 'Not found - skipping.' }
-
-    if ($f.NeedsEkb) {
-        Write-Step '22H2 enablement package'
-        $ekb = Find-ByKB 'KB5015684' $f '22H2'
-        if ($ekb) { Write-Ok $ekb.Title; $found += , @('EKB', $ekb) } else { Write-Warn 'KB5015684 not found - the image keeps its current version number.' }
+    $ssuJob = $null
+    if ($Auto) {
+        $ssuJob = Start-SideJob @{ Name = 'Servicing stack lookup'; Command = 'Find-UpdateJob'; Tag = 'ssu'; Scratch = 'scratch-ssu'; DismMatch = '' } @{ Kind = 'SSU'; Fam = $f; MaxMonth = $month; Lookback = 36 }
+    }
+    if ($ssuJob) { Write-Info 'Looked up in the background (up to 36 months of the catalog) while the other updates are found and downloaded.' }
+    else {
+        $ssu = Find-Update 'SSU' $f $month 36
+        if ($ssu) { Write-Ok $ssu.Title; $found += , @('SSU', $ssu) } else { Write-Info 'None needed - the LCU carries the servicing stack.' }
     }
 
-    if ($Script:Cfg.NetFx481 -and $f.Build -ge 19041 -and $f.Build -le 19045) {
-        Write-Step '.NET Framework 4.8.1'
-        $n481 = Find-ByKB 'KB5011048' $f "\b$($f.VerToken)\b"
-        if ($n481) { Write-Ok $n481.Title; $found += , @('NET481', $n481) } else { Write-Warn '.NET 4.8.1 package not found - skipping.' }
-    }
+    try {
+        Write-Step 'Safe OS Dynamic Update (WinRE)'
+        $safe = Find-Update 'SAFEOS' $f $month 12
+        if ($safe) { Write-Ok $safe.Title; $found += , @('SAFEOS', $safe) } else { Write-Warn 'Not found - WinRE gets the servicing stack only.' }
 
-    Write-Step '.NET Framework cumulative update'
-    $net = @(Find-Update 'NET' $f $month 12)
-    if ($net.Count -gt 0) { foreach ($n in $net) { Write-Ok $n.Title; $found += , @('NET', $n) } } else { Write-Warn 'Not found - skipping.' }
+        Write-Step 'Setup Dynamic Update (setup binaries on the media)'
+        $setup = Find-Update 'SETUP' $f $month 12
+        if ($setup) { Write-Ok $setup.Title; $found += , @('SETUP', $setup) } else { Write-Warn 'Not found - skipping.' }
 
-    Write-Host ''
-    Write-Host '  Packages to download:' -ForegroundColor Cyan
-    foreach ($x in $found) { Write-Host ('   {0,-7} {1,-11} {2,10}  {3}' -f $x[0], $x[1].KB, $x[1].Size, $x[1].Date.ToString('yyyy-MM-dd')) }
-    if (-not $Auto -and -not (Read-YesNo 'Download them now?' $true)) { return }
+        if ($f.NeedsEkb) {
+            Write-Step '22H2 enablement package'
+            $ekb = Find-ByKB 'KB5015684' $f '22H2'
+            if ($ekb) { Write-Ok $ekb.Title; $found += , @('EKB', $ekb) } else { Write-Warn 'KB5015684 not found - the image keeps its current version number.' }
+        }
 
-    $records = @()
-    $Script:SavedFiles = @{}
-    foreach ($x in $found) {
-        Write-Step "$($x[0]) $($x[1].KB)"
-        $records += Save-UpdateFiles $x[1] $x[0]
+        if ($Script:Cfg.NetFx481 -and $f.Build -ge 19041 -and $f.Build -le 19045) {
+            Write-Step '.NET Framework 4.8.1'
+            $n481 = Find-ByKB 'KB5011048' $f "\b$($f.VerToken)\b"
+            if ($n481) { Write-Ok $n481.Title; $found += , @('NET481', $n481) } else { Write-Warn '.NET 4.8.1 package not found - skipping.' }
+        }
+
+        Write-Step '.NET Framework cumulative update'
+        $net = @(Find-Update 'NET' $f $month 12)
+        if ($net.Count -gt 0) { foreach ($n in $net) { Write-Ok $n.Title; $found += , @('NET', $n) } } else { Write-Warn 'Not found - skipping.' }
+
+        Write-Host ''
+        Write-Host '  Packages to download:' -ForegroundColor Cyan
+        foreach ($x in $found) { Write-Host ('   {0,-7} {1,-11} {2,10}  {3}' -f $x[0], $x[1].KB, $x[1].Size, $x[1].Date.ToString('yyyy-MM-dd')) }
+        if ($ssuJob) { Write-Host '   SSU     (still being looked up in the background)' }
+        if (-not $Auto -and -not (Read-YesNo 'Download them now?' $true)) { return }
+
+        $records = @()
+        $Script:SavedFiles = @{}
+        foreach ($x in $found) {
+            Write-Step "$($x[0]) $($x[1].KB)"
+            $records += Save-UpdateFiles $x[1] $x[0]
+        }
+        if ($ssuJob) {
+            Write-Step 'Standalone servicing stack update'
+            $j = $ssuJob; $ssuJob = $null
+            $ssu = Wait-SideJob $j
+            if ($ssu) {
+                Write-Ok $ssu.Title
+                Write-Step "SSU $($ssu.KB)"
+                $records += Save-UpdateFiles $ssu 'SSU'
+            } else { Write-Info 'None needed - the LCU carries the servicing stack.' }
+        }
+    } catch {
+        if ($ssuJob) { Stop-SideJob $ssuJob }
+        throw
     }
     $Script:S.Updates = $records
     Save-State
@@ -934,9 +962,9 @@ function Add-BootDrivers([string]$MountDir, $Set, [string]$Fu, [string]$Label) {
     foreach ($inf in @($Set.Singles)) { Invoke-Dism "/Image:$(Q $MountDir) /Add-Driver /Driver:$(Q $inf)$Fu" "$Label driver" -Soft }
 }
 
-function Set-BootLabel([string]$Text) { if ($Script:Sync) { $Script:Sync.Label = $Text } }
+function Set-SideLabel([string]$Text) { if ($Script:Sync) { $Script:Sync.Label = $Text } }
 # ---- boot.wim (WinPE + Setup). Runs in its own runspace while install.wim is serviced
-# (Options: "Update boot.wim at the same time"), or inline. Returns what the media step needs.
+# (Options: "Update boot.wim and WinRE at the same time"), or inline. Returns what the media step needs.
 function Invoke-BootWimService($Ctx) {
     $res = [pscustomobject]@{ ExSaved = $false; Count = 0 }
     Write-Title 'Updating boot.wim (WinPE / Setup)'
@@ -946,7 +974,7 @@ function Invoke-BootWimService($Ctx) {
     $res.Count = $bootCount
     $upd = $Ctx.Upd
     for ($b = 1; $b -le $bootCount; $b++) {
-        Set-BootLabel "boot.wim $b/$bootCount"
+        Set-SideLabel "boot.wim $b/$bootCount"
         if ($Ctx.SkipPE -and $b -eq 1 -and $bootCount -ge 2) {
             Write-Step "boot.wim index 1 of $bootCount (Windows PE) - kept as it is (option)"
             Export-Img $Ctx.BootSt $b $Ctx.BootFin
@@ -954,15 +982,15 @@ function Invoke-BootWimService($Ctx) {
         }
         Write-Step "boot.wim index $b of $bootCount"
         Mount-Img $Ctx.BootSt $b $Ctx.MountPE
-        foreach ($x in @($upd.SSU)) { Set-BootLabel "boot.wim $b/$bootCount servicing stack"; Add-Pkg $Ctx.MountPE $x 'Servicing stack' -Soft }
+        foreach ($x in @($upd.SSU)) { Set-SideLabel "boot.wim $b/$bootCount servicing stack"; Add-Pkg $Ctx.MountPE $x 'Servicing stack' -Soft }
         foreach ($x in @($upd.LCU)) {
-            Set-BootLabel "boot.wim $b/$bootCount cumulative update"
+            Set-SideLabel "boot.wim $b/$bootCount cumulative update"
             Add-Pkg $Ctx.MountPE $x 'Servicing stack via LCU' -IgnoreHex @('8007007E', '800F081E') -Soft
             Add-Pkg $Ctx.MountPE $x 'Cumulative update' -IgnoreHex @('800F081E') -Soft
         }
-        Set-BootLabel "boot.wim $b/$bootCount drivers"
+        Set-SideLabel "boot.wim $b/$bootCount drivers"
         Add-BootDrivers $Ctx.MountPE $Ctx.BootSet $Ctx.Fu 'WinPE'
-        Set-BootLabel "boot.wim $b/$bootCount cleanup"
+        Set-SideLabel "boot.wim $b/$bootCount cleanup"
         Invoke-ImageCleanup $Ctx.MountPE 'WinPE'
         if (Test-Path -LiteralPath (Join-Path $Ctx.MountPE 'sources\setup.exe')) {
             Copy-Item -LiteralPath (Join-Path $Ctx.MountPE 'sources\setup.exe') -Destination (Join-Path $Ctx.BfDir 'setup.exe') -Force
@@ -972,12 +1000,38 @@ function Invoke-BootWimService($Ctx) {
             }
         }
         if ($Ctx.Boot2023 -and -not $res.ExSaved) { $res.ExSaved = [bool](Save-BootFiles2023 $Ctx.MountPE $Ctx.ExDir) }
-        Set-BootLabel "boot.wim $b/$bootCount saving"
+        Set-SideLabel "boot.wim $b/$bootCount saving"
         Dismount-Img $Ctx.MountPE -Commit
         Export-Img $Ctx.BootSt $b $Ctx.BootFin
     }
-    Set-BootLabel ''
+    Set-SideLabel ''
     return $res
+}
+# ---- WinRE (recovery environment, taken from the first edition). Runs in its own runspace while that
+# edition is serviced (same option as boot.wim), or inline. $true = $Ctx.ReNew is ready for every edition.
+function Invoke-WinReService($Ctx) {
+    Write-Step 'Updating WinRE (recovery environment)'
+    $ok = $false
+    try {
+        Set-SideLabel 'WinRE mounting'
+        Mount-Img $Ctx.ReWim 1 $Ctx.MountRE
+        foreach ($x in @($Ctx.Upd.SSU)) { Set-SideLabel 'WinRE servicing stack'; Add-Pkg $Ctx.MountRE $x 'Servicing stack' -Soft }
+        foreach ($x in @($Ctx.Upd.LCU)) { Set-SideLabel 'WinRE servicing stack'; Add-Pkg $Ctx.MountRE $x 'Servicing stack via LCU' -IgnoreHex @('8007007E', '800F081E') -Soft }
+        foreach ($x in @($Ctx.Upd.SAFEOS)) { Set-SideLabel 'WinRE Safe OS update'; Add-Pkg $Ctx.MountRE $x 'Safe OS Dynamic Update' -Soft }
+        Set-SideLabel 'WinRE drivers'
+        Add-BootDrivers $Ctx.MountRE $Ctx.BootSet $Ctx.Fu 'WinRE'
+        Set-SideLabel 'WinRE cleanup'
+        Invoke-ImageCleanup $Ctx.MountRE 'WinRE'
+        Set-SideLabel 'WinRE saving'
+        Dismount-Img $Ctx.MountRE -Commit
+        Export-Img $Ctx.ReWim 1 $Ctx.ReNew
+        $ok = $true
+    } catch {
+        Write-Warn "WinRE update skipped: $($_.Exception.Message)"
+        try { Dismount-Img $Ctx.MountRE } catch { }
+    }
+    Set-SideLabel ''
+    return $ok
 }
 # The engine text (to load it into another runspace): this file, between the engine markers.
 function Get-EngineText {
@@ -989,12 +1043,16 @@ function Get-EngineText {
     } catch { }
     return $null
 }
-function Start-BootWimJob($Ctx) {
+# ---- side jobs: boot.wim, WinRE and the servicing stack lookup run in a runspace of their own (with the
+# engine loaded) while the main job goes on. Each has its own engine log, DISM log and scratch folder;
+# its Activity lines follow when it is joined, and the window shows its status next to the main one.
+# $Spec: Name (shown), Command (takes -Ctx), Tag (log names), Scratch (folder name), DismMatch (to end its dism.exe).
+function Start-SideJob($Spec, $Ctx) {
     $engine = Get-EngineText
     if (-not $engine) { return $null }
-    $sync = [hashtable]::Synchronized(@{ Queue = (New-Object 'System.Collections.Concurrent.ConcurrentQueue[object]'); Pct = -1; Status = ''; Label = 'boot.wim starting' })
+    $sync = [hashtable]::Synchronized(@{ Queue = (New-Object 'System.Collections.Concurrent.ConcurrentQueue[object]'); Pct = -1; Status = ''; Label = "$($Spec.Name) starting" })
     $p = @{}; foreach ($k in $Script:P.Keys) { $p[$k] = $Script:P[$k] }
-    $p.Scratch = Join-Path $Script:P.Temp 'scratch-pe'
+    $p.Scratch = Join-Path $Script:P.Temp $Spec.Scratch
     $rs = [runspacefactory]::CreateRunspace([Management.Automation.Runspaces.InitialSessionState]::CreateDefault())
     $rs.Open()
     $rs.SessionStateProxy.SetVariable('Sync', $sync)
@@ -1004,74 +1062,83 @@ function Start-BootWimJob($Ctx) {
     try { [void]$init.AddScript($engine).Invoke(); if ($init.HadErrors) { $why = [string]$init.Streams.Error[0] } }
     catch { $why = $_.Exception.Message }
     $init.Dispose()
-    if ($why) { Add-Log "boot.wim background worker: $why"; $rs.Dispose(); return $null }
-    $log = Join-Path $Script:P.Logs 'engine-boot.log'
+    if ($why) { Add-Log "$($Spec.Name) background worker: $why"; $rs.Dispose(); return $null }
+    $log = Join-Path $Script:P.Logs "engine-$($Spec.Tag).log"
     Remove-Item -LiteralPath $log -Force -ErrorAction SilentlyContinue
-    foreach ($kv in @{ P = $p; Cfg = $Script:Cfg; S = $Script:S; Dism = $Script:Dism; LogFile = $log; DismLog = (Join-Path $Script:P.Logs 'dism-boot.log') }.GetEnumerator()) {
+    foreach ($kv in @{ P = $p; Cfg = $Script:Cfg; S = $Script:S; Dism = $Script:Dism; LogFile = $log; DismLog = (Join-Path $Script:P.Logs "dism-$($Spec.Tag).log") }.GetEnumerator()) {
         $rs.SessionStateProxy.SetVariable($kv.Key, $kv.Value)
     }
     $ps = [PowerShell]::Create(); $ps.Runspace = $rs
-    [void]$ps.AddCommand('Invoke-BootWimService').AddParameter('Ctx', $Ctx)
-    $job = [pscustomobject]@{ Ps = $ps; Rs = $rs; Handle = $ps.BeginInvoke(); Sync = $sync; Log = $log; Start = (Get-Date) }
-    if ($Script:Sync) { $Script:Sync.SideSync = $sync }
-    Write-Info 'boot.wim is updated at the same time in the background - its log follows after install.wim.'
+    [void]$ps.AddCommand($Spec.Command).AddParameter('Ctx', $Ctx)
+    $job = [pscustomobject]@{ Name = $Spec.Name; DismMatch = $Spec.DismMatch; Ps = $ps; Rs = $rs; Handle = $ps.BeginInvoke(); Sync = $sync; Log = $log; Start = (Get-Date) }
+    if ($Script:Sync) { $Script:Sync.SideSync = @(@($Script:Sync.SideSync) | Where-Object { $_ }) + @($sync) }
     return $job
 }
-function Receive-BootWimLines($Job) {
+function Start-BootWimJob($Ctx) {
+    $job = Start-SideJob @{ Name = 'boot.wim'; Command = 'Invoke-BootWimService'; Tag = 'boot'; Scratch = 'scratch-pe'; DismMatch = '(boot_stage|boot_final|mnt\\pe|scratch-pe)' } $Ctx
+    if ($job) { Write-Info 'boot.wim is updated at the same time in the background - its log follows after install.wim.' }
+    return $job
+}
+function Receive-SideLines($Job) {
     $it = $null
     while ($Job.Sync.Queue.TryDequeue([ref]$it)) {
         if ($Script:Sync) { $Script:Sync.Queue.Enqueue($it) } else { Microsoft.PowerShell.Utility\Write-Host $it[1] }
     }
 }
-function Close-BootWimJob($Job) {
-    if ($Script:Sync) { $Script:Sync.SideSync = $null }
+function Close-SideJob($Job) {
+    if ($Script:Sync) {
+        $left = @(@($Script:Sync.SideSync) | Where-Object { $_ -and -not [object]::ReferenceEquals($_, $Job.Sync) })
+        $Script:Sync.SideSync = if ($left.Count) { $left } else { $null }
+    }
     if ($Job.Log -and (Test-Path -LiteralPath $Job.Log) -and $Script:LogFile) {
         try {
-            Add-Content -LiteralPath $Script:LogFile -Value ("---- boot.wim (background) log`r`n" + [IO.File]::ReadAllText($Job.Log) + "---- end of boot.wim log") -Encoding UTF8
+            Add-Content -LiteralPath $Script:LogFile -Value ("---- $($Job.Name) (background) log`r`n" + [IO.File]::ReadAllText($Job.Log) + "---- end of $($Job.Name) log") -Encoding UTF8
             Remove-Item -LiteralPath $Job.Log -Force
         } catch { }
     }
     try { $Job.Ps.Dispose() } catch { }
     try { $Job.Rs.Dispose() } catch { }
 }
-# Waits for the background boot.wim job, shows its log, returns its result (or throws its error).
-function Wait-BootWimJob($Job) {
+# Waits for a side job, shows its log, returns its result (or throws its error).
+function Wait-SideJob($Job) {
     while (-not $Job.Handle.IsCompleted) {
-        Receive-BootWimLines $Job
+        Receive-SideLines $Job
         $pct = [double]$Job.Sync.Pct
         $st = "waiting for $($Job.Sync.Label)"
         if ($pct -ge 0) { $st += (' {0:N0}%' -f $pct) }
         Write-Host $st -NoNewline
         Start-Sleep -Milliseconds 300
     }
-    Receive-BootWimLines $Job
+    Receive-SideLines $Job
     if ($Script:Sync) { $Script:Sync.Status = '' }
     $err = $null; $out = $null
     try { $out = @($Job.Ps.EndInvoke($Job.Handle)) } catch { $err = $_.Exception }
     if (-not $err -and $Job.Ps.HadErrors -and $Job.Ps.Streams.Error.Count) { $err = $Job.Ps.Streams.Error[0].Exception }
-    Receive-BootWimLines $Job
-    Close-BootWimJob $Job
+    Receive-SideLines $Job
+    Close-SideJob $Job
     if ($err) {
         $m = $err.Message
         if ($err.InnerException) { $m = $err.InnerException.Message }
-        throw "boot.wim: $m"
+        throw "$($Job.Name): $m"
     }
-    Write-Ok ('boot.wim done (ran alongside install.wim, {0:mm\:ss} in total)' -f ((Get-Date) - $Job.Start))
-    return @($out | Where-Object { $_ -and $_.PSObject.Properties['ExSaved'] })[0]
+    Write-Info ('{0}: background job finished after {1:mm\:ss}' -f $Job.Name, ((Get-Date) - $Job.Start))
+    return (@($out | Where-Object { $null -ne $_ }) | Select-Object -Last 1)
 }
-# Stops the background job after an error (its dism.exe is ended too, so the mounts can be discarded).
-function Stop-BootWimJob($Job) {
+# Stops a side job after an error (its dism.exe is ended too, so the mounts can be discarded).
+function Stop-SideJob($Job) {
     if (-not $Job) { return }
     try { [void]$Job.Ps.BeginStop($null, $null) } catch { }
-    try {
-        $rx = [regex]::Escape((Split-Path $Job.Log -Parent | Split-Path -Parent)) + '.*(boot_stage|boot_final|mnt\\pe|scratch-pe)'
-        Get-CimInstance Win32_Process -Filter "Name='dism.exe'" -ErrorAction Stop | Where-Object { $_.CommandLine -match $rx } |
-            ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
-    } catch { }
+    if ($Job.DismMatch) {
+        try {
+            $rx = [regex]::Escape((Split-Path $Job.Log -Parent | Split-Path -Parent)) + '.*' + $Job.DismMatch
+            Get-CimInstance Win32_Process -Filter "Name='dism.exe'" -ErrorAction Stop | Where-Object { $_.CommandLine -match $rx } |
+                ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+        } catch { }
+    }
     $t = Get-Date
     while (-not $Job.Handle.IsCompleted -and ((Get-Date) - $t).TotalSeconds -lt 60) { Start-Sleep -Milliseconds 300 }
-    Receive-BootWimLines $Job
-    Close-BootWimJob $Job
+    Receive-SideLines $Job
+    Close-SideJob $Job
 }
 
 function Invoke-Service([switch]$Auto) {
@@ -1112,11 +1179,13 @@ function Invoke-Service([switch]$Auto) {
         BootSt = (Join-Path $P.Temp 'boot_stage.wim'); BootFin = (Join-Path $P.Temp 'boot_final.wim')
         BootSet = $bootSet; Fu = $fu; Boot2023 = [bool]$Cfg.Boot2023; SkipPE = [bool]$Cfg.BootSkipPE
     }
+    $reCtx    = @{ Upd = $upd; ReWim = $reWim; ReNew = $reNew; MountRE = $P.MountRE; BootSet = $bootSet; Fu = $fu }
+    $reSpec   = @{ Name = 'WinRE'; Command = 'Invoke-WinReService'; Tag = 're'; Scratch = 'scratch-re'; DismMatch = '(winre|mnt\\re|scratch-re)' }
 
     $all = @($S.Images | ForEach-Object { [int]$_.Index })
     $exportIdx = @(if ($Cfg.KeepOnlySelected) { $S.Selected } else { $all })
-    $reReady = $false; $exSaved = $false
-    $bootJob = $null; $bootRes = $null
+    $reReady = $false; $reTried = $false; $exSaved = $false
+    $bootJob = $null; $bootRes = $null; $reJob = $null
 
     try {
         # ---- boot.wim in the background (it does not depend on install.wim)
@@ -1137,30 +1206,21 @@ function Invoke-Service([switch]$Auto) {
                 Write-Title "Edition $k/$($exportIdx.Count): $($info.Name)"
                 Mount-Img $stage $k $P.Mount
 
-                if (-not $reReady) {
+                # WinRE comes from the first edition that has one and is updated once, in the background
+                # while this edition is serviced (same option as boot.wim); it goes into every edition before saving.
+                if (-not $reTried) {
                     $reSrc = Join-Path $P.Mount 'Windows\System32\Recovery\winre.wim'
                     if (Test-Path -LiteralPath $reSrc) {
-                        Write-Step 'Updating WinRE (recovery environment)'
-                        try {
-                            Copy-Item -LiteralPath $reSrc -Destination $reWim -Force
-                            (Get-Item -LiteralPath $reWim -Force).Attributes = 'Normal'
-                            Mount-Img $reWim 1 $P.MountRE
-                            foreach ($x in $upd.SSU) { Add-Pkg $P.MountRE $x 'Servicing stack' -Soft }
-                            foreach ($x in $upd.LCU) { Add-Pkg $P.MountRE $x 'Servicing stack via LCU' -IgnoreHex @('8007007E', '800F081E') -Soft }
-                            foreach ($x in $upd.SAFEOS) { Add-Pkg $P.MountRE $x 'Safe OS Dynamic Update' -Soft }
-                            Add-BootDrivers $P.MountRE $bootSet $fu 'WinRE'
-                            Invoke-ImageCleanup $P.MountRE 'WinRE'
-                            Dismount-Img $P.MountRE -Commit
-                            Export-Img $reWim 1 $reNew
-                            $reReady = $true
-                        } catch {
-                            Write-Warn "WinRE update skipped: $($_.Exception.Message)"
-                            try { Dismount-Img $P.MountRE } catch { }
-                            $reReady = $false
+                        $reTried = $true
+                        Copy-Item -LiteralPath $reSrc -Destination $reWim -Force
+                        (Get-Item -LiteralPath $reWim -Force).Attributes = 'Normal'
+                        if ($Cfg.ParallelBoot) {
+                            $reJob = Start-SideJob $reSpec $reCtx
+                            if ($reJob) { Write-Info 'WinRE is updated at the same time in the background - its log follows before this edition is saved.' }
                         }
+                        if (-not $reJob) { $reReady = (@(Invoke-WinReService $reCtx) | Select-Object -Last 1) -eq $true }
                     } else { Write-Warn 'No winre.wim in this edition - WinRE skipped.' }
                 }
-                if ($reReady) { Copy-Item -LiteralPath $reNew -Destination (Join-Path $P.Mount 'Windows\System32\Recovery\winre.wim') -Force }
 
                 Write-Step 'Updating Windows'
                 if ($hasDrv) {
@@ -1183,6 +1243,14 @@ function Invoke-Service([switch]$Auto) {
                 }
                 foreach ($x in $upd.NET481) { Add-Pkg $P.Mount $x '.NET Framework 4.8.1' -IgnoreHex @('800F081E') -Soft }
                 foreach ($x in $upd.NET) { Add-Pkg $P.Mount $x '.NET cumulative update' -IgnoreHex @('800F081E') -Soft }
+                if ($reJob) {
+                    $j = $reJob; $reJob = $null
+                    try { $reReady = (Wait-SideJob $j) -eq $true } catch { Write-Warn "WinRE update skipped: $($_.Exception.Message)"; $reReady = $false }
+                }
+                if ($reReady) {
+                    Copy-Item -LiteralPath $reNew -Destination (Join-Path $P.Mount 'Windows\System32\Recovery\winre.wim') -Force
+                    Write-Sub 'Updated WinRE copied into the image'
+                }
                 if ($Cfg.Boot2023 -and -not $exSaved) { $exSaved = Save-BootFiles2023 $P.Mount $exDir }
                 Dismount-Img $P.Mount -Commit
             }
@@ -1191,12 +1259,13 @@ function Invoke-Service([switch]$Auto) {
         }
 
         # ---- boot.wim: join the background job, or run it now
-        if ($bootJob) { $j = $bootJob; $bootJob = $null; $bootRes = Wait-BootWimJob $j }
+        if ($bootJob) { $j = $bootJob; $bootJob = $null; $bootRes = Wait-SideJob $j }
         else { $bootRes = Invoke-BootWimService $bootCtx }
         if ($bootRes -and $bootRes.ExSaved) { $exDir = $bootCtx.ExDir; $exSaved = $true }   # WinPE's 2023 boot files are preferred, as before
     } catch {
         Write-Err $_.Exception.Message
-        if ($bootJob) { Write-Warn 'Stopping the boot.wim background job...'; Stop-BootWimJob $bootJob }
+        if ($reJob) { Write-Warn 'Stopping the WinRE background job...'; Stop-SideJob $reJob }
+        if ($bootJob) { Write-Warn 'Stopping the boot.wim background job...'; Stop-SideJob $bootJob }
         Write-Warn 'Discarding mounted images - your unpacked media was not changed.'
         Clear-Mounts
         throw
@@ -3041,7 +3110,7 @@ function Invoke-RunAll($A) {
     } else { Invoke-Analyze }
     $n = @($Script:S.Images).Count
     if (@($Script:S.Selected).Count -eq 0) {
-        if ($n -gt 1 -and -not (Read-YesNo "No edition is ticked. Update and keep all $n editions?" $true)) { throw 'Tick the editions on page 2, then run again.' }
+        if ($n -gt 1 -and -not (Read-YesNo "No edition is ticked. Update and keep all $n editions? They are updated one after the other, so this takes about $n times as long as one edition - No stops here, so you can tick only the ones you need on page 2." $true)) { throw 'Tick the editions on page 2, then run again.' }
         $Script:S.Selected = @($Script:S.Images | ForEach-Object { [int]$_.Index })
         Save-State
     }
@@ -3737,10 +3806,10 @@ $Script:XPages = @'
             </StackPanel></Border>
             <Border Style="{StaticResource Card}"><StackPanel>
               <TextBlock Style="{StaticResource H2}" Text="Speed"/>
-              <CheckBox x:Name="cfg_ParallelBoot" Style="{StaticResource Toggle}" Content="Update boot.wim at the same time as install.wim (faster, uses more CPU and disk)"/>
+              <CheckBox x:Name="cfg_ParallelBoot" Style="{StaticResource Toggle}" Content="Update boot.wim and WinRE at the same time as install.wim (faster, uses more CPU and disk)"/>
               <CheckBox x:Name="cfg_DefenderExclude" Style="{StaticResource Toggle}" Content="Let Windows Defender skip the work folder while a job runs (removed again afterwards)"/>
               <CheckBox x:Name="cfg_BootSkipPE" Style="{StaticResource Toggle}" Content="Leave boot.wim index 1 (Windows PE for WDS servers) as it is - USB / DVD setup uses index 2"/>
-              <TextBlock Style="{StaticResource Sub}" Margin="0,4,0,0" Text="DISM applies each update with one process, so servicing one image cannot use more cores - updating boot.wim alongside install.wim can. Defender scanning every file DISM writes is often the biggest slowdown. Storage / network drivers go into WinRE and boot.wim with one DISM call."/>
+              <TextBlock Style="{StaticResource Sub}" Margin="0,4,0,0" Text="DISM applies each update with one process, so servicing one image cannot use more cores - updating boot.wim and WinRE alongside install.wim can. Defender scanning every file DISM writes is often the biggest slowdown. Storage / network drivers go into WinRE and boot.wim with one DISM call."/>
             </StackPanel></Border>
             <Border Style="{StaticResource Card}"><StackPanel>
               <TextBlock Style="{StaticResource H2}" Text="Output ISO"/>
@@ -4113,8 +4182,8 @@ function Invoke-Tick {
         $Script:U.BusyText.Text = ('{0}  {1:hh\:mm\:ss}' -f $Script:JobLabel, $el)
         $st = [string]$Script:Sync.Status
         if ($pct -ge 0) { $st = ('{0:N1}%  {1}' -f $pct, $st) }
-        $side = $Script:Sync.SideSync
-        if ($side -and $side.Label) {
+        foreach ($side in @($Script:Sync.SideSync)) {      # boot.wim / WinRE / servicing stack lookup in the background
+            if (-not $side -or -not $side.Label) { continue }
             $sp = [double]$side.Pct
             $st = ('{0}    |    {1}{2}' -f $st, $side.Label, $(if ($sp -ge 0) { ' {0:N0}%' -f $sp } else { '' }))
         }
