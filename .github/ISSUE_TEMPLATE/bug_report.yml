@@ -10,8 +10,8 @@ body:
     id: version
     attributes:
       label: Version
-      description: First console line when it starts, e.g. "Starting Win10 ISO Updater v2.2.0 ..."
-      placeholder: v2.2.0
+      description: First console line when it starts, e.g. "Starting Win10 ISO Updater v3.0.0 ..."
+      placeholder: v3.0.0
     validations:
       required: true
   - type: input

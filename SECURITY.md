@@ -21,6 +21,7 @@ Only from Microsoft: the Update Catalog and its download servers (updates are ch
 - It needs administrator rights (DISM, mounting images, certificates).
 - During signing, the certificate is trusted on this PC only for the check and removed again (stores that already trusted it are left alone).
 - With *Let Windows Defender skip the work folder*, an exclusion for the work folder is added only for the job and removed afterwards (also at the next start if the program was closed during a job).
+- While a job runs, it asks Windows not to go to sleep (a power request, listed by `powercfg /requests`). The request ends with the job, or when the program closes.
 
 ## Reporting a vulnerability
 
