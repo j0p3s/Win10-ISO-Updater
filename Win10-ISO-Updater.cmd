@@ -1,6 +1,6 @@
 @echo off
 :: ===========================================================================
-::  Win10-ISO-Updater.cmd  (v2.1.2)  -  one file, graphical interface
+::  Win10-ISO-Updater.cmd  (v2.2.0)  -  one file, graphical interface
 ::  - unpacks a Windows 10 ISO and detects its build
 ::  - downloads its updates from the Microsoft Update Catalog
 ::  - slipstreams updates and drivers (this PC or a Drivers-Backup folder)
@@ -23,7 +23,7 @@ exit /b
 set "W10U_SELF=%~f0"
 set "PSEXE=%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe"
 if exist "%SystemRoot%\Sysnative\WindowsPowerShell\v1.0\powershell.exe" set "PSEXE=%SystemRoot%\Sysnative\WindowsPowerShell\v1.0\powershell.exe"
-echo Starting Win10 ISO Updater v2.1.2 ...  (this window hides when the program opens)
+echo Starting Win10 ISO Updater v2.2.0 ...  (this window hides when the program opens)
 "%PSEXE%" -NoProfile -STA -ExecutionPolicy Bypass -Command "$t=[IO.File]::ReadAllText($env:W10U_SELF);$i=$t.IndexOf('#'+'PS-BEGIN');Invoke-Expression $t.Substring($i)"
 if errorlevel 1 pause
 exit /b
@@ -38,7 +38,7 @@ $ErrorActionPreference = 'Stop'
 $ProgressPreference    = 'SilentlyContinue'
 
 $Script:AppName      = 'Win10-ISO-Updater'
-$Script:AppVersion   = '2.1.2'
+$Script:AppVersion   = '2.2.0'
 $Script:Root         = Split-Path -Parent $env:W10U_SELF
 $ToolsDir            = Join-Path $Script:Root 'tools'
 $IsoPath             = $null
@@ -1267,8 +1267,20 @@ function Invoke-Service([switch]$Auto) {
 }
 #endregion
 
-
 #region ---------------------------------------------------------------- [7] Build ISO
+# Free bytes on the drive that holds $Path, or -1 when that can't be told (network share).
+function Get-FreeBytes([string]$Path) {
+    try { return [double](New-Object IO.DriveInfo([IO.Path]::GetPathRoot([IO.Path]::GetFullPath($Path)))).AvailableFreeSpace }
+    catch { return -1 }
+}
+# An ISO that is mounted in Explorer or open in a virtual machine can't be replaced - better to
+# say so before oscdimg writes 5 GB than after.
+function Test-FileInUse([string]$Path) {
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return $false }
+    try { [IO.File]::Open($Path, 'Open', 'ReadWrite', 'None').Dispose(); return $false }
+    catch [IO.IOException] { return $true }
+    catch { return $false }
+}
 function Invoke-Build([switch]$Auto, [string]$OutIso) {
     Assert-Unpacked
     $S = $Script:S; $P = $Script:P; $Cfg = $Script:Cfg
@@ -1315,13 +1327,41 @@ function Invoke-Build([switch]$Auto, [string]$OutIso) {
     if ($OutIso) { $iso = Resolve-OutIso $OutIso $iso }
     Write-Info "Output: $iso"
     New-Item -ItemType Directory -Force -Path (Split-Path $iso -Parent) | Out-Null
-    if (Test-Path -LiteralPath $iso) { Remove-Item -LiteralPath $iso -Force }
+    if (Test-FileInUse $iso) {
+        throw "$iso is in use - it is probably mounted in Explorer (right-click its drive, Eject) or open in a virtual machine. Close it, or choose another name under Output ISO."
+    }
+
+    # oscdimg writes into a .part file: an ISO of the same name is only replaced once the new one is complete
+    $part = "$iso.part"
+    Remove-Item -LiteralPath $part -Force -ErrorAction SilentlyContinue
+    $need = [double](Get-ChildItem -LiteralPath $m -Recurse -File -Force -ErrorAction SilentlyContinue | Measure-Object -Property Length -Sum).Sum + 100MB
+    $free = Get-FreeBytes $iso
+    $old = if (Test-Path -LiteralPath $iso -PathType Leaf) { [double](Get-Item -LiteralPath $iso).Length } else { 0 }
+    if ($free -ge 0 -and $free -lt $need -and $old -gt 0 -and $free + $old -ge $need) {
+        Write-Info 'Not enough room for the new ISO next to the old one of the same name - the old one is deleted first.'
+        Remove-Item -LiteralPath $iso, "$iso.sha256" -Force -ErrorAction SilentlyContinue
+        $free += $old
+    }
+    if ($free -ge 0 -and $free -lt $need) {
+        $root = [IO.Path]::GetPathRoot([IO.Path]::GetFullPath($iso))
+        $short = 'Only {0} free on {1} - the ISO needs about {2}.' -f (Format-Size $free), $root, (Format-Size $need)
+        Write-Warn $short
+        if (-not (Read-YesNo "$short Build it anyway?" $false)) {
+            throw "Not enough free space for the ISO on $root - free some space, or choose a folder on another drive under Output ISO."
+        }
+    }
 
     if (Test-Path -LiteralPath $etfs) { $bootdata = "-bootdata:2#p0,e,b$(Q $etfs)#pEF,e,b$(Q $efi)" }
     else { $bootdata = "-bootdata:1#pEF,e,b$(Q $efi)"; Write-Info 'No etfsboot.com - building a UEFI-only ISO.' }
     Write-Step 'Writing ISO (BIOS + UEFI, UDF)'
-    $code = Invoke-Exe $osc ("-m -o -u2 -udfver102 -l$label $bootdata $(Q $m) $(Q $iso)") -MergeErr
-    if ($code -ne 0 -or -not (Test-Path -LiteralPath $iso)) { throw "oscdimg failed (exit $code)." }
+    $code = Invoke-Exe $osc ("-m -o -u2 -udfver102 -l$label $bootdata $(Q $m) $(Q $part)") -MergeErr
+    if ($code -ne 0 -or -not (Test-Path -LiteralPath $part)) {
+        Remove-Item -LiteralPath $part -Force -ErrorAction SilentlyContinue
+        $kept = if (Test-Path -LiteralPath $iso) { ' The previous ISO of that name is unchanged.' } else { '' }
+        throw "oscdimg failed (exit $code).$kept"
+    }
+    try { Move-Item -LiteralPath $part -Destination $iso -Force }
+    catch { throw "The new ISO could not replace $iso ($($_.Exception.Message)). It is saved as $part - rename it once the old file is free." }
 
     $size = (Get-Item -LiteralPath $iso).Length
     Write-Ok "ISO ready: $iso ($(Format-Size $size))"
@@ -3973,6 +4013,28 @@ function Flush-Log {
 #endregion
 
 #region ---------------------------------------------------------------- background worker
+# A slipstream runs for 30-90 minutes: Windows must not go to sleep in the middle (the screen may still
+# turn off). Set on the window's thread, which lives as long as the program.
+function Set-KeepAwake([bool]$On) {
+    $flags = if ($On) { [uint32]2147483649 } else { [uint32]2147483648 }    # ES_CONTINUOUS (+ ES_SYSTEM_REQUIRED)
+    try { [void][W10U.Con]::SetThreadExecutionState($flags) } catch { }
+}
+# The taskbar button shows the progress too, so a long job can be followed from another window.
+function Set-TaskbarState([string]$State, [double]$Value = -1) {
+    try {
+        $tb = $Script:W.TaskbarItemInfo
+        if (-not $tb) { return }
+        if ([string]$tb.ProgressState -ne $State) { $tb.ProgressState = $State }
+        if ($Value -ge 0) { $tb.ProgressValue = $Value }
+    } catch { }
+}
+# Flashes the taskbar button until the window is in front again (a job ended or asks a question).
+function Request-Attention {
+    try {
+        if ($Script:W.IsActive) { return }
+        [void][W10U.Con]::Flash((New-Object System.Windows.Interop.WindowInteropHelper $Script:W).Handle)
+    } catch { }
+}
 function Start-Work([string]$Job, $A = @{}, [scriptblock]$Then) {
     if ($Script:Busy) { Show-Msg 'Another job is still running.'; return }
     try { Save-Settings } catch { }
@@ -3981,6 +4043,7 @@ function Start-Work([string]$Job, $A = @{}, [scriptblock]$Then) {
     $Script:JobStart = Get-Date
     $Script:Then = $Then
     $Script:Sync.Pct = -1; $Script:Sync.Status = ''; $Script:Sync.Result = $null
+    Set-KeepAwake $true
     Set-Busy $true
     $Script:Ps = [PowerShell]::Create()
     $Script:Ps.Runspace = $Script:RS
@@ -3992,6 +4055,7 @@ function Complete-Work {
     try { [void]$Script:Ps.EndInvoke($Script:Handle) } catch { $ok = $false }
     try { $Script:Ps.Dispose() } catch { }
     $Script:Busy = $false
+    Set-KeepAwake $false
     $took = (Get-Date) - $Script:JobStart
     Flush-Log
     $Script:Cfg = Import-Settings; Initialize-Paths; $Script:S = Import-State
@@ -3999,10 +4063,13 @@ function Complete-Work {
     if ($ok) {
         $Script:U.BusyText.Text = ('{0} finished in {1:mm\:ss}' -f $Script:JobLabel, $took)
         $Script:U.BusyDot.Fill = New-Brush '#3DDC97'
+        Set-TaskbarState 'None'
     } else {
         $Script:U.BusyText.Text = "$($Script:JobLabel) stopped with an error - see the log"
         $Script:U.BusyDot.Fill = New-Brush '#FF5C7A'
+        Set-TaskbarState 'Error' 1      # red until the window is in front again
     }
+    Request-Attention
     Update-Ui
     $then = $Script:Then
     $Script:Then = $null
@@ -4022,6 +4089,7 @@ function Set-Busy([bool]$On) {
     if ($On) {
         $Script:U.BusyDot.Fill = New-Brush '#FFC857'
         $Script:U.BusyText.Text = "$($Script:JobLabel)..."
+        Set-TaskbarState 'Indeterminate'
     }
 }
 function Invoke-Tick {
@@ -4030,6 +4098,8 @@ function Invoke-Tick {
     if ($q) {
         $Script:Sync.Question = $null
         $Script:Timer.Stop()
+        Set-TaskbarState 'Paused' 1     # yellow: the job waits for an answer
+        Request-Attention
         $def = if ($q.Default) { 'Yes' } else { 'No' }
         $r = [Windows.MessageBox]::Show($Script:W, [string]$q.Text, 'Win10 ISO Updater', 'YesNo', 'Question', $def)
         $Script:Sync.Answer = ($r -eq 'Yes')
@@ -4037,7 +4107,8 @@ function Invoke-Tick {
     }
     if ($Script:Busy) {
         $pct = [double]$Script:Sync.Pct
-        if ($pct -ge 0) { $Script:U.Prog.IsIndeterminate = $false; $Script:U.Prog.Value = $pct } else { $Script:U.Prog.IsIndeterminate = $true }
+        if ($pct -ge 0) { $Script:U.Prog.IsIndeterminate = $false; $Script:U.Prog.Value = $pct; Set-TaskbarState 'Normal' ($pct / 100) }
+        else { $Script:U.Prog.IsIndeterminate = $true; Set-TaskbarState 'Indeterminate' }
         $el = (Get-Date) - $Script:JobStart
         $Script:U.BusyText.Text = ('{0}  {1:hh\:mm\:ss}' -f $Script:JobLabel, $el)
         $st = [string]$Script:Sync.Status
@@ -4381,7 +4452,7 @@ function Invoke-RunAllClick {
     $lines += "Editions: $(if (@($Script:S.Selected).Count) { "$(@($Script:S.Selected).Count) ticked" } else { 'asked after unpacking' })"
     $lines += "Drivers: $(@($Script:S.Drivers).Count)   Signed packages: $(@($Script:S.Signed | Where-Object { $_ }).Count)"
     $lines += "Answer file: $(if ($Script:S.Unattend) { 'yes' } else { 'no' })   `$OEM`$: $(if ($Script:S.Oem) { 'yes' } else { 'no' })"
-    if (-not (Confirm-Ui ("Run everything now? It takes 30-90 minutes.`n`n" + ($lines -join "`n")))) { return }
+    if (-not (Confirm-Ui ("Run everything now? It takes 30-90 minutes - the PC is kept awake until it is done.`n`n" + ($lines -join "`n")))) { return }
     Start-Work 'All' @{ Iso = $iso; Out = $Script:U.OutBox.Text.Trim().Trim('"') }
 }
 #endregion
@@ -4417,6 +4488,8 @@ try {
     $Script:W = $M.W; $Script:U = $M.U
     $W = $Script:W; $U = $Script:U
     $U.VerRun.Text = "  v$Script:AppVersion"
+    try { $W.TaskbarItemInfo = New-Object System.Windows.Shell.TaskbarItemInfo } catch { }
+    $W.Add_Activated({ if (-not $Script:Busy) { Set-TaskbarState 'None' } })
 
     # title bar
     $U.MinBtn.Add_Click({ $Script:W.WindowState = 'Minimized' })
@@ -4628,7 +4701,20 @@ try {
     else { Write-Info 'Start on page 1: choose a Windows 10 ISO and unpack it - or set everything up and press Run everything.' }
 
     try {
-        Add-Type -Namespace W10U -Name Con -MemberDefinition '[DllImport("kernel32.dll")] public static extern IntPtr GetConsoleWindow(); [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h, int n);'
+        # console window, keep-awake during jobs (Set-KeepAwake), taskbar flash (Request-Attention)
+        Add-Type -Namespace W10U -Name Con -MemberDefinition @'
+[DllImport("kernel32.dll")] public static extern IntPtr GetConsoleWindow();
+[DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h, int n);
+[DllImport("kernel32.dll")] public static extern uint SetThreadExecutionState(uint flags);
+[StructLayout(LayoutKind.Sequential)] public struct FLASHWINFO { public uint cbSize; public IntPtr hwnd; public uint dwFlags; public uint uCount; public uint dwTimeout; }
+[DllImport("user32.dll")] static extern bool FlashWindowEx(ref FLASHWINFO fi);
+public static bool Flash(IntPtr h) {
+    FLASHWINFO fi = new FLASHWINFO();
+    fi.cbSize = (uint)Marshal.SizeOf(fi); fi.hwnd = h;
+    fi.dwFlags = 2 | 12;    // FLASHW_TRAY | FLASHW_TIMERNOFG: the taskbar button, until the window is in front
+    return FlashWindowEx(ref fi);
+}
+'@
         [void][W10U.Con]::ShowWindow([W10U.Con]::GetConsoleWindow(), 0)
     } catch { }
     [void]$W.ShowDialog()

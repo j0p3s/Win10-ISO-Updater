@@ -1,6 +1,6 @@
 # Win10 ISO Updater
 
-![version](https://img.shields.io/badge/version-2.1.2-2F9BFF) ![platform](https://img.shields.io/badge/Windows-10%20%7C%2011-8B5CF6) ![license](https://img.shields.io/badge/license-MIT-3DDC97) [![tests](https://github.com/j0p3s/Win10-ISO-Updater/actions/workflows/tests.yml/badge.svg)](https://github.com/j0p3s/Win10-ISO-Updater/actions/workflows/tests.yml)
+![version](https://img.shields.io/badge/version-2.2.0-2F9BFF) ![platform](https://img.shields.io/badge/Windows-10%20%7C%2011-8B5CF6) ![license](https://img.shields.io/badge/license-MIT-3DDC97) [![tests](https://github.com/j0p3s/Win10-ISO-Updater/actions/workflows/tests.yml/badge.svg)](https://github.com/j0p3s/Win10-ISO-Updater/actions/workflows/tests.yml)
 
 **One file. Double-click. Get a fully updated Windows 10 ISO with your drivers, your signed NVIDIA mod, your answer file and your `$OEM$` folder baked in.**
 
@@ -37,7 +37,7 @@ Missing tools (`oscdimg`, `Inf2Cat`, `signtool`) are downloaded automatically fr
 
 That's it. The new ISO lands in `C:\W10U\output` (the work folder can be changed under *Options*).
 
-The console line at start shows the version (`Starting Win10 ISO Updater v2.1.2 ...`), then the console hides and the window opens.
+The console line at start shows the version (`Starting Win10 ISO Updater v2.2.0 ...`), then the console hides and the window opens.
 
 **Updating:** replace `Win10-ISO-Updater.cmd` with the new one. Your settings, the `signing` folder and the work folder (unpacked media, updates, drivers) are kept — the tool picks up where you left off.
 
@@ -61,6 +61,10 @@ The console line at start shows the version (`Starting Win10 ISO Updater v2.1.2 
 | | **Tools** | Shows DISM, `oscdimg`, `Inf2Cat`, `signtool` and `curl`, and downloads what is missing |
 
 The **Activity** panel at the bottom shows the live log, a progress bar and what the current job is doing. **Run everything** (left) runs unpack → updates → slipstream → ISO with what you set on each page.
+
+While a job runs, Windows doesn't go to sleep (the screen can still turn off). The taskbar button shows the progress too. If the window is in the background when a job ends or asks a question, the button flashes. It turns red after an error and yellow while a question is waiting.
+
+The ISO is written to a temporary `.part` file and renamed when oscdimg has finished, so a failed build never deletes an older ISO of the same name. Before oscdimg starts, the tool checks that the output drive has room for the ISO and that the file isn't mounted or open somewhere.
 
 ---
 
@@ -212,6 +216,8 @@ Logs: `C:\W10U\logs\engine.log` and `dism.log` (`dism-boot.log` for boot.wim whe
 | Build ISO: "The path is not of a legal form" (v2.0.6 and older) | The *Output ISO* box had a name without a folder — update, or clear the box |
 | ISO won't boot with Secure Boot on (Boot2023 option) | The firmware doesn't trust *Windows UEFI CA 2023* yet — turn the option off or update the firmware's Secure Boot DB |
 | install.wim larger than 4 GB for a FAT32 USB | Use Rufus, or turn on *Split install.wim* on page 7 |
+| Build ISO: "Not enough free space for the ISO" | Free space on that drive, or put a folder on another drive in *Output ISO* (page 7) |
+| Build ISO: "... is in use - it is probably mounted in Explorer" | Eject the ISO's drive in Explorer (or close the virtual machine using it), or choose another name |
 
 ---
 
@@ -231,6 +237,7 @@ python src/build.py
 | `10_engine_head.ps1` | constants, log sink (every `Write-Host` goes to the Activity panel), Yes/No questions from the worker |
 | `30_engine_tools.ps1` | console tools with live output and progress, oscdimg / Inf2Cat / signtool download |
 | `35_engine_service.ps1` | slipstream: WinRE, install.wim, boot.wim (optionally in a background runspace), media update |
+| `36_engine_build.ps1` | ISO build: free space and "in use" checks, oscdimg into a `.part` file, SHA-256 |
 | `31_engine_sign.ps1` | certificate, catalogs, re-signing, `$OEM$` assembly, `SetupComplete-drivers.cmd` |
 | `33_engine_check.ps1`, `34_engine_check2.ps1` | install check and its fixes |
 | `32_engine_jobs.ps1` | driver scan / import, answer file, run everything, job entry point for the background worker |
@@ -243,7 +250,7 @@ python src/build.py
 pwsh tests/run-tests.ps1
 ```
 
-Eight suites (about 200 checks) run the PowerShell part on Linux / macOS with PowerShell 7: catalog parsing, signing with stand-ins for `signtool` / `Inf2Cat` (an NVCleanstall-style untrusted catalog, live Inf2Cat status from a worker runspace, keeping only this PC's INF files), `$OEM$` assembly, every install check finding and fix, an answer file made by the autounattend generator (`tests/fixtures`, personal data removed), the page refresh with Windows PowerShell 5.1's JSON behaviour simulated, and a whole slipstream against a stand-in `dism` (boot.wim in the background vs. sequential, the driver set, the Defender option). DISM, WPF and real driver installs still need a Windows test run.
+Nine suites (about 230 checks) run the PowerShell part on Linux / macOS with PowerShell 7: catalog parsing, signing with stand-ins for `signtool` / `Inf2Cat` (an NVCleanstall-style untrusted catalog, live Inf2Cat status from a worker runspace, keeping only this PC's INF files), `$OEM$` assembly, every install check finding and fix, an answer file made by the autounattend generator (`tests/fixtures`, personal data removed), the page refresh with Windows PowerShell 5.1's JSON behaviour simulated (and the taskbar progress), a whole slipstream against a stand-in `dism` (boot.wim in the background vs. sequential, the driver set, the Defender option), and the ISO build against a stand-in `oscdimg` (failed build, ISO in use, free space). DISM, WPF and real driver installs still need a Windows test run.
 
 ---
 

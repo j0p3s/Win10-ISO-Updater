@@ -93,6 +93,28 @@ function Flush-Log {
 #endregion
 
 #region ---------------------------------------------------------------- background worker
+# A slipstream runs for 30-90 minutes: Windows must not go to sleep in the middle (the screen may still
+# turn off). Set on the window's thread, which lives as long as the program.
+function Set-KeepAwake([bool]$On) {
+    $flags = if ($On) { [uint32]2147483649 } else { [uint32]2147483648 }    # ES_CONTINUOUS (+ ES_SYSTEM_REQUIRED)
+    try { [void][W10U.Con]::SetThreadExecutionState($flags) } catch { }
+}
+# The taskbar button shows the progress too, so a long job can be followed from another window.
+function Set-TaskbarState([string]$State, [double]$Value = -1) {
+    try {
+        $tb = $Script:W.TaskbarItemInfo
+        if (-not $tb) { return }
+        if ([string]$tb.ProgressState -ne $State) { $tb.ProgressState = $State }
+        if ($Value -ge 0) { $tb.ProgressValue = $Value }
+    } catch { }
+}
+# Flashes the taskbar button until the window is in front again (a job ended or asks a question).
+function Request-Attention {
+    try {
+        if ($Script:W.IsActive) { return }
+        [void][W10U.Con]::Flash((New-Object System.Windows.Interop.WindowInteropHelper $Script:W).Handle)
+    } catch { }
+}
 function Start-Work([string]$Job, $A = @{}, [scriptblock]$Then) {
     if ($Script:Busy) { Show-Msg 'Another job is still running.'; return }
     try { Save-Settings } catch { }
@@ -101,6 +123,7 @@ function Start-Work([string]$Job, $A = @{}, [scriptblock]$Then) {
     $Script:JobStart = Get-Date
     $Script:Then = $Then
     $Script:Sync.Pct = -1; $Script:Sync.Status = ''; $Script:Sync.Result = $null
+    Set-KeepAwake $true
     Set-Busy $true
     $Script:Ps = [PowerShell]::Create()
     $Script:Ps.Runspace = $Script:RS
@@ -112,6 +135,7 @@ function Complete-Work {
     try { [void]$Script:Ps.EndInvoke($Script:Handle) } catch { $ok = $false }
     try { $Script:Ps.Dispose() } catch { }
     $Script:Busy = $false
+    Set-KeepAwake $false
     $took = (Get-Date) - $Script:JobStart
     Flush-Log
     $Script:Cfg = Import-Settings; Initialize-Paths; $Script:S = Import-State
@@ -119,10 +143,13 @@ function Complete-Work {
     if ($ok) {
         $Script:U.BusyText.Text = ('{0} finished in {1:mm\:ss}' -f $Script:JobLabel, $took)
         $Script:U.BusyDot.Fill = New-Brush '#3DDC97'
+        Set-TaskbarState 'None'
     } else {
         $Script:U.BusyText.Text = "$($Script:JobLabel) stopped with an error - see the log"
         $Script:U.BusyDot.Fill = New-Brush '#FF5C7A'
+        Set-TaskbarState 'Error' 1      # red until the window is in front again
     }
+    Request-Attention
     Update-Ui
     $then = $Script:Then
     $Script:Then = $null
@@ -142,6 +169,7 @@ function Set-Busy([bool]$On) {
     if ($On) {
         $Script:U.BusyDot.Fill = New-Brush '#FFC857'
         $Script:U.BusyText.Text = "$($Script:JobLabel)..."
+        Set-TaskbarState 'Indeterminate'
     }
 }
 function Invoke-Tick {
@@ -150,6 +178,8 @@ function Invoke-Tick {
     if ($q) {
         $Script:Sync.Question = $null
         $Script:Timer.Stop()
+        Set-TaskbarState 'Paused' 1     # yellow: the job waits for an answer
+        Request-Attention
         $def = if ($q.Default) { 'Yes' } else { 'No' }
         $r = [Windows.MessageBox]::Show($Script:W, [string]$q.Text, 'Win10 ISO Updater', 'YesNo', 'Question', $def)
         $Script:Sync.Answer = ($r -eq 'Yes')
@@ -157,7 +187,8 @@ function Invoke-Tick {
     }
     if ($Script:Busy) {
         $pct = [double]$Script:Sync.Pct
-        if ($pct -ge 0) { $Script:U.Prog.IsIndeterminate = $false; $Script:U.Prog.Value = $pct } else { $Script:U.Prog.IsIndeterminate = $true }
+        if ($pct -ge 0) { $Script:U.Prog.IsIndeterminate = $false; $Script:U.Prog.Value = $pct; Set-TaskbarState 'Normal' ($pct / 100) }
+        else { $Script:U.Prog.IsIndeterminate = $true; Set-TaskbarState 'Indeterminate' }
         $el = (Get-Date) - $Script:JobStart
         $Script:U.BusyText.Text = ('{0}  {1:hh\:mm\:ss}' -f $Script:JobLabel, $el)
         $st = [string]$Script:Sync.Status

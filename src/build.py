@@ -83,26 +83,7 @@ unattend = rng(1103, 1138) + '\n#endregion'
 
 # v1 lines 1177-1419 (slipstream) now live in src/35_engine_service.ps1
 
-build = rng(1420, 1481)
-build = edit(build, 'function Invoke-Build([switch]$Auto) {', 'function Invoke-Build([switch]$Auto, [string]$OutIso) {')
-build = edit(build, "    if (-not $osc) { throw 'oscdimg.exe not found - use [T] Tools in the menu to download it.' }",
-             "    if (-not $osc) { $osc = Get-Oscdimg }")
-build = edit(build, "    Sync-Unattend\n    Test-UnattendSelection", """    Sync-Oem
-    Sync-Unattend
-    Test-UnattendSelection
-    Write-Step 'Install check (answer file, $OEM$, drivers)'
-    $chk = @(Invoke-InstallCheck -NoDownload -Quiet)
-    $bad = @($chk | Where-Object { $_.Level -eq 'Error' })
-    if ($bad.Count -and -not (Read-YesNo "The install check found $($bad.Count) problem(s) that can break Windows setup (details in the log and on the Install check page). Build the ISO anyway?" $false)) {
-        throw 'Build stopped - open the Install check page to see and fix the problems.'
-    }""")
-build = edit(build, """    if (-not $Auto) {
-        $ans = Read-Host "  Output file (Enter = $iso)"
-        if ($ans) { $iso = $ans.Trim().Trim('"'); if ($iso -notmatch '\\.iso$') { $iso += '.iso' } }
-    }""", """    if ($OutIso) { $iso = Resolve-OutIso $OutIso $iso }
-    Write-Info "Output: $iso"\n""".rstrip('\n'))
-build = edit(build, 'Invoke-Exe $osc ("-m -o -u2 -udfver102 -l$label $bootdata $(Q $m) $(Q $iso)")',
-             'Invoke-Exe $osc ("-m -o -u2 -udfver102 -l$label $bootdata $(Q $m) $(Q $iso)") -MergeErr')
+# v1 lines 1420-1481 (ISO build) now live in src/36_engine_build.ps1
 
 def part(name):
     return open(os.path.join(SRC, name), encoding='ascii').read().replace('\r\n', '\n').rstrip('\n')
@@ -110,7 +91,7 @@ def part(name):
 engine = '\n\n'.join([
     part('10_engine_head.ps1'),
     settings, detect_catalog, unpack, download,
-    drivers_a, drivers_b, '#endregion', unattend, part('35_engine_service.ps1'), build,
+    drivers_a, drivers_b, '#endregion', unattend, part('35_engine_service.ps1'), part('36_engine_build.ps1'),
     part('30_engine_tools.ps1'), part('31_engine_sign.ps1'), part('33_engine_check.ps1'), part('34_engine_check2.ps1'), part('32_engine_jobs.ps1'),
 ])
 

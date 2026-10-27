@@ -1,5 +1,17 @@
 # Changelog
 
+## v2.2.0 — 2026-10-27
+
+### Added — long jobs
+- **The PC stays awake while a job runs.** Windows used to go to sleep partway through a 30–90 minute slipstream if nobody touched it. Sleep is now blocked until the job ends; the screen can still turn off.
+- **Progress on the taskbar button.** It follows the progress bar, turns yellow while a question is waiting and red after an error. When a job ends or asks something while the window is in the background, the button flashes until you switch back.
+
+### Changed — Build ISO
+- **A failed build no longer deletes the previous ISO.** Before, an ISO with the same name and its `.sha256` were deleted before oscdimg started. Now oscdimg writes `<name>.iso.part`, which replaces the old ISO only when it is complete. A half-written `.part` file is removed.
+- **Free space on the output drive is checked before oscdimg starts.** If an older ISO of the same name has to make room, it is deleted first, as before. Otherwise you are asked before a build that would run out of space.
+- **An ISO that is mounted in Explorer or open in a virtual machine is reported up front**, with what to do, instead of as a "file in use" error.
+- The ISO build moved from the v1 engine into `src/36_engine_build.ps1`. A new test suite covers it with a stand-in `oscdimg`.
+
 ## v2.1.2 — 2026-10-25
 
 ### Fixed
