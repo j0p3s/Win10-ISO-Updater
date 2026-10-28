@@ -23,7 +23,18 @@ Missing tools (`oscdimg`, `Inf2Cat`, `signtool`) are downloaded automatically fr
 ## Screenshots
 
 <!-- SCREENSHOTS -->
-*Screenshots of the interface are coming soon (they go in [`docs/screenshots`](docs/screenshots)).*
+![Source ISO page: a Windows 10 22H2 ISO unpacked, with its build, architecture and 11 editions detected](docs/screenshots/01-source.png)
+*Page 1: the ISO unpacked and analysed. The Activity panel at the bottom shows the live log of every job.*
+
+| | |
+|---|---|
+| ![Editions page with Windows 10 Pro ticked](docs/screenshots/02-editions.png) | ![Windows updates page with the downloaded October 2025 updates](docs/screenshots/03-updates.png) |
+| **2 · Editions:** tick the editions to keep. | **3 · Windows updates:** the October 2025 cumulative update, Safe OS and Setup Dynamic Updates, and .NET, found and downloaded. |
+| ![Drivers page listing 116 driver packages from this PC](docs/screenshots/04-drivers.png) | ![Signed NVIDIA / modded drivers page with the signing options](docs/screenshots/05-signed.png) |
+| **4 · Drivers:** 116 packages from this PC, 17 of them also go into boot.wim and WinRE. | **5 · Signed NVIDIA / modded:** a modded package with the faster signing options. |
+
+![Slipstream + build ISO page while the slipstream runs, with the Speed options and boot.wim updating in the background](docs/screenshots/08-build.png)
+*Page 7 while the slipstream runs: boot and speed options, the progress bar, and boot.wim being updated in the background (status line, right).*
 <!-- /SCREENSHOTS -->
 
 ---
