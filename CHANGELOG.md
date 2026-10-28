@@ -1,5 +1,32 @@
 # Changelog
 
+## v3.2.0 — 2026-10-28
+
+Signing NVIDIA drivers on page 5 now gets the speed-up of *New catalogs only for the INF files that need one*, with the change from [NVIDIA Modded Drivers Signer](https://github.com/j0p3s/nvidia-modded-drivers-signer) 1.5.0.
+
+**Upgrading from 3.1:** replace `Win10-ISO-Updater.cmd`. Your settings, the `signing` folder and the work folder are kept. Sign your NVIDIA package again to get the faster method.
+
+### Faster — signing NVIDIA drivers (page 5)
+- **An edited INF whose catalog is shared gets a catalog of its own.** NVIDIA's `Display.Driver` INF files share one catalog (`nv_dispi.cat`).
+  - In 3.1, a new catalog had to cover every INF that named it. So for NVIDIA the whole folder was catalogued again, and the isolated copy gained nothing.
+  - Now the edited INF's `CatalogFile=` line points at `<name>_w10u.cat` (for example `nv_dispi_w10u.cat`), and only that INF is catalogued. Nothing else in the INF changes, and its encoding (ANSI, UTF-8, UTF-16) is kept.
+  - The shared `nv_dispi.cat` stays as it is and stays valid for the INF files you did not edit.
+  - This change is made in the work copy only, and only once Inf2Cat has succeeded. If it fails, the whole folder is catalogued as before, and the INF is not changed.
+  - When NVCleanstall signed the shared catalog with its own certificate, every INF needs a new one. Each INF then gets its own catalog, and they are catalogued side by side instead of in one long Inf2Cat run.
+- **Inf2Cat runs at the same time:** the default is now the number of processor cores up to 8 (was 4), as in signer 1.5.0.
+
+### Not taken over from the signer
+- Signer 1.5.0 backs up the original INF files before replacing them. Here only the work copy is changed; your original folder is never touched.
+
+### Code and tests
+- `Split-InfGroups` (catalog groups) is replaced by `Split-InfRuns`, `Get-OwnCatalogName` and `Set-InfCatalog`.
+- `tests/sign-speed.tests.ps1` now covers:
+  - NVIDIA's shared catalog with one edited INF;
+  - a shared catalog signed by NVCleanstall (one run per INF);
+  - the INF encodings.
+- The stand-in signtool now reports an INF edited after its catalog was made.
+- The suite has 60 checks; in total there are 11 suites with about 310 checks.
+
 ## v3.1.0 — 2026-10-28
 
 Faster driver signing on page 5, with the speed-ups from [NVIDIA Modded Drivers Signer](https://github.com/j0p3s/nvidia-modded-drivers-signer) 1.1–1.4.

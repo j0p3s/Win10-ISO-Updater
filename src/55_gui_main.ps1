@@ -165,7 +165,7 @@ try {
         $v = $Script:U.SignJobsBox.Text.Trim()
         if (-not $v) { $Script:Cfg.SignJobs = 0; Save-Settings }
         elseif ($v -match '^[1-8]$') { if ([int]$v -ne (Get-SignJobs)) { $Script:Cfg.SignJobs = [int]$v; Save-Settings } }
-        else { Show-Msg 'Use a number from 1 to 8 (or leave it empty for the number of processor cores, up to 4).' }
+        else { Show-Msg 'Use a number from 1 to 8 (or leave it empty for the number of processor cores, up to 8).' }
         $Script:U.SignJobsBox.Text = [string](Get-SignJobs)
     })
 
