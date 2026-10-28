@@ -215,15 +215,21 @@ function Get-Oscdimg {
         Remove-Item -LiteralPath $part -Force
         Write-Warn 'SHA-256 mismatch - file deleted.'
     }
-    Write-Step 'Installing the Windows ADK Deployment Tools instead (a few minutes)'
-    $adk = Join-Path $env:TEMP 'adksetup.exe'
-    Invoke-WebRequest -Uri 'https://go.microsoft.com/fwlink/?linkid=2289980' -OutFile $adk -UseBasicParsing
-    if (-not (Test-MicrosoftSigned $adk)) { Remove-Item -LiteralPath $adk -Force; throw 'The ADK installer failed the Microsoft signature check.' }
-    $code = Invoke-Exe $adk '/quiet /norestart /ceip off /features OptionId.DeploymentTools'
+    $code = Install-AdkDeploymentTools
     $osc = Find-Oscdimg
     if (-not $osc) { throw "oscdimg.exe could not be installed (ADK setup exit $code)." }
     Write-Ok "oscdimg.exe installed: $osc"
     return $osc
+}
+# Windows ADK Deployment Tools (oscdimg, and a DISM that can service Windows 11), from Microsoft. Returns the setup exit code.
+function Install-AdkDeploymentTools {
+    Write-Step 'Installing the Windows ADK Deployment Tools from Microsoft (a few minutes)'
+    $adk = Join-Path $env:TEMP 'adksetup.exe'
+    Invoke-WebRequest -Uri 'https://go.microsoft.com/fwlink/?linkid=2289980' -OutFile $adk -UseBasicParsing
+    if (-not (Test-MicrosoftSigned $adk)) { Remove-Item -LiteralPath $adk -Force; throw 'The ADK installer failed the Microsoft signature check.' }
+    $code = Invoke-Exe $adk '/quiet /norestart /ceip off /features OptionId.DeploymentTools'
+    Remove-Item -LiteralPath $adk -Force -ErrorAction SilentlyContinue
+    return $code
 }
 function Find-Tool([string]$Name) {
     if (Test-Path -LiteralPath $ToolsDir) {

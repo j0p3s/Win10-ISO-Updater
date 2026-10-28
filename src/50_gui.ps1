@@ -245,6 +245,24 @@ function Update-Status {
     elseif ($S.Serviced) { Set-Step 7 "slipstreamed ($($S.Serviced.Build)) - build the ISO" 'todo' }
     else { Set-Step 7 'to do' 'todo' }
 }
+# Windows 10 / 11 on page 1: follows a newly unpacked ISO, otherwise the choice made there.
+function Update-WinVersion {
+    $S = $Script:S; $U = $Script:U; $Cfg = $Script:Cfg
+    $isoOs = if ($S.Family) { Get-FamilyOs $S.Family } else { '' }
+    $key = if ($S.Family) { '{0}|{1}' -f $S.SourceIso, $S.Family.Build } else { '' }
+    if ($isoOs -and $key -ne $Script:WinVerKey -and [string]$Cfg.WinVersion -ne $isoOs) { $Cfg.WinVersion = $isoOs; Save-Settings }
+    $Script:WinVerKey = $key
+    $os = if ([string]$Cfg.WinVersion -eq '11') { '11' } else { '10' }
+    $U.WinVer10.IsChecked = ($os -eq '10'); $U.WinVer11.IsChecked = ($os -eq '11')
+    $note = if ($os -eq '11') { 'Updates for Windows 11 21H2, 22H2 / 23H2, 24H2 / LTSC 2024 and 25H2 (x64, ARM64). On a Windows 10 PC the slipstream uses the DISM of the Windows ADK Deployment Tools, installed from Microsoft when needed.' }
+            else { 'Updates for Windows 10 1607 / LTSB 2016, 1809 / LTSC 2019, 2004-22H2 and LTSC 2021 (x64, x86, ARM64).' }
+    if ($isoOs -and $isoOs -ne $os) { $note += " The unpacked ISO is Windows $isoOs - pick a Windows $os ISO and unpack it to switch." }
+    $U.WinVerNote.Text = $note
+    $U.GetIsoBtn.Content = "Download Windows $os from Microsoft"
+    $U.CutoffRow.Visibility = if ($os -eq '10') { 'Visible' } else { 'Collapsed' }
+    $U.CutoffNote.Text = if ($os -eq '10') { '2025-10 is the last Windows 10 update Microsoft allows offline. ESU updates (Nov 2025+) come from Windows Update after setup on enrolled PCs.' }
+                         else { 'Windows 11: the newest updates in the Microsoft Update Catalog are used (21H2, which is out of servicing: its last ones, 2024-10).' }
+}
 function Update-Ui {
     $Script:Loading = $true
     try {
@@ -252,6 +270,7 @@ function Update-Ui {
         Update-Status
         foreach ($k in $Script:CfgToggles) { $U["cfg_$k"].IsChecked = [bool]$Cfg[$k] }
         $U.CutoffBox.Text = [string]$Cfg.Win10Cutoff
+        Update-WinVersion
         $U.SignJobsBox.Text = [string](Get-SignJobs)
         $U.WorkBox.Text = [string]$Cfg.WorkDir
         if (-not $U.IsoBox.Text -and $S.SourceIso) { $U.IsoBox.Text = $S.SourceIso }
@@ -261,8 +280,10 @@ function Update-Ui {
         if ($S.Family -and $imgs.Count) {
             $U.ImgInfo.Text = '{0}  -  build {1}  -  {2}  -  {3} edition(s)' -f $S.Family.Name, $imgs[0].Version, $S.Family.Arch, $imgs.Count
             $U.ImgNote.Text = if (-not $S.Family.Supported) { 'No automatic updates for this build - drivers, signed packages, answer file and $OEM$ still work.' }
-                              elseif ($S.Family.Cap) { "Updates up to $($Cfg.Win10Cutoff) (the last month Microsoft allows offline for Windows 10)." + $(if ($S.Family.NeedsEkb) { ' The 22H2 enablement package is added too.' } else { '' }) }
+                              elseif ($S.Family.Cap -and (Get-FamilyOs $S.Family) -eq '10') { "Updates up to $($Cfg.Win10Cutoff) (the last month Microsoft allows offline for Windows 10)." }
+                              elseif ($S.Family.Cap) { "Its last updates ($($S.Family.Cap)) - this version is out of servicing." }
                               else { 'Newest updates available in the Microsoft Update Catalog.' }
+            if ($S.Family.Supported -and $S.Family.NeedsEkb) { $U.ImgNote.Text += " The $(if ($S.Family.EkbFor) { $S.Family.EkbFor } else { '22H2' }) enablement package is added too." }
         } else { $U.ImgInfo.Text = 'Nothing unpacked yet.'; $U.ImgNote.Text = '' }
         $U.ImgGrid.ItemsSource = (New-Table @('Index:int', 'Edition', 'EditionId', 'Build', 'Size', 'Language') @(foreach ($i in $imgs) { , @($i.Index, $i.Name, $i.Edition, $i.Version, (Format-Size $i.Size), $i.Langs) })).DefaultView
 

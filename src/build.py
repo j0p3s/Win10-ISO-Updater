@@ -19,7 +19,7 @@ def edit(text, old, new, count=1):
 # ---- kept regions of the v1 engine -----------------------------------------
 settings = rng(162, 353)          # settings/state + process/DISM helpers
 settings = edit(settings, "        LastDriverFolder = ''\n",
-                "        LastDriverFolder = ''\n        SignCleanup      = $true\n        InstallOemDrivers = $false\n        SignOnlyThisPc   = $false\n        SignIsolate      = $true\n        SignJobs         = 0\n        ParallelBoot     = $true\n        BootSkipPE       = $false\n        DefenderExclude  = $false\n")
+                "        LastDriverFolder = ''\n        SignCleanup      = $true\n        InstallOemDrivers = $false\n        SignOnlyThisPc   = $false\n        WinVersion       = '10'\n        SignIsolate      = $true\n        SignJobs         = 0\n        ParallelBoot     = $true\n        BootSkipPE       = $false\n        DefenderExclude  = $false\n")
 settings = edit(settings, "        Output   = Join-Path $w 'output'\n",
                 "        Output   = Join-Path $w 'output'\n        Signed   = Join-Path $w 'signed'\n        Scratch  = Join-Path $w 'temp\\scratch'\n")
 # servicing commands use a scratch folder inside the work folder (covered by the Defender option)
@@ -40,12 +40,16 @@ assert old_exe.startswith('function Invoke-Exe'), old_exe
 settings = edit(settings, old_exe + '\n', '')          # replaced by the live-output version
 settings = edit(settings, "use [C] Clean up in the menu first.", "use Clean up on the Options page first.")
 
-detect_catalog = rng(354, 592)
+# v1 lines 401-431 (Resolve-Family), 508-537 (Find-Update, Find-ByKB) and 583-591 (Get-UpdateFiles)
+# now live in src/38_engine_windows.ps1, with Windows 11 support
+detect_catalog = rng(354, 400) + '\n' + rng(432, 507) + '\n' + rng(538, 582) + '\n#endregion'
+detect_catalog = edit(detect_catalog, "if (-not $Script:S.Family -or @($Script:S.Images).Count -eq 0) { Invoke-Analyze }",
+                      "if (-not $Script:S.Family -or -not $Script:S.Family.Os -or @($Script:S.Images).Count -eq 0) { Invoke-Analyze }")
 detect_catalog = edit(detect_catalog,
     'Invoke-Exe $curl ("-L --fail --retry 3 --retry-delay 3 -C - --progress-bar -o $(Q $part) $(Q $Url)")',
     'Invoke-Exe $curl ("-L --fail --retry 3 --retry-delay 3 -C - --progress-bar -o $(Q $part) $(Q $Url)") -MergeErr')
 
-unpack = rng(593, 680)
+unpack = rng(593, 645) + '\n#endregion'    # v1 lines 646-679 (Invoke-Analyze) now live in src/38_engine_windows.ps1
 unpack = edit(unpack, """    if (-not $iso) {
         $start = if ($Script:S.SourceIso) { Split-Path $Script:S.SourceIso -Parent } else { Join-Path $env:USERPROFILE 'Downloads' }
         $iso = Select-FileDialog 'Select a Windows 10 ISO' 'ISO images (*.iso)|*.iso' $start
@@ -65,13 +69,6 @@ detect_catalog = edit(detect_catalog, """        $name = [IO.Path]::GetFileName(
         $dest = Join-Path $dir $name
         Save-Url $u $dest
         if ($Script:SavedFiles) { $Script:SavedFiles[$name.ToLower()] = $true }""")
-detect_catalog = edit(detect_catalog, """            if (Test-Path -LiteralPath $f) { $h[$u.Kind] += $f } else { Write-Warn "Missing $f - run Download again." }""", """            if (-not (Test-Path -LiteralPath $f)) { Write-Warn "Missing $f - run Download again."; continue }
-            $leaf = (Split-Path $f -Leaf).ToLower()
-            if ($seenLeaf.ContainsKey($leaf)) { continue }
-            $seenLeaf[$leaf] = $true
-            $h[$u.Kind] += $f""")
-detect_catalog = edit(detect_catalog, """    $h = @{ SSU = @(); LCU = @(); EKB = @(); SAFEOS = @(); SETUP = @(); NET = @(); NET481 = @() }""", """    $h = @{ SSU = @(); LCU = @(); EKB = @(); SAFEOS = @(); SETUP = @(); NET = @(); NET481 = @() }
-    $seenLeaf = @{}""")
 drivers_a = rng(774, 836)        # INF parser, arch test, boot driver list
 drivers_b = rng(909, 958)        # Get-DriverPackages, Find-DriverBackupFolders, Copy-Tree
 drivers_b = edit(drivers_b, """        New-Item -ItemType Directory -Force -Path (Split-Path $Dest -Parent) | Out-Null
@@ -88,7 +85,7 @@ def part(name):
 
 engine = '\n\n'.join([
     part('10_engine_head.ps1'),
-    settings, detect_catalog, unpack, part('37_engine_download.ps1'),
+    settings, detect_catalog, unpack, part('38_engine_windows.ps1'), part('37_engine_download.ps1'),
     drivers_a, drivers_b, '#endregion', unattend, part('35_engine_service.ps1'), part('36_engine_build.ps1'),
     part('30_engine_tools.ps1'), part('31_engine_sign.ps1'), part('33_engine_check.ps1'), part('34_engine_check2.ps1'), part('32_engine_jobs.ps1'),
 ])

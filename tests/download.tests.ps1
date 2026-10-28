@@ -77,6 +77,28 @@ $null = Drain
 Check "catalog error reported ($msg)" ($msg -match 'Could not reach the Microsoft Update Catalog')
 Check 'side job stopped and cleaned up after the error' ($null -eq $Script:Sync.SideSync -and -not (Test-Path (Join-Path $Script:P.Logs 'engine-ssu.log')))
 
+# ---- Windows 11 24H2: no servicing stack lookup (the cumulative update carries it), no .NET 4.8.1, no cutoff
+function New-Run11([int]$Build) {
+    Remove-Item (Join-Path $tmp 'marks.txt') -ErrorAction SilentlyContinue
+    $Script:S = New-State
+    $Script:S.Unpacked = $true
+    $Script:S.Family = Resolve-Family @([ordered]@{ Index = 1; Name = 'Windows 11 Pro'; Edition = 'Professional'; Build = $Build; Revision = 6899; Version = "$Build.6899"; Arch = 'x64'; Size = 1; Langs = 'en-US' })
+}
+$script:kbAsked = @()
+function Find-ByKB([string]$KB, $Fam, [string]$MustMatch) { $script:kbAsked += "$KB/$MustMatch"; return (MkHit 'EKB' $KB) }
+New-Run11 26100
+$env:W10U_SSU = 'KB5050000'
+Invoke-Download -Auto
+$m = Marks; $log = @(Drain)
+$saved = @($m | Where-Object { $_.What -like 'save-*' } | ForEach-Object { $_.What })
+Check "Windows 11: LCU, Safe OS, Setup, .NET - no SSU, no 4.8.1 ($($saved -join ', '))" (($saved -join ',') -eq 'save-LCU,save-SAFEOS,save-SETUP,save-NET' -and @($m | Where-Object What -eq 'ssu-found').Count -eq 0)
+Check 'Windows 11: says why there is no SSU' (@($log | Where-Object { $_ -match 'Windows 11 24H2 cumulative updates include the servicing stack' }).Count -eq 1 -and @($log | Where-Object { $_ -match 'Capped' }).Count -eq 0)
+New-Run11 22621
+$script:kbAsked = @()
+Invoke-Download -Auto
+$null = Drain
+Check "Windows 11 22H2: 23H2 enablement package KB5027397 ($($script:kbAsked -join ','))" (($script:kbAsked -join ',') -eq 'KB5027397/23H2' -and @($Script:S.Updates | Where-Object { $_.Kind -eq 'EKB' }).Count -eq 1)
+
 Remove-Item Env:\W10U_SSU, Env:\W10U_FAIL, Env:\W10U_DL -ErrorAction SilentlyContinue
 Remove-Item $tmp -Recurse -Force
 if ($fails) { exit 1 }

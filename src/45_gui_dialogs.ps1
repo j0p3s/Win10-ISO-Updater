@@ -2,7 +2,15 @@ $Script:XPages = @'
           <!-- 1 source -->
           <TabItem Visibility="Collapsed" Foreground="#E6EAF2"><ScrollViewer VerticalScrollBarVisibility="Auto"><StackPanel Margin="24,18,24,18">
             <TextBlock Style="{StaticResource H1}" Text="Source ISO"/>
-            <TextBlock Style="{StaticResource Sub}" Margin="0,0,0,14" Text="Pick a Windows 10 ISO (1607 / LTSB 2016, 1809 / LTSC 2019, 2004-22H2 or LTSC 2021). It is copied into the work folder and its build and editions are detected."/>
+            <TextBlock Style="{StaticResource Sub}" Margin="0,0,0,14" Text="Choose Windows 10 or Windows 11 and pick its ISO. It is copied into the work folder and its build and editions are detected - the version follows the ISO you unpack."/>
+            <Border Style="{StaticResource Card}"><StackPanel>
+              <TextBlock Style="{StaticResource H2}" Text="Windows version"/>
+              <StackPanel Orientation="Horizontal">
+                <RadioButton x:Name="WinVer10" Style="{StaticResource Seg}" GroupName="winver" Content="Windows 10"/>
+                <RadioButton x:Name="WinVer11" Style="{StaticResource Seg}" GroupName="winver" Content="Windows 11"/>
+              </StackPanel>
+              <TextBlock x:Name="WinVerNote" Style="{StaticResource Sub}" Margin="0,10,0,0"/>
+            </StackPanel></Border>
             <Border Style="{StaticResource Card}"><StackPanel>
               <TextBlock Style="{StaticResource H2}" Text="ISO file"/>
               <Grid><Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
@@ -49,15 +57,15 @@ $Script:XPages = @'
             <TextBlock Style="{StaticResource Sub}" Margin="0,0,0,14" Text="Finds the newest cumulative update, servicing stack, Safe OS and Setup Dynamic Updates and .NET updates for this build in the Microsoft Update Catalog and downloads them (SHA-1 checked)."/>
             <Border Style="{StaticResource Card}"><StackPanel>
               <TextBlock Style="{StaticResource H2}" Text="What to integrate"/>
-              <CheckBox x:Name="cfg_NetFx481" Style="{StaticResource Toggle}" Content="Add .NET Framework 4.8.1 (Windows 10 2004-22H2)"/>
+              <CheckBox x:Name="cfg_NetFx481" Style="{StaticResource Toggle}" Content="Add .NET Framework 4.8.1 (Windows 10 2004-22H2 - Windows 11 has it built in)"/>
               <CheckBox x:Name="cfg_NetFx3" Style="{StaticResource Toggle}" Content="Enable .NET Framework 3.5 (from the ISO's sources\sxs)"/>
               <CheckBox x:Name="cfg_ResetBase" Style="{StaticResource Toggle}" Content="Component cleanup /ResetBase (smaller image - updates can't be uninstalled)"/>
-              <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
+              <StackPanel x:Name="CutoffRow" Orientation="Horizontal" Margin="0,12,0,0">
                 <TextBlock Text="Newest month to integrate" VerticalAlignment="Center" Margin="0,0,12,0"/>
                 <TextBox x:Name="CutoffBox" Width="90"/>
-                <TextBlock Style="{StaticResource Sub}" VerticalAlignment="Center" Margin="12,0,0,0" Text="YYYY-MM, for 2004-22H2 / LTSC 2021"/>
+                <TextBlock Style="{StaticResource Sub}" VerticalAlignment="Center" Margin="12,0,0,0" Text="YYYY-MM, for Windows 10 2004-22H2 / LTSC 2021"/>
               </StackPanel>
-              <TextBlock Style="{StaticResource Sub}" Margin="0,6,0,0" Text="2025-10 is the last Windows 10 update Microsoft allows offline. ESU updates (Nov 2025+) come from Windows Update after setup on enrolled PCs."/>
+              <TextBlock x:Name="CutoffNote" Style="{StaticResource Sub}" Margin="0,6,0,0" Text="2025-10 is the last Windows 10 update Microsoft allows offline. ESU updates (Nov 2025+) come from Windows Update after setup on enrolled PCs."/>
               <WrapPanel Margin="0,14,0,0"><Button x:Name="UpdBtn" Style="{StaticResource Primary}" Content="Find and download updates"/></WrapPanel>
             </StackPanel></Border>
             <Border Style="{StaticResource Card}"><StackPanel>
@@ -178,7 +186,7 @@ $Script:XPages = @'
                 <TextBox x:Name="OutBox" Margin="0,0,8,0"/>
                 <Button x:Name="OutBrowse" Grid.Column="1" Style="{StaticResource Btn}" Content="Save as..." Margin="0"/>
               </Grid>
-              <TextBlock Style="{StaticResource Sub}" Margin="0,6,0,14" Text="Empty = work folder\output\Win10_version_build_arch_date.iso"/>
+              <TextBlock Style="{StaticResource Sub}" Margin="0,6,0,14" Text="Empty = work folder\output\Win10_ or Win11_version_build_arch_date.iso"/>
               <WrapPanel>
                 <Button x:Name="SvcBtn" Style="{StaticResource Primary}" Content="1 - Slipstream into the image"/>
                 <Button x:Name="BuildBtn" Style="{StaticResource Primary}" Content="2 - Build the ISO"/>

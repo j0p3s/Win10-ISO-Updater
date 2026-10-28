@@ -1,12 +1,12 @@
 # Win10 ISO Updater
 
-![version](https://img.shields.io/badge/version-3.2.0-2F9BFF) ![platform](https://img.shields.io/badge/Windows-10%20%7C%2011-8B5CF6) ![license](https://img.shields.io/badge/license-MIT-3DDC97) [![tests](https://github.com/j0p3s/Win10-ISO-Updater/actions/workflows/tests.yml/badge.svg)](https://github.com/j0p3s/Win10-ISO-Updater/actions/workflows/tests.yml)
+![version](https://img.shields.io/badge/version-3.3.0-2F9BFF) ![platform](https://img.shields.io/badge/Windows-10%20%7C%2011-8B5CF6) ![license](https://img.shields.io/badge/license-MIT-3DDC97) [![tests](https://github.com/j0p3s/Win10-ISO-Updater/actions/workflows/tests.yml/badge.svg)](https://github.com/j0p3s/Win10-ISO-Updater/actions/workflows/tests.yml)
 
-**One file. Double-click. Get a fully updated Windows 10 ISO with your drivers, your signed NVIDIA mod, your answer file and your `$OEM$` folder baked in.**
+**One file. Double-click. Get a fully updated Windows 10 or Windows 11 ISO with your drivers, your signed NVIDIA mod, your answer file and your `$OEM$` folder baked in.**
 
 `Win10-ISO-Updater.cmd` is a single-file tool with a dark graphical interface that:
 
-1. **Unpacks a Windows 10 ISO** and detects its build, editions, language and architecture
+1. **Unpacks a Windows 10 or Windows 11 ISO** (pick the version on page 1) and detects its build, editions, language and architecture
 2. **Downloads every update it needs** from the Microsoft Update Catalog (cumulative update, servicing stack, Safe OS and Setup Dynamic Updates, .NET)
 3. **Slipstreams drivers** from this PC or from a `Drivers-Backup` folder (storage and network drivers also go into `boot.wim` and WinRE)
 4. **Re-signs modded drivers** (NVCleanstall hardware-ID mods, edited INF files) with your own certificate and installs them during setup
@@ -16,7 +16,7 @@
 
 Missing tools (`oscdimg`, `Inf2Cat`, `signtool`) are downloaded automatically from Microsoft and verified.
 
-**Contents:** [Screenshots](#screenshots) · [Quick start](#quick-start) · [The pages](#the-pages) · [Speed](#speed) · [Modded drivers](#modded-drivers-nvidia--nvcleanstall) · [Install check](#install-check) · [Windows 10 updates and ESU](#windows-10-updates-and-esu) · [Privacy](#privacy-what-stays-on-your-pc) · [Files the tool creates](#files-the-tool-creates) · [Troubleshooting](#troubleshooting) · [Building from source](#building-from-source) · [Legal notice](#legal-notice)
+**Contents:** [Screenshots](#screenshots) · [Quick start](#quick-start) · [The pages](#the-pages) · [Speed](#speed) · [Modded drivers](#modded-drivers-nvidia--nvcleanstall) · [Install check](#install-check) · [Supported Windows versions](#supported-windows-versions) · [Privacy](#privacy-what-stays-on-your-pc) · [Files the tool creates](#files-the-tool-creates) · [Troubleshooting](#troubleshooting) · [Building from source](#building-from-source) · [Legal notice](#legal-notice)
 
 ---
 
@@ -42,16 +42,16 @@ Missing tools (`oscdimg`, `Inf2Cat`, `signtool`) are downloaded automatically fr
 
 1. Download **`Win10-ISO-Updater.cmd`** from the [latest release](https://github.com/j0p3s/Win10-ISO-Updater/releases/latest) (or [straight from the repository](https://github.com/j0p3s/Win10-ISO-Updater/raw/main/Win10-ISO-Updater.cmd)) and put it in a folder of its own, for example `C:\W10U-Tool`.
 2. Double-click it and accept the administrator prompt.
-3. On page **1**, pick your Windows 10 ISO. Set up the other pages as you like.
+3. On page **1**, choose **Windows 10** or **Windows 11** and pick its ISO. Set up the other pages as you like.
 4. Press **Run everything**.
 
 That's it. The new ISO lands in `C:\W10U\output` (the work folder can be changed under *Options*).
 
-The console line at start shows the version (`Starting Win10 ISO Updater v3.2.0 ...`), then the console hides and the window opens.
+The console line at start shows the version (`Starting Win10 ISO Updater v3.3.0 ...`), then the console hides and the window opens.
 
 **Updating:** replace `Win10-ISO-Updater.cmd` with the new one. Your settings, the `signing` folder and the work folder (unpacked media, updates, drivers) are kept — the tool picks up where you left off.
 
-> Requirements: Windows 10 or 11, Windows PowerShell 5.1 (built in), administrator rights, an NTFS drive with about 30 GB free, and an internet connection. You bring your own Windows 10 ISO and need a valid Windows license for every PC you install it on — see [Legal notice](#legal-notice).
+> Requirements: Windows 10 or 11, Windows PowerShell 5.1 (built in), administrator rights, an NTFS drive with about 30 GB free, and an internet connection. You bring your own Windows 10 or 11 ISO and need a valid Windows license for every PC you install it on — see [Legal notice](#legal-notice).
 
 ---
 
@@ -59,7 +59,7 @@ The console line at start shows the version (`Starting Win10 ISO Updater v3.2.0 
 
 | # | Page | What it does |
 |---|------|--------------|
-| 1 | **Source ISO** | Unpacks the ISO into the work folder and shows its build, editions, language and architecture |
+| 1 | **Source ISO** | Windows 10 or Windows 11 (the choice follows the ISO you unpack), the download link for it, and unpacking the ISO into the work folder with its build, editions, language and architecture |
 | 2 | **Editions** | Tick the editions to update. Unticked ones can be left out, which makes the ISO smaller and the build faster |
 | 3 | **Windows updates** | Finds and downloads the newest LCU, SSU, Safe OS DU, Setup DU, .NET 4.8.1 and .NET CU (SHA-1 checked). Optional .NET 3.5 and `/ResetBase` |
 | 4 | **Drivers** | *Add drivers from this PC* (`Export-WindowsDriver`) or *Import a drivers folder* (for example `Drivers-Backup` made by `Drivers.cmd`). All subfolders are scanned, and drivers for the wrong architecture are left out |
@@ -169,7 +169,7 @@ The **Install check** page (it also runs automatically before every build) compa
 - scripts the answer file writes itself (`<Extensions><File path="...">`, as made by the autounattend generator) count as existing, and their PowerShell is checked too
 
 **`$OEM$` folder**
-- folders that Windows 10 ignores (anything other than `$$` and `$1`)
+- folders that Windows Setup ignores (anything other than `$$` and `$1`)
 - `autounattend.xml` inside `$1` (never read by Setup) → **fix**: use it as the answer file
 - `unattend.xml` in `$$\Panther`, `SetupComplete.cmd` in the wrong place
 - scripts saved as UTF-16 / with a BOM / with LF line endings
@@ -189,12 +189,24 @@ Fixes only change the copies that go into the ISO. You can **save the fixed answ
 
 ---
 
-## Windows 10 updates and ESU
+## Supported Windows versions
 
-Microsoft blocks offline integration of the Windows 10 **ESU** updates (November 2025 and later). For 2004–22H2 and LTSC 2021 the default limit is **2025-10** (KB5066791, build 19045.6456). PCs enrolled in ESU get the newer updates from Windows Update after setup. The month can be changed on page 3.
+Pick **Windows 10** or **Windows 11** on page 1. That choice sets the download link and the hints. When you unpack an ISO, it switches to the Windows that ISO really is.
 
-Supported for automatic updates: **1607 / LTSB 2016, 1809 / LTSC 2019, 2004–22H2, LTSC 2021** (x64, x86, ARM64).
-Any other Windows 10 / 11 image can still get drivers, signed packages, an answer file and `$OEM$`.
+| Windows | Versions with automatic updates | Notes |
+|---|---|---|
+| **Windows 10** | 1607 / LTSB 2016, 1809 / LTSC 2019, 2004–22H2, LTSC 2021 (x64, x86, ARM64) | 2004–21H2 get the 22H2 enablement package. ESU limit, see below. |
+| **Windows 11** | 21H2, 22H2 / 23H2, 24H2 / LTSC 2024, 25H2 (x64, ARM64) | 22H2 gets the 23H2 enablement package. 21H2 is out of servicing and gets its last updates (2024-10). |
+
+Any other image can still get drivers, signed packages, an answer file and `$OEM$`.
+
+**Windows 10 and ESU:** Microsoft blocks offline integration of the Windows 10 **ESU** updates (November 2025 and later). For 2004–22H2 and LTSC 2021 the default limit is **2025-10** (KB5066791, build 19045.6456). PCs enrolled in ESU get the newer updates from Windows Update after setup. The month can be changed on page 3.
+
+**Windows 11:**
+- The newest updates in the catalog are used. The cumulative update includes the servicing stack, so the standalone servicing stack lookup is skipped. .NET 4.8.1 is built in.
+- From 24H2 on, a cumulative update's catalog entry also holds the *checkpoint* update it builds on. Both are downloaded, and the checkpoint goes in first.
+- **On a Windows 10 PC**, the slipstream needs a newer DISM, because Windows supports servicing an image only with a DISM of the same or a newer Windows. The tool then offers to install the **Windows ADK Deployment Tools** from Microsoft, signature-checked, and uses their DISM for that image. This PC's own DISM is not changed. On a Windows 11 PC, its own DISM is used.
+- The tool doesn't change Windows 11's hardware requirements (TPM 2.0, Secure Boot, supported CPU). Setup checks them as usual.
 
 ---
 
@@ -236,6 +248,7 @@ Logs: `C:\W10U\logs\engine.log` and `dism.log` (`dism-boot.log` for boot.wim whe
 | Cumulative update fails with an ESU-related error | Set the month on page 3 back to `2025-10` |
 | Drivers didn't install after setup | Read `C:\Windows\Temp\SetupComplete-drivers.log`, and run the **Install check** (OEM-key fallback) |
 | `Inf2Cat` "Signability test failed" | Delete `inf2cat.exe.manifest` next to `Inf2Cat.exe` and sign again |
+| Windows 11 slipstream fails on a Windows 10 PC | Answer **Yes** when the tool offers the Windows ADK Deployment Tools (this PC's DISM is too old for Windows 11), or install them yourself and run the slipstream again |
 | *Re-sign drivers* runs for a very long time on `Display.Driver` | Normal when every INF of a full NVIDIA package needs a new catalog (up to an hour) — the log says how many INF files get one and how long it should take. Check that `Inf2Cat.exe` uses CPU in Task Manager → Details. Faster: keep *New catalogs only for the INF files that need one* on, raise *Inf2Cat runs at the same time*, or turn on *Only keep the INF files for this PC's hardware* |
 | Signing: "Inf2Cat failed on the isolated INF file(s) - the whole folder is catalogued instead" | Inf2Cat rejected the copy with only the edited INF files; the tool then signs the whole folder, as before. Nothing to do, but please open an issue with `logs\engine.log` |
 | "Could not start: The property 'ItemsSource' cannot be found" / "SignTool Error: ... terminated in a root" / check list shows `System.Object[]` | Bugs of v2.0.0 – v2.0.3. Make sure the copy you start is the newest: the first console line shows the version |
@@ -267,6 +280,7 @@ python src/build.py
 | `35_engine_service.ps1` | slipstream: WinRE, install.wim, boot.wim (optionally in a background runspace), media update |
 | `36_engine_build.ps1` | ISO build: free space and "in use" checks, oscdimg into a `.part` file, SHA-256 |
 | `37_engine_download.ps1` | finds and downloads the updates (servicing stack lookup in a background job) |
+| `38_engine_windows.ps1` | Windows 10 / 11 detection, catalog title patterns, update order (24H2 checkpoints), the DISM for the image (ADK on a Windows 10 PC), Analyze |
 | `31_engine_sign.ps1` | certificate, catalogs, re-signing (isolated copies with only the INF files that need a new catalog), `$OEM$` assembly, `SetupComplete-drivers.cmd` |
 | `33_engine_check.ps1`, `34_engine_check2.ps1` | install check and its fixes |
 | `32_engine_jobs.ps1` | driver scan / import, answer file, run everything, job entry point for the background worker |
@@ -279,7 +293,7 @@ python src/build.py
 pwsh tests/run-tests.ps1
 ```
 
-Eleven suites (about 310 checks) run the PowerShell part on Linux / macOS with PowerShell 7: catalog parsing, signing with stand-ins for `signtool` / `Inf2Cat` (an NVCleanstall-style untrusted catalog, live Inf2Cat status from a worker runspace, keeping only this PC's INF files, isolated copies with only the edited INF files, an own catalog for an INF whose catalog is shared (NVIDIA's `nv_dispi.cat`) with its encoding kept, several Inf2Cat runs at the same time, the fallback to the whole folder, batched signing, the time estimate), `$OEM$` assembly, every install check finding and fix, an answer file made by the autounattend generator (`tests/fixtures`, personal data removed), the page refresh with Windows PowerShell 5.1's JSON behaviour simulated (and the taskbar progress), a whole slipstream against a stand-in `dism` (boot.wim and WinRE in the background vs. sequential, a failed WinRE update, the driver set, the Defender option), the ISO build against a stand-in `oscdimg` (failed build, ISO in use, free space), and the download step with a stand-in catalog (the servicing stack lookup running while the other updates download). DISM, WPF and real driver installs still need a Windows test run.
+Eleven suites (about 350 checks) run the PowerShell part on Linux / macOS with PowerShell 7: catalog parsing (Windows 10 and Windows 11 titles, the 24H2 checkpoint order, the DISM choice), signing with stand-ins for `signtool` / `Inf2Cat` (an NVCleanstall-style untrusted catalog, live Inf2Cat status from a worker runspace, keeping only this PC's INF files, isolated copies with only the edited INF files, an own catalog for an INF whose catalog is shared (NVIDIA's `nv_dispi.cat`) with its encoding kept, several Inf2Cat runs at the same time, the fallback to the whole folder, batched signing, the time estimate), `$OEM$` assembly, every install check finding and fix, an answer file made by the autounattend generator (`tests/fixtures`, personal data removed), the page refresh with Windows PowerShell 5.1's JSON behaviour simulated (and the taskbar progress), a whole slipstream against a stand-in `dism` (boot.wim and WinRE in the background vs. sequential, a failed WinRE update, the driver set, the Defender option), the ISO build against a stand-in `oscdimg` (failed build, ISO in use, free space), and the download step with a stand-in catalog (the servicing stack lookup running while the other updates download). DISM, WPF and real driver installs still need a Windows test run.
 
 ---
 
@@ -309,15 +323,15 @@ Microsoft, Windows, Windows PE, DISM, Microsoft Defender (Windows Defender) and 
 
 ### Windows is not included — you need your own license
 
-- The tool contains **no Windows files, no product keys and no activation workaround**, and it doesn't change licensing or activation. You supply the Windows 10 ISO yourself (for example from [Microsoft's download page](https://www.microsoft.com/software-download/windows10ISO)).
+- The tool contains **no Windows files, no product keys and no activation workaround**, and it doesn't change licensing or activation. You supply the Windows 10 or 11 ISO yourself (for example from Microsoft's download pages for [Windows 10](https://www.microsoft.com/software-download/windows10ISO) and [Windows 11](https://www.microsoft.com/software-download/windows11)).
 - Every PC you install Windows on with the ISO needs a **valid Windows license**. Installing from an updated ISO doesn't change that.
-- **ESU:** the tool doesn't integrate Extended Security Updates (November 2025 and later) and doesn't get around ESU enrolment. Enrolled PCs get those updates from Windows Update.
+- **ESU:** the tool doesn't integrate Windows 10 Extended Security Updates (November 2025 and later) and doesn't get around ESU enrolment. Enrolled PCs get those updates from Windows Update.
 
 ### Microsoft updates and tools
 
-- Updates come from the Microsoft Update Catalog. `oscdimg.exe` comes from the Microsoft symbol server. If that fails, the tool installs the Windows ADK *Deployment Tools* from Microsoft. `signtool` and `Inf2Cat` come from Microsoft's NuGet packages (`Microsoft.Windows.SDK.BuildTools`, `Microsoft.Windows.WDK.x64`).
+- Updates come from the Microsoft Update Catalog. `oscdimg.exe` comes from the Microsoft symbol server. If that fails, the tool installs the Windows ADK *Deployment Tools* from Microsoft. It also offers those tools when a Windows 11 image is serviced on a Windows 10 PC, to use their DISM. `signtool` and `Inf2Cat` come from Microsoft's NuGet packages (`Microsoft.Windows.SDK.BuildTools`, `Microsoft.Windows.WDK.x64`).
 - The tool downloads them **straight from Microsoft to your PC** when a step needs them (or uses copies already on the PC). **This repository does not contain or redistribute any of them.**
-- They stay Microsoft's software under Microsoft's license terms: the Windows license terms for updates, the Windows ADK terms for `oscdimg`, and the Windows SDK / Windows Driver Kit terms for `signtool` and `Inf2Cat`. You are responsible for following them.
+- They stay Microsoft's software under Microsoft's license terms: the Windows license terms for updates, the Windows ADK terms for `oscdimg` and the ADK's DISM, and the Windows SDK / Windows Driver Kit terms for `signtool` and `Inf2Cat`. You are responsible for following them.
 - The SDK and WDK packages are meant for developing and testing software. Check that your use is allowed under their terms.
 
 ### The ISO you build: for your own use

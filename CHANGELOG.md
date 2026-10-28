@@ -1,5 +1,43 @@
 # Changelog
 
+## v3.3.0 — 2026-10-28
+
+Windows 11 support, and a switch on page 1 to choose between Windows 10 and Windows 11.
+
+**Upgrading from 3.2:** replace `Win10-ISO-Updater.cmd`. Your settings, the `signing` folder and the work folder are kept. A Windows 11 ISO you unpacked with an older version is detected again automatically the next time you download updates (or press *Re-read image info*).
+
+### Added — Windows 11
+- **Windows version switch on page 1**: *Windows 10* or *Windows 11*. It sets the *Download Windows 10/11 from Microsoft* button, the hint under it and the title of the ISO dialog. When you unpack an ISO, it follows the Windows that ISO really is. If you pick the other version while an ISO is unpacked, the page says so.
+- **Windows 11 21H2, 22H2 / 23H2, 24H2 / LTSC 2024 and 25H2** (x64, ARM64) get automatic updates:
+  - the cumulative update;
+  - the Safe OS and Setup Dynamic Updates;
+  - the .NET cumulative update;
+  - for 22H2, the 23H2 enablement package (KB5027397).
+- 21H2 is out of servicing and gets its last updates (2024-10). The Windows 10 ESU limit (2025-10) applies to Windows 10 only, so the *Newest month* box on page 3 is hidden for Windows 11.
+- Windows 11 cumulative updates carry the servicing stack, so the 36-month servicing stack lookup is skipped. .NET 4.8.1 is built in, so it is not added.
+- **Checkpoint cumulative updates (24H2 and later):** the catalog entry also holds the checkpoint update it builds on. Both are downloaded, and the checkpoint (the older KB) goes in first, for install.wim, WinRE and boot.wim.
+- **DISM for Windows 11 on a Windows 10 PC:** Windows supports servicing an image only with a DISM of the same or a newer Windows.
+  - When this PC's DISM is older than the image, the slipstream offers to install the **Windows ADK Deployment Tools** from Microsoft (signature-checked, the same installer already used as the `oscdimg` fallback).
+  - The ADK's DISM is then used for that image. This PC's own DISM is not changed.
+  - The background boot.wim / WinRE jobs and *Clean up* use the same DISM.
+  - If you decline, the PC's DISM is tried, with a warning.
+- The new ISO is named `Win11_<version>_<build>_<arch>_<date>.iso` for Windows 11, and its volume label starts with `W11_`.
+
+### Changed
+- The family detection and catalog searches moved from the v1 engine into `src/38_engine_windows.ps1`. The *Windows 10* in the catalog title patterns is now the image's Windows.
+- The install check no longer says "Windows 10 Setup" for `$OEM$` folders.
+
+### Tests
+- The catalog suite covers:
+  - every Windows 11 version and the old saved state without an OS;
+  - the Windows 11 titles (24H2 vs 25H2 vs Server, ARM64 in lower case, .NET "Windows 11, version 24H2", Safe OS / Setup Dynamic Updates);
+  - the 23H2 enablement package;
+  - the checkpoint-first order;
+  - the DISM choice (Windows 10 PC with and without the ADK, install yes/no, Windows 11 PC, version unreadable).
+- The download suite covers Windows 11 24H2 (no SSU lookup, no .NET 4.8.1) and 22H2 (enablement package).
+- The UI suite covers the version switch.
+- In total there are 11 suites with about 350 checks.
+
 ## v3.2.0 — 2026-10-28
 
 Signing NVIDIA drivers on page 5 now gets the speed-up of *New catalogs only for the INF files that need one*, with the change from [NVIDIA Modded Drivers Signer](https://github.com/j0p3s/nvidia-modded-drivers-signer) 1.5.0.

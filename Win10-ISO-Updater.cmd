@@ -1,7 +1,7 @@
 @echo off
 :: ===========================================================================
-::  Win10-ISO-Updater.cmd  (v3.2.0)  -  one file, graphical interface
-::  - unpacks a Windows 10 ISO and detects its build
+::  Win10-ISO-Updater.cmd  (v3.3.0)  -  one file, graphical interface
+::  - unpacks a Windows 10 or Windows 11 ISO and detects its build
 ::  - downloads its updates from the Microsoft Update Catalog
 ::  - slipstreams updates and drivers (this PC or a Drivers-Backup folder)
 ::  - re-signs modded drivers (NVCleanstall / edited INF, e.g. NVIDIA) with your
@@ -23,7 +23,7 @@ exit /b
 set "W10U_SELF=%~f0"
 set "PSEXE=%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe"
 if exist "%SystemRoot%\Sysnative\WindowsPowerShell\v1.0\powershell.exe" set "PSEXE=%SystemRoot%\Sysnative\WindowsPowerShell\v1.0\powershell.exe"
-echo Starting Win10 ISO Updater v3.2.0 ...  (this window hides when the program opens)
+echo Starting Win10 ISO Updater v3.3.0 ...  (this window hides when the program opens)
 "%PSEXE%" -NoProfile -STA -ExecutionPolicy Bypass -Command "$t=[IO.File]::ReadAllText($env:W10U_SELF);$i=$t.IndexOf('#'+'PS-BEGIN');Invoke-Expression $t.Substring($i)"
 if errorlevel 1 pause
 exit /b
@@ -38,7 +38,7 @@ $ErrorActionPreference = 'Stop'
 $ProgressPreference    = 'SilentlyContinue'
 
 $Script:AppName      = 'Win10-ISO-Updater'
-$Script:AppVersion   = '3.2.0'
+$Script:AppVersion   = '3.3.0'
 $Script:Root         = Split-Path -Parent $env:W10U_SELF
 $ToolsDir            = Join-Path $Script:Root 'tools'
 $IsoPath             = $null
@@ -48,6 +48,7 @@ $Script:SignDir      = Join-Path $Script:Root 'signing'
 $Script:CertSubject  = 'CN=Custom Driver Signing'
 $Script:GeneratorUrl = 'https://github.com/j0p3s/autounattended-generator'
 $Script:IsoPageUrl   = 'https://www.microsoft.com/software-download/windows10ISO'
+$Script:IsoPageUrl11 = 'https://www.microsoft.com/software-download/windows11'
 $Script:CatalogBase  = 'https://www.catalog.update.microsoft.com'
 $Script:Dism         = Join-Path $env:SystemRoot 'System32\dism.exe'
 $Script:Inv          = [Globalization.CultureInfo]::InvariantCulture
@@ -130,6 +131,7 @@ function Get-DefaultSettings {
         SignCleanup      = $true
         InstallOemDrivers = $false
         SignOnlyThisPc   = $false
+        WinVersion       = '10'
         SignIsolate      = $true
         SignJobs         = 0
         ParallelBoot     = $true
@@ -325,7 +327,7 @@ function Assert-Unpacked {
 }
 function Assert-Analyzed {
     Assert-Unpacked
-    if (-not $Script:S.Family -or @($Script:S.Images).Count -eq 0) { Invoke-Analyze }
+    if (-not $Script:S.Family -or -not $Script:S.Family.Os -or @($Script:S.Images).Count -eq 0) { Invoke-Analyze }
 }
 function Get-SourceImage {
     foreach ($n in 'install.wim', 'install.esd') {
@@ -362,37 +364,6 @@ function Get-ImageList([string]$ImageFile) {
         }
     }
     return , $out
-}
-function Resolve-Family($Images) {
-    $first = $Images[0]
-    $b = [int]$first.Build
-    $arch = [string]$first.Arch
-    if (@($Images | ForEach-Object { "$($_.Build)/$($_.Arch)" } | Select-Object -Unique).Count -gt 1) {
-        Write-Warn 'This image mixes builds/architectures - updates are picked for the first edition.'
-    }
-    $archTitle = @{ x64 = 'x64-based Systems'; x86 = 'x86-based Systems'; arm64 = 'ARM64-based Systems' }[$arch]
-    $archTok   = @{ x64 = 'x64'; x86 = 'x86'; arm64 = 'ARM64' }[$arch]
-    $ltsc = @($Images | Where-Object { $_.Edition -match 'EnterpriseS|IoTEnterpriseS' }).Count -gt 0
-    $f = [ordered]@{
-        Build = $b; Arch = $arch; ArchTitle = $archTitle; ArchToken = $archTok; Product = $null; VerToken = $null
-        Cap = $null; NeedsEkb = $false; Supported = $true; Name = $null; IsLtsc = $ltsc; Label = $null
-    }
-    if ($b -ge 19041 -and $b -le 19045) {
-        if ($b -eq 19044 -and $ltsc) { $f.VerToken = '21H2'; $f.Name = 'Windows 10 LTSC 2021 (21H2)' }
-        else {
-            $f.VerToken = '22H2'; $f.Name = 'Windows 10 22H2'
-            if ($b -lt 19045) { $f.NeedsEkb = $true; $f.Name = "Windows 10 build $b -> 22H2" }
-        }
-        $f.Cap = [string]$Script:Cfg.Win10Cutoff
-    } elseif ($b -eq 17763) { $f.VerToken = '1809'; $f.Name = 'Windows 10 1809 / LTSC 2019' }
-    elseif ($b -eq 14393) { $f.VerToken = '1607'; $f.Name = 'Windows 10 1607 / LTSB 2016' }
-    elseif ($b -ge 22000) { $f.Supported = $false; $f.Name = "Windows 11 (build $b)" }
-    else { $f.Supported = $false; $f.Name = "Windows 10 build $b (out of support)" }
-    if ($f.VerToken) { $f.Product = "Windows 10 Version $($f.VerToken)" }
-    if (-not $archTitle) { $f.Supported = $false }
-    $tag = if ($f.VerToken) { $f.VerToken } else { "$b" }
-    $f.Label = ('W10_' + $tag + '_' + $arch).ToUpper()
-    return $f
 }
 #endregion
 
@@ -470,36 +441,6 @@ function Get-MonthList([string]$From, [int]$Count) {
     $d = [datetime]::ParseExact($From + '-01', 'yyyy-MM-dd', $Script:Inv)
     for ($i = 0; $i -lt $Count; $i++) { $d.AddMonths(-$i).ToString('yyyy-MM') }
 }
-function Find-Update {
-    # Walks back month by month ("YYYY-MM ..." titles) and returns the newest match.
-    param([string]$Kind, $Fam, [string]$MaxMonth, [int]$Lookback = 12)
-    $p = [regex]::Escape($Fam.Product); $a = [regex]::Escape($Fam.ArchTitle)
-    $v = [regex]::Escape($Fam.VerToken); $t = [regex]::Escape($Fam.ArchToken)
-    foreach ($ym in (Get-MonthList $MaxMonth $Lookback)) {
-        $y = [regex]::Escape($ym)
-        switch ($Kind) {
-            'LCU'   { $q = "$ym Cumulative Update for $($Fam.Product) for $($Fam.ArchTitle)"; $rx = "^$y Cumulative Update for $p for $a" }
-            'SSU'   { $q = "$ym Servicing Stack Update for $($Fam.Product) for $($Fam.ArchTitle)"; $rx = "^$y Servicing Stack Update for $p for $a" }
-            'NET'   { $q = "$ym Cumulative Update for .NET Framework $($Fam.Product) $($Fam.ArchToken)"; $rx = "^$y Cumulative Update for \.NET Framework .*Windows 10.*\b$v\b.*\b$t\b" }
-            default { $q = "$ym Dynamic Update for $($Fam.Product) for $($Fam.ArchTitle)"; $rx = "^$y (Safe OS |Setup )?Dynamic Update for Windows 10.*\b$v\b.*$a" }
-        }
-        Write-Host "     . catalog: $ym" -ForegroundColor DarkGray
-        $hits = @(Search-Catalog $q | Where-Object { $_.Title -match $rx -and $_.Title -notmatch 'Preview' })
-        if ($Kind -eq 'SAFEOS' -or $Kind -eq 'SETUP') { $hits = @($hits | Where-Object { (Get-DuKind $_) -eq $Kind }) }
-        if ($hits.Count -gt 0) {
-            $sorted = @($hits | Sort-Object Date -Descending)
-            if ($Kind -eq 'NET') { return $sorted }
-            return $sorted[0]
-        }
-    }
-}
-function Find-ByKB([string]$KB, $Fam, [string]$MustMatch) {
-    $t = [regex]::Escape($Fam.ArchToken)
-    $hits = @(Search-Catalog $KB | Where-Object {
-            $_.Title -match "\b$t\b" -and $_.Title -match 'Windows 10' -and (-not $MustMatch -or $_.Title -match $MustMatch)
-        })
-    if ($hits.Count -gt 0) { return (@($hits | Sort-Object Date -Descending))[0] }
-}
 function Test-CatalogHash([string]$File) {
     # Catalog file names end with _<sha1>.msu/.cab - use it as a free integrity check.
     $n = [IO.Path]::GetFileNameWithoutExtension($File)
@@ -546,20 +487,6 @@ function Save-UpdateFiles($Hit, [string]$Kind) {
         $files += $dest
     }
     return [ordered]@{ Kind = $Kind; KB = $Hit.KB; Title = $Hit.Title; Date = $Hit.Date.ToString('yyyy-MM-dd'); Files = $files }
-}
-function Get-UpdateFiles {
-    $h = @{ SSU = @(); LCU = @(); EKB = @(); SAFEOS = @(); SETUP = @(); NET = @(); NET481 = @() }
-    $seenLeaf = @{}
-    foreach ($u in @($Script:S.Updates)) {
-        foreach ($f in @($u.Files)) {
-            if (-not (Test-Path -LiteralPath $f)) { Write-Warn "Missing $f - run Download again."; continue }
-            $leaf = (Split-Path $f -Leaf).ToLower()
-            if ($seenLeaf.ContainsKey($leaf)) { continue }
-            $seenLeaf[$leaf] = $true
-            $h[$u.Kind] += $f
-        }
-    }
-    return $h
 }
 #endregion
 
@@ -614,6 +541,161 @@ function Invoke-Unpack {
     Sync-Unattend
 }
 
+#endregion
+
+#region ---------------------------------------------------------------- Windows 10 / Windows 11
+# Which Windows the image is and how its updates are named in the Microsoft Update Catalog.
+#   Windows 10: 1607 / LTSB 2016, 1809 / LTSC 2019, 2004-22H2 / LTSC 2021 (2004-21H2 get the 22H2 enablement package)
+#   Windows 11: 21H2, 22H2 / 23H2 (22H2 gets the 23H2 enablement package), 24H2 / LTSC 2024, 25H2
+function Resolve-Family($Images) {
+    $first = $Images[0]
+    $b = [int]$first.Build
+    $arch = [string]$first.Arch
+    if (@($Images | ForEach-Object { "$($_.Build)/$($_.Arch)" } | Select-Object -Unique).Count -gt 1) {
+        Write-Warn 'This image mixes builds/architectures - updates are picked for the first edition.'
+    }
+    $archTitle = @{ x64 = 'x64-based Systems'; x86 = 'x86-based Systems'; arm64 = 'ARM64-based Systems' }[$arch]
+    $archTok   = @{ x64 = 'x64'; x86 = 'x86'; arm64 = 'ARM64' }[$arch]
+    $ltsc = @($Images | Where-Object { $_.Edition -match 'EnterpriseS|IoTEnterpriseS' }).Count -gt 0
+    $f = [ordered]@{
+        Os = '10'; Build = $b; Arch = $arch; ArchTitle = $archTitle; ArchToken = $archTok; Product = $null; VerToken = $null
+        Cap = $null; NeedsEkb = $false; EkbKB = ''; EkbFor = ''; NoSsu = $false; Supported = $true; Name = $null; IsLtsc = $ltsc; Label = $null
+    }
+    if ($b -ge 22000) {
+        # Windows 11 cumulative updates carry the servicing stack - there is no standalone SSU to look for
+        $f.Os = '11'; $f.NoSsu = $true
+        if ($b -eq 22000) { $f.VerToken = '21H2'; $f.Name = 'Windows 11 21H2'; $f.Cap = '2024-10' }     # end of servicing
+        elseif ($b -eq 22621) { $f.VerToken = '23H2'; $f.Name = 'Windows 11 build 22621 -> 23H2'; $f.NeedsEkb = $true; $f.EkbKB = 'KB5027397'; $f.EkbFor = '23H2' }
+        elseif ($b -eq 22631) { $f.VerToken = '23H2'; $f.Name = 'Windows 11 23H2' }
+        elseif ($b -eq 26100) { $f.VerToken = '24H2'; $f.Name = $(if ($ltsc) { 'Windows 11 LTSC 2024 (24H2)' } else { 'Windows 11 24H2' }) }
+        elseif ($b -eq 26200) { $f.VerToken = '25H2'; $f.Name = 'Windows 11 25H2' }
+        else { $f.Supported = $false; $f.Name = "Windows 11 (build $b)" }
+    } elseif ($b -ge 19041 -and $b -le 19045) {
+        if ($b -eq 19044 -and $ltsc) { $f.VerToken = '21H2'; $f.Name = 'Windows 10 LTSC 2021 (21H2)' }
+        else {
+            $f.VerToken = '22H2'; $f.Name = 'Windows 10 22H2'
+            if ($b -lt 19045) { $f.NeedsEkb = $true; $f.EkbKB = 'KB5015684'; $f.EkbFor = '22H2'; $f.Name = "Windows 10 build $b -> 22H2" }
+        }
+        $f.Cap = [string]$Script:Cfg.Win10Cutoff
+    } elseif ($b -eq 17763) { $f.VerToken = '1809'; $f.Name = 'Windows 10 1809 / LTSC 2019' }
+    elseif ($b -eq 14393) { $f.VerToken = '1607'; $f.Name = 'Windows 10 1607 / LTSB 2016' }
+    else { $f.Supported = $false; $f.Name = "Windows 10 build $b (out of support)" }
+    if ($f.VerToken) { $f.Product = "Windows $($f.Os) Version $($f.VerToken)" }
+    if (-not $archTitle) { $f.Supported = $false }
+    $tag = if ($f.VerToken) { $f.VerToken } else { "$b" }
+    $f.Label = ('W' + $f.Os + '_' + $tag + '_' + $arch).ToUpper()
+    return $f
+}
+function Get-FamilyOs($Fam) {
+    if ($Fam -and $Fam.Os) { return [string]$Fam.Os }
+    if ($Fam -and [int]$Fam.Build -ge 22000) { return '11' }
+    return '10'
+}
+function Find-Update {
+    # Walks back month by month ("YYYY-MM ..." titles) and returns the newest match.
+    param([string]$Kind, $Fam, [string]$MaxMonth, [int]$Lookback = 12)
+    $p = [regex]::Escape($Fam.Product); $a = [regex]::Escape($Fam.ArchTitle)
+    $v = [regex]::Escape($Fam.VerToken); $t = [regex]::Escape($Fam.ArchToken)
+    $o = [regex]::Escape('Windows ' + (Get-FamilyOs $Fam))
+    foreach ($ym in (Get-MonthList $MaxMonth $Lookback)) {
+        $y = [regex]::Escape($ym)
+        switch ($Kind) {
+            'LCU'   { $q = "$ym Cumulative Update for $($Fam.Product) for $($Fam.ArchTitle)"; $rx = "^$y Cumulative Update for $p for $a" }
+            'SSU'   { $q = "$ym Servicing Stack Update for $($Fam.Product) for $($Fam.ArchTitle)"; $rx = "^$y Servicing Stack Update for $p for $a" }
+            'NET'   { $q = "$ym Cumulative Update for .NET Framework $($Fam.Product) $($Fam.ArchToken)"; $rx = "^$y Cumulative Update for \.NET Framework .*$o.*\b$v\b.*\b$t\b" }
+            default { $q = "$ym Dynamic Update for $($Fam.Product) for $($Fam.ArchTitle)"; $rx = "^$y (Safe OS |Setup )?Dynamic Update for $o.*\b$v\b.*$a" }
+        }
+        Write-Host "     . catalog: $ym" -ForegroundColor DarkGray
+        $hits = @(Search-Catalog $q | Where-Object { $_.Title -match $rx -and $_.Title -notmatch 'Preview' })
+        if ($Kind -eq 'SAFEOS' -or $Kind -eq 'SETUP') { $hits = @($hits | Where-Object { (Get-DuKind $_) -eq $Kind }) }
+        if ($hits.Count -gt 0) {
+            $sorted = @($hits | Sort-Object Date -Descending)
+            if ($Kind -eq 'NET') { return $sorted }
+            return $sorted[0]
+        }
+    }
+}
+function Find-ByKB([string]$KB, $Fam, [string]$MustMatch) {
+    $t = [regex]::Escape($Fam.ArchToken)
+    $o = 'Windows ' + (Get-FamilyOs $Fam)
+    $hits = @(Search-Catalog $KB | Where-Object {
+            $_.Title -match "\b$t\b" -and $_.Title -match [regex]::Escape($o) -and (-not $MustMatch -or $_.Title -match $MustMatch)
+        })
+    if ($hits.Count -gt 0) { return (@($hits | Sort-Object Date -Descending))[0] }
+}
+# The KB number in a catalog file name (windows11.0-kb5043080-x64_<sha1>.msu -> 5043080), 0 if none.
+function Get-FileKB([string]$File) {
+    $m = [regex]::Match((Split-Path $File -Leaf), '(?i)kb(\d{6,8})')
+    if ($m.Success) { return [int]$m.Groups[1].Value }
+    return 0
+}
+function Get-UpdateFiles {
+    $h = @{ SSU = @(); LCU = @(); EKB = @(); SAFEOS = @(); SETUP = @(); NET = @(); NET481 = @() }
+    $seenLeaf = @{}
+    foreach ($u in @($Script:S.Updates)) {
+        $files = @($u.Files)
+        # Windows 11 24H2 and later: the catalog entry of a cumulative update also holds the checkpoint
+        # update it builds on (an older KB) - that one has to go in first.
+        if ($u.Kind -eq 'LCU') { $files = @($files | Sort-Object { Get-FileKB $_ }) }
+        foreach ($f in $files) {
+            if (-not (Test-Path -LiteralPath $f)) { Write-Warn "Missing $f - run Download again."; continue }
+            $leaf = (Split-Path $f -Leaf).ToLower()
+            if ($seenLeaf.ContainsKey($leaf)) { continue }
+            $seenLeaf[$leaf] = $true
+            $h[$u.Kind] += $f
+        }
+    }
+    return $h
+}
+#endregion
+
+#region ---------------------------------------------------------------- DISM for the image
+# Windows supports servicing an image only with a DISM of the same or a newer Windows. Builds that share
+# one code base count as one (Windows 10 2004-22H2, Windows 11 22H2 / 23H2, 24H2 / 25H2).
+function Get-BaseBuild([int]$Build) {
+    if ($Build -ge 26100 -and $Build -le 26200) { return 26100 }
+    if ($Build -ge 22621 -and $Build -le 22631) { return 22621 }
+    if ($Build -ge 19041 -and $Build -le 19045) { return 19041 }
+    return $Build
+}
+function Get-DismBuild([string]$Exe) {
+    try { return [int](Get-Item -LiteralPath $Exe -ErrorAction Stop).VersionInfo.FileBuildPart } catch { return 0 }
+}
+function Find-AdkDism {
+    $arch = switch (Get-HostArch) { 'x64' { 'amd64' } 'arm64' { 'arm64' } default { 'x86' } }
+    foreach ($pf in @(${env:ProgramFiles(x86)}, $env:ProgramFiles)) {
+        if (-not $pf) { continue }
+        $d = Join-Path $pf "Windows Kits\10\Assessment and Deployment Kit\Deployment Tools\$arch\DISM\dism.exe"
+        if (Test-Path -LiteralPath $d) { return $d }
+    }
+    return $null
+}
+# The DISM to service an image of $ImageBuild: $Current (by default the one in use, normally this PC's), or -
+# for a newer Windows, such as Windows 11 from a Windows 10 PC - the one of the Windows ADK Deployment Tools.
+# -Install offers to install those.
+function Get-ServicingDism([int]$ImageBuild, [switch]$Install, [string]$Current = $Script:Dism) {
+    $sys = $Current
+    if (-not $sys) { $sys = Join-Path $env:SystemRoot 'System32\dism.exe' }
+    $need = Get-BaseBuild $ImageBuild
+    $sysBuild = Get-DismBuild $sys
+    if ($sysBuild -eq 0 -or (Get-BaseBuild $sysBuild) -ge $need) { return $sys }      # 0 = version unreadable: keep it
+    $adk = Find-AdkDism
+    if ($adk -and (Get-BaseBuild (Get-DismBuild $adk)) -ge $need) { return $adk }
+    if (-not $Install) { return $sys }
+    Write-Warn "This PC's DISM (build $sysBuild) is older than the image (build $ImageBuild). Windows supports servicing an image only with the same or a newer DISM - the Windows ADK Deployment Tools have one."
+    if (Read-YesNo "Install the Windows ADK Deployment Tools from Microsoft now (a few minutes)? They are used for this image only; this PC's DISM is not changed." $true) {
+        Install-AdkDeploymentTools
+        $adk = Find-AdkDism
+        if ($adk -and (Get-BaseBuild (Get-DismBuild $adk)) -ge $need) { return $adk }
+        Write-Warn "The ADK's DISM is not new enough for this image either - this PC's DISM is used, which can fail."
+    } else {
+        Write-Warn "Continuing with this PC's DISM - it can fail on this image."
+    }
+    return $sys
+}
+#endregion
+
+#region ---------------------------------------------------------------- [1] Analyze
 function Invoke-Analyze {
     Assert-Unpacked
     $src = Get-SourceImage
@@ -637,15 +719,26 @@ function Invoke-Analyze {
         Write-Host ('  {0}{1,-3} {2,-42} {3,-14} {4,-11} {5}' -f $mark, $i.Index, (Limit-Text $i.Name 42), $i.Version, (Format-Size $i.Size), $i.Langs)
     }
     Write-Host ''
+    if ($Script:Cfg.WinVersion -and [string]$Script:Cfg.WinVersion -ne $fam.Os) {
+        Write-Info "This ISO is Windows $($fam.Os) - the Windows version on page 1 is switched to it."
+    }
     if (-not $fam.Supported) {
-        Write-Warn "$($fam.Name) is not supported for automatic updates (supported: Windows 10 1607/LTSB 2016, 1809/LTSC 2019, 2004-22H2/LTSC 2021)."
+        Write-Warn "$($fam.Name) is not supported for automatic updates (supported: Windows 10 1607/LTSB 2016, 1809/LTSC 2019, 2004-22H2/LTSC 2021; Windows 11 21H2, 22H2/23H2, 24H2/LTSC 2024, 25H2)."
         Write-Info 'You can still inject drivers / autounattend.xml and rebuild the ISO.'
-    } elseif ($fam.Cap) {
+    } elseif ($fam.Os -eq '10' -and $fam.Cap) {
         Write-Info "Update target: newest updates up to $($Script:Cfg.Win10Cutoff). Microsoft blocks offline integration of the"
         Write-Info 'Windows 10 ESU-era updates (Nov 2025+); enrolled PCs get those from Windows Update after setup.'
-        if ($fam.NeedsEkb) { Write-Info 'The 22H2 enablement package (KB5015684) will be added to bring this build to 22H2.' }
+    } elseif ($fam.Cap) {
+        Write-Info "Update target: the last updates for $($fam.Name) ($($fam.Cap) - it is out of servicing)."
     } else {
         Write-Info 'Update target: newest updates available in the catalog.'
+    }
+    if ($fam.NeedsEkb) { Write-Info "The $($fam.EkbFor) enablement package ($($fam.EkbKB)) will be added to bring this build to $($fam.EkbFor)." }
+    if ($fam.Os -eq '11') {
+        $dism = Get-ServicingDism $fam.Build
+        if ((Get-BaseBuild (Get-DismBuild $dism)) -lt (Get-BaseBuild $fam.Build)) {
+            Write-Info "This PC's DISM is older than Windows 11 $($fam.VerToken) - the slipstream offers to install the Windows ADK Deployment Tools, whose DISM can service it."
+        }
     }
 }
 #endregion
@@ -664,10 +757,12 @@ function Invoke-Download([switch]$Auto) {
     if (-not $f.Supported) { throw "$($f.Name) is not supported for automatic updates." }
 
     $max = (Get-Date).ToString('yyyy-MM')
-    $cap = if ($f.Build -ge 19041 -and $f.Build -le 19045) { [string]$Script:Cfg.Win10Cutoff } else { '' }
+    $win10 = (Get-FamilyOs $f) -eq '10'
+    $cap = if ($win10 -and $f.Build -ge 19041 -and $f.Build -le 19045) { [string]$Script:Cfg.Win10Cutoff } elseif ($f.Cap) { [string]$f.Cap } else { '' }
     if ($cap -and [string]::CompareOrdinal($cap, $max) -lt 0) {
         $max = $cap
-        Write-Warn "Capped at $max (Windows 10 ESU cutoff - change it on the Windows updates page if you want to experiment)."
+        if ($win10) { Write-Warn "Capped at $max (Windows 10 ESU cutoff - change it on the Windows updates page if you want to experiment)." }
+        else { Write-Info "Up to $max - the last updates for $($f.Name), which is out of servicing." }
     }
     $found = @()
 
@@ -680,11 +775,12 @@ function Invoke-Download([switch]$Auto) {
 
     Write-Step 'Standalone servicing stack update (only published when needed)'
     $ssuJob = $null
-    if ($Auto) {
+    if ($f.NoSsu) { Write-Info "None needed - $($f.Name) cumulative updates include the servicing stack." }
+    elseif ($Auto) {
         $ssuJob = Start-SideJob @{ Name = 'Servicing stack lookup'; Command = 'Find-UpdateJob'; Tag = 'ssu'; Scratch = 'scratch-ssu'; DismMatch = '' } @{ Kind = 'SSU'; Fam = $f; MaxMonth = $month; Lookback = 36 }
     }
     if ($ssuJob) { Write-Info 'Looked up in the background (up to 36 months of the catalog) while the other updates are found and downloaded.' }
-    else {
+    elseif (-not $f.NoSsu) {
         $ssu = Find-Update 'SSU' $f $month 36
         if ($ssu) { Write-Ok $ssu.Title; $found += , @('SSU', $ssu) } else { Write-Info 'None needed - the LCU carries the servicing stack.' }
     }
@@ -699,12 +795,12 @@ function Invoke-Download([switch]$Auto) {
         if ($setup) { Write-Ok $setup.Title; $found += , @('SETUP', $setup) } else { Write-Warn 'Not found - skipping.' }
 
         if ($f.NeedsEkb) {
-            Write-Step '22H2 enablement package'
-            $ekb = Find-ByKB 'KB5015684' $f '22H2'
-            if ($ekb) { Write-Ok $ekb.Title; $found += , @('EKB', $ekb) } else { Write-Warn 'KB5015684 not found - the image keeps its current version number.' }
+            Write-Step "$($f.EkbFor) enablement package"
+            $ekb = Find-ByKB $f.EkbKB $f $f.EkbFor
+            if ($ekb) { Write-Ok $ekb.Title; $found += , @('EKB', $ekb) } else { Write-Warn "$($f.EkbKB) not found - the image keeps its current version number." }
         }
 
-        if ($Script:Cfg.NetFx481 -and $f.Build -ge 19041 -and $f.Build -le 19045) {
+        if ($Script:Cfg.NetFx481 -and $win10 -and $f.Build -ge 19041 -and $f.Build -le 19045) {
             Write-Step '.NET Framework 4.8.1'
             $n481 = Find-ByKB 'KB5011048' $f "\b$($f.VerToken)\b"
             if ($n481) { Write-Ok $n481.Title; $found += , @('NET481', $n481) } else { Write-Warn '.NET 4.8.1 package not found - skipping.' }
@@ -1153,6 +1249,8 @@ function Invoke-Service([switch]$Auto) {
         if (-not (Read-YesNo 'Service it again anyway?' $false)) { return }
     }
     $upd = Get-UpdateFiles
+    $Script:Dism = Get-ServicingDism ([int]$S.Family.Build) -Install       # a newer DISM for Windows 11 on a Windows 10 PC
+    if ($Script:Dism -match '(?i)Assessment and Deployment Kit') { Write-Info "DISM of the Windows ADK: $($Script:Dism)" }
     $updCount = 0; foreach ($k in $upd.Keys) { $updCount += @($upd[$k]).Count }
     if ($updCount -eq 0) {
         Write-Warn 'No updates downloaded - only drivers and options will be applied.'
@@ -1173,7 +1271,8 @@ function Invoke-Service([switch]$Auto) {
     $hasDrv   = @($S.Drivers).Count -gt 0 -and (Test-Path -LiteralPath $P.DrvSel)
     $bootInfs = if ($Cfg.BootDrivers -and $hasDrv) { Get-BootDriverInfs } else { @() }
     $fu       = if ($Cfg.ForceUnsigned) { ' /ForceUnsigned' } else { '' }
-    $lcuTip   = 'If this is a Windows 10 update newer than 2025-10, Microsoft blocks offline ESU integration - set the month back in Options.'
+    $lcuTip   = if ((Get-FamilyOs $S.Family) -eq '10') { 'If this is a Windows 10 update newer than 2025-10, Microsoft blocks offline ESU integration - set the month back on the Windows updates page.' }
+                else { 'See logs\dism.log. A Windows 11 image needs a DISM of the same or a newer Windows (the Windows ADK Deployment Tools have one).' }
     New-Item -ItemType Directory -Force -Path $bfDir | Out-Null
     $bootSet  = New-BootDriverSet $bootInfs (Join-Path $P.Temp 'bootdrivers')
     $bootCtx  = @{
@@ -1234,7 +1333,7 @@ function Invoke-Service([switch]$Auto) {
                     try { Add-Pkg $P.Mount $x 'Cumulative update' -IgnoreHex @('800F081E') }
                     catch { Write-Err $lcuTip; throw }
                 }
-                foreach ($x in $upd.EKB) { Add-Pkg $P.Mount $x '22H2 enablement package' -IgnoreHex @('800F081E') -Soft }
+                foreach ($x in $upd.EKB) { Add-Pkg $P.Mount $x 'Enablement package' -IgnoreHex @('800F081E') -Soft }
                 if ($Cfg.ResetBase) { Invoke-ImageCleanup $P.Mount 'Windows' }
                 if ($Cfg.NetFx3) {
                     $sxs = Join-Path $P.Media 'sources\sxs'
@@ -1394,7 +1493,7 @@ function Invoke-Build([switch]$Auto, [string]$OutIso) {
     $label = if ($S.Family -and $S.Family.Label) { $S.Family.Label } else { 'WIN10_CUSTOM' }
     if ($label.Length -gt 32) { $label = $label.Substring(0, 32) }
     New-Item -ItemType Directory -Force -Path $P.Output | Out-Null
-    $iso = Join-Path $P.Output ('Win10_{0}_{1}_{2}_{3:yyyyMMdd}.iso' -f $tag, $build, $arch, (Get-Date))
+    $iso = Join-Path $P.Output ('Win{0}_{1}_{2}_{3}_{4:yyyyMMdd}.iso' -f (Get-FamilyOs $S.Family), $tag, $build, $arch, (Get-Date))
     if ($OutIso) { $iso = Resolve-OutIso $OutIso $iso }
     Write-Info "Output: $iso"
     New-Item -ItemType Directory -Force -Path (Split-Path $iso -Parent) | Out-Null
@@ -1663,15 +1762,21 @@ function Get-Oscdimg {
         Remove-Item -LiteralPath $part -Force
         Write-Warn 'SHA-256 mismatch - file deleted.'
     }
-    Write-Step 'Installing the Windows ADK Deployment Tools instead (a few minutes)'
-    $adk = Join-Path $env:TEMP 'adksetup.exe'
-    Invoke-WebRequest -Uri 'https://go.microsoft.com/fwlink/?linkid=2289980' -OutFile $adk -UseBasicParsing
-    if (-not (Test-MicrosoftSigned $adk)) { Remove-Item -LiteralPath $adk -Force; throw 'The ADK installer failed the Microsoft signature check.' }
-    $code = Invoke-Exe $adk '/quiet /norestart /ceip off /features OptionId.DeploymentTools'
+    $code = Install-AdkDeploymentTools
     $osc = Find-Oscdimg
     if (-not $osc) { throw "oscdimg.exe could not be installed (ADK setup exit $code)." }
     Write-Ok "oscdimg.exe installed: $osc"
     return $osc
+}
+# Windows ADK Deployment Tools (oscdimg, and a DISM that can service Windows 11), from Microsoft. Returns the setup exit code.
+function Install-AdkDeploymentTools {
+    Write-Step 'Installing the Windows ADK Deployment Tools from Microsoft (a few minutes)'
+    $adk = Join-Path $env:TEMP 'adksetup.exe'
+    Invoke-WebRequest -Uri 'https://go.microsoft.com/fwlink/?linkid=2289980' -OutFile $adk -UseBasicParsing
+    if (-not (Test-MicrosoftSigned $adk)) { Remove-Item -LiteralPath $adk -Force; throw 'The ADK installer failed the Microsoft signature check.' }
+    $code = Invoke-Exe $adk '/quiet /norestart /ceip off /features OptionId.DeploymentTools'
+    Remove-Item -LiteralPath $adk -Force -ErrorAction SilentlyContinue
+    return $code
 }
 function Find-Tool([string]$Name) {
     if (Test-Path -LiteralPath $ToolsDir) {
@@ -2665,7 +2770,7 @@ function Test-OemFolder($Ctx, [string]$OwnThumb, [string]$Arch) {
     }
     foreach ($i in @(Get-ChildItem -LiteralPath $u -Force -ErrorAction SilentlyContinue)) {
         if ($i.PSIsContainer -and @('$$', '$1') -notcontains $i.Name) {
-            Add-Finding 'Warning' '$OEM$' ('Folder "{0}" at the top of $OEM$ is ignored by Windows 10 Setup - only $$ (C:\Windows) and $1 (C:\) are copied.' -f $i.Name) '' 'Move its contents into $1 or $$'
+            Add-Finding 'Warning' '$OEM$' ('Folder "{0}" at the top of $OEM$ is ignored by Windows Setup - only $$ (C:\Windows) and $1 (C:\) are copied.' -f $i.Name) '' 'Move its contents into $1 or $$'
         } elseif (-not $i.PSIsContainer) {
             Add-Finding 'Warning' '$OEM$' ('File "{0}" at the top of $OEM$ is ignored - put it in $1 or $$.' -f $i.Name)
         }
@@ -3501,6 +3606,8 @@ function Invoke-Job([string]$Job, $A) {
     $Script:Cfg = Import-Settings
     Initialize-Paths
     $Script:S = Import-State
+    $Script:Dism = Join-Path $env:SystemRoot 'System32\dism.exe'
+    if ($Script:S.Family -and $Script:S.Family.Build) { $Script:Dism = Get-ServicingDism ([int]$Script:S.Family.Build) }   # the ADK's DISM for Windows 11 on a Windows 10 PC
     $Script:NoAsk = [bool]$A.NoAsk
     $Script:Sync.Result = $null
     New-Item -ItemType Directory -Force -Path $Script:P.Logs | Out-Null
@@ -3602,6 +3709,29 @@ $Script:XRes = @'
       <Setter Property="Background" Value="{StaticResource Grad}"/>
       <Setter Property="Foreground" Value="White"/>
       <Setter Property="FontWeight" Value="SemiBold"/>
+    </Style>
+    <Style x:Key="Seg" TargetType="RadioButton">
+      <Setter Property="Foreground" Value="#E6EAF2"/>
+      <Setter Property="Margin" Value="0,0,8,0"/>
+      <Setter Property="Cursor" Value="Hand"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="RadioButton">
+            <Border x:Name="bd" Background="#222B3F" CornerRadius="8" Padding="22,8">
+              <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="bd" Property="Opacity" Value="0.82"/></Trigger>
+              <Trigger Property="IsChecked" Value="True">
+                <Setter TargetName="bd" Property="Background" Value="{StaticResource Grad}"/>
+                <Setter Property="Foreground" Value="White"/>
+                <Setter Property="FontWeight" Value="SemiBold"/>
+              </Trigger>
+              <Trigger Property="IsEnabled" Value="False"><Setter TargetName="bd" Property="Opacity" Value="0.35"/></Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
     </Style>
     <Style x:Key="Toggle" TargetType="CheckBox">
       <Setter Property="Foreground" Value="#E6EAF2"/>
@@ -3780,7 +3910,7 @@ __RES__
           <TextBlock Text="W10" Foreground="White" FontWeight="Bold" FontSize="12" HorizontalAlignment="Center" VerticalAlignment="Center"/>
         </Border>
         <StackPanel Margin="12,0,0,0" VerticalAlignment="Center">
-          <TextBlock FontSize="15" FontWeight="SemiBold"><Run Text="Win10 ISO Updater"/><Run x:Name="VerRun" Text="  v3.2.0" Foreground="#5B6478" FontWeight="Normal" FontSize="12"/></TextBlock>
+          <TextBlock FontSize="15" FontWeight="SemiBold"><Run Text="Win10 ISO Updater"/><Run x:Name="VerRun" Text="  v3.3.0" Foreground="#5B6478" FontWeight="Normal" FontSize="12"/></TextBlock>
           <TextBlock Text="updates + drivers + signed NVIDIA mods + autounattend + $OEM$  ->  bootable ISO" Foreground="#8A94A8" FontSize="11"/>
         </StackPanel>
       </StackPanel>
@@ -3917,7 +4047,15 @@ $Script:XPages = @'
           <!-- 1 source -->
           <TabItem Visibility="Collapsed" Foreground="#E6EAF2"><ScrollViewer VerticalScrollBarVisibility="Auto"><StackPanel Margin="24,18,24,18">
             <TextBlock Style="{StaticResource H1}" Text="Source ISO"/>
-            <TextBlock Style="{StaticResource Sub}" Margin="0,0,0,14" Text="Pick a Windows 10 ISO (1607 / LTSB 2016, 1809 / LTSC 2019, 2004-22H2 or LTSC 2021). It is copied into the work folder and its build and editions are detected."/>
+            <TextBlock Style="{StaticResource Sub}" Margin="0,0,0,14" Text="Choose Windows 10 or Windows 11 and pick its ISO. It is copied into the work folder and its build and editions are detected - the version follows the ISO you unpack."/>
+            <Border Style="{StaticResource Card}"><StackPanel>
+              <TextBlock Style="{StaticResource H2}" Text="Windows version"/>
+              <StackPanel Orientation="Horizontal">
+                <RadioButton x:Name="WinVer10" Style="{StaticResource Seg}" GroupName="winver" Content="Windows 10"/>
+                <RadioButton x:Name="WinVer11" Style="{StaticResource Seg}" GroupName="winver" Content="Windows 11"/>
+              </StackPanel>
+              <TextBlock x:Name="WinVerNote" Style="{StaticResource Sub}" Margin="0,10,0,0"/>
+            </StackPanel></Border>
             <Border Style="{StaticResource Card}"><StackPanel>
               <TextBlock Style="{StaticResource H2}" Text="ISO file"/>
               <Grid><Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
@@ -3964,15 +4102,15 @@ $Script:XPages = @'
             <TextBlock Style="{StaticResource Sub}" Margin="0,0,0,14" Text="Finds the newest cumulative update, servicing stack, Safe OS and Setup Dynamic Updates and .NET updates for this build in the Microsoft Update Catalog and downloads them (SHA-1 checked)."/>
             <Border Style="{StaticResource Card}"><StackPanel>
               <TextBlock Style="{StaticResource H2}" Text="What to integrate"/>
-              <CheckBox x:Name="cfg_NetFx481" Style="{StaticResource Toggle}" Content="Add .NET Framework 4.8.1 (Windows 10 2004-22H2)"/>
+              <CheckBox x:Name="cfg_NetFx481" Style="{StaticResource Toggle}" Content="Add .NET Framework 4.8.1 (Windows 10 2004-22H2 - Windows 11 has it built in)"/>
               <CheckBox x:Name="cfg_NetFx3" Style="{StaticResource Toggle}" Content="Enable .NET Framework 3.5 (from the ISO's sources\sxs)"/>
               <CheckBox x:Name="cfg_ResetBase" Style="{StaticResource Toggle}" Content="Component cleanup /ResetBase (smaller image - updates can't be uninstalled)"/>
-              <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
+              <StackPanel x:Name="CutoffRow" Orientation="Horizontal" Margin="0,12,0,0">
                 <TextBlock Text="Newest month to integrate" VerticalAlignment="Center" Margin="0,0,12,0"/>
                 <TextBox x:Name="CutoffBox" Width="90"/>
-                <TextBlock Style="{StaticResource Sub}" VerticalAlignment="Center" Margin="12,0,0,0" Text="YYYY-MM, for 2004-22H2 / LTSC 2021"/>
+                <TextBlock Style="{StaticResource Sub}" VerticalAlignment="Center" Margin="12,0,0,0" Text="YYYY-MM, for Windows 10 2004-22H2 / LTSC 2021"/>
               </StackPanel>
-              <TextBlock Style="{StaticResource Sub}" Margin="0,6,0,0" Text="2025-10 is the last Windows 10 update Microsoft allows offline. ESU updates (Nov 2025+) come from Windows Update after setup on enrolled PCs."/>
+              <TextBlock x:Name="CutoffNote" Style="{StaticResource Sub}" Margin="0,6,0,0" Text="2025-10 is the last Windows 10 update Microsoft allows offline. ESU updates (Nov 2025+) come from Windows Update after setup on enrolled PCs."/>
               <WrapPanel Margin="0,14,0,0"><Button x:Name="UpdBtn" Style="{StaticResource Primary}" Content="Find and download updates"/></WrapPanel>
             </StackPanel></Border>
             <Border Style="{StaticResource Card}"><StackPanel>
@@ -4093,7 +4231,7 @@ $Script:XPages = @'
                 <TextBox x:Name="OutBox" Margin="0,0,8,0"/>
                 <Button x:Name="OutBrowse" Grid.Column="1" Style="{StaticResource Btn}" Content="Save as..." Margin="0"/>
               </Grid>
-              <TextBlock Style="{StaticResource Sub}" Margin="0,6,0,14" Text="Empty = work folder\output\Win10_version_build_arch_date.iso"/>
+              <TextBlock Style="{StaticResource Sub}" Margin="0,6,0,14" Text="Empty = work folder\output\Win10_ or Win11_version_build_arch_date.iso"/>
               <WrapPanel>
                 <Button x:Name="SvcBtn" Style="{StaticResource Primary}" Content="1 - Slipstream into the image"/>
                 <Button x:Name="BuildBtn" Style="{StaticResource Primary}" Content="2 - Build the ISO"/>
@@ -4510,6 +4648,24 @@ function Update-Status {
     elseif ($S.Serviced) { Set-Step 7 "slipstreamed ($($S.Serviced.Build)) - build the ISO" 'todo' }
     else { Set-Step 7 'to do' 'todo' }
 }
+# Windows 10 / 11 on page 1: follows a newly unpacked ISO, otherwise the choice made there.
+function Update-WinVersion {
+    $S = $Script:S; $U = $Script:U; $Cfg = $Script:Cfg
+    $isoOs = if ($S.Family) { Get-FamilyOs $S.Family } else { '' }
+    $key = if ($S.Family) { '{0}|{1}' -f $S.SourceIso, $S.Family.Build } else { '' }
+    if ($isoOs -and $key -ne $Script:WinVerKey -and [string]$Cfg.WinVersion -ne $isoOs) { $Cfg.WinVersion = $isoOs; Save-Settings }
+    $Script:WinVerKey = $key
+    $os = if ([string]$Cfg.WinVersion -eq '11') { '11' } else { '10' }
+    $U.WinVer10.IsChecked = ($os -eq '10'); $U.WinVer11.IsChecked = ($os -eq '11')
+    $note = if ($os -eq '11') { 'Updates for Windows 11 21H2, 22H2 / 23H2, 24H2 / LTSC 2024 and 25H2 (x64, ARM64). On a Windows 10 PC the slipstream uses the DISM of the Windows ADK Deployment Tools, installed from Microsoft when needed.' }
+            else { 'Updates for Windows 10 1607 / LTSB 2016, 1809 / LTSC 2019, 2004-22H2 and LTSC 2021 (x64, x86, ARM64).' }
+    if ($isoOs -and $isoOs -ne $os) { $note += " The unpacked ISO is Windows $isoOs - pick a Windows $os ISO and unpack it to switch." }
+    $U.WinVerNote.Text = $note
+    $U.GetIsoBtn.Content = "Download Windows $os from Microsoft"
+    $U.CutoffRow.Visibility = if ($os -eq '10') { 'Visible' } else { 'Collapsed' }
+    $U.CutoffNote.Text = if ($os -eq '10') { '2025-10 is the last Windows 10 update Microsoft allows offline. ESU updates (Nov 2025+) come from Windows Update after setup on enrolled PCs.' }
+                         else { 'Windows 11: the newest updates in the Microsoft Update Catalog are used (21H2, which is out of servicing: its last ones, 2024-10).' }
+}
 function Update-Ui {
     $Script:Loading = $true
     try {
@@ -4517,6 +4673,7 @@ function Update-Ui {
         Update-Status
         foreach ($k in $Script:CfgToggles) { $U["cfg_$k"].IsChecked = [bool]$Cfg[$k] }
         $U.CutoffBox.Text = [string]$Cfg.Win10Cutoff
+        Update-WinVersion
         $U.SignJobsBox.Text = [string](Get-SignJobs)
         $U.WorkBox.Text = [string]$Cfg.WorkDir
         if (-not $U.IsoBox.Text -and $S.SourceIso) { $U.IsoBox.Text = $S.SourceIso }
@@ -4526,8 +4683,10 @@ function Update-Ui {
         if ($S.Family -and $imgs.Count) {
             $U.ImgInfo.Text = '{0}  -  build {1}  -  {2}  -  {3} edition(s)' -f $S.Family.Name, $imgs[0].Version, $S.Family.Arch, $imgs.Count
             $U.ImgNote.Text = if (-not $S.Family.Supported) { 'No automatic updates for this build - drivers, signed packages, answer file and $OEM$ still work.' }
-                              elseif ($S.Family.Cap) { "Updates up to $($Cfg.Win10Cutoff) (the last month Microsoft allows offline for Windows 10)." + $(if ($S.Family.NeedsEkb) { ' The 22H2 enablement package is added too.' } else { '' }) }
+                              elseif ($S.Family.Cap -and (Get-FamilyOs $S.Family) -eq '10') { "Updates up to $($Cfg.Win10Cutoff) (the last month Microsoft allows offline for Windows 10)." }
+                              elseif ($S.Family.Cap) { "Its last updates ($($S.Family.Cap)) - this version is out of servicing." }
                               else { 'Newest updates available in the Microsoft Update Catalog.' }
+            if ($S.Family.Supported -and $S.Family.NeedsEkb) { $U.ImgNote.Text += " The $(if ($S.Family.EkbFor) { $S.Family.EkbFor } else { '22H2' }) enablement package is added too." }
         } else { $U.ImgInfo.Text = 'Nothing unpacked yet.'; $U.ImgNote.Text = '' }
         $U.ImgGrid.ItemsSource = (New-Table @('Index:int', 'Edition', 'EditionId', 'Build', 'Size', 'Language') @(foreach ($i in $imgs) { , @($i.Index, $i.Name, $i.Edition, $i.Version, (Format-Size $i.Size), $i.Langs) })).DefaultView
 
@@ -4893,12 +5052,19 @@ try {
     # 1 source
     $U.IsoBrowse.Add_Click({
         $start = if ($Script:S.SourceIso) { Split-Path ([string]$Script:S.SourceIso) -Parent } else { Join-Path $env:USERPROFILE 'Downloads' }
-        $f = Select-File 'Select a Windows 10 ISO' 'ISO images (*.iso)|*.iso' $start
+        $f = Select-File "Select a Windows $(if ($Script:Cfg.WinVersion -eq '11') { '11' } else { '10' }) ISO" 'ISO images (*.iso)|*.iso' $start
         if ($f) { $Script:U.IsoBox.Text = $f }
     })
     $U.UnpackBtn.Add_Click({ Invoke-UnpackClick })
     $U.AnalyzeBtn.Add_Click({ if (Test-Unpacked) { Start-Work 'Analyze' } })
-    $U.GetIsoBtn.Add_Click({ Start-Process $Script:IsoPageUrl })
+    $U.GetIsoBtn.Add_Click({ Start-Process $(if ($Script:Cfg.WinVersion -eq '11') { $Script:IsoPageUrl11 } else { $Script:IsoPageUrl }) })
+    foreach ($rb in @($U.WinVer10, $U.WinVer11)) {
+        $rb.Add_Click({
+            $Script:Cfg.WinVersion = if ($Script:U.WinVer11.IsChecked) { '11' } else { '10' }
+            Save-Settings
+            Update-WinVersion
+        })
+    }
     # 2 editions
     $U.EdGrid.Add_AutoGeneratingColumn({ param($s, $e) if ($e.PropertyName -eq 'Use') { $e.Cancel = $true } else { $e.Column.IsReadOnly = $true } })
     $U.EdAll.Add_Click({ $Script:Loading = $true; foreach ($r in $Script:EdTable.Rows) { $r['Use'] = $true }; $Script:Loading = $false; Save-EditionPick })
@@ -5051,7 +5217,7 @@ try {
     Write-Title "Win10 ISO Updater $Script:AppVersion"
     Write-Info "Work folder: $($Script:P.Work)"
     if ($Script:S.Unpacked) { Write-Info "Unpacked media: $(Split-Path ([string]$Script:S.SourceIso) -Leaf) - pick up where you left off." }
-    else { Write-Info 'Start on page 1: choose a Windows 10 ISO and unpack it - or set everything up and press Run everything.' }
+    else { Write-Info 'Start on page 1: choose Windows 10 or 11, pick its ISO and unpack it - or set everything up and press Run everything.' }
 
     try {
         # console window, keep-awake during jobs (Set-KeepAwake), taskbar flash (Request-Attention)

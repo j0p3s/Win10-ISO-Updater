@@ -9,7 +9,7 @@ $ErrorActionPreference = 'Stop'
 $ProgressPreference    = 'SilentlyContinue'
 
 $Script:AppName      = 'Win10-ISO-Updater'
-$Script:AppVersion   = '3.2.0'
+$Script:AppVersion   = '3.3.0'
 $Script:Root         = Split-Path -Parent $env:W10U_SELF
 $ToolsDir            = Join-Path $Script:Root 'tools'
 $IsoPath             = $null
@@ -19,6 +19,7 @@ $Script:SignDir      = Join-Path $Script:Root 'signing'
 $Script:CertSubject  = 'CN=Custom Driver Signing'
 $Script:GeneratorUrl = 'https://github.com/j0p3s/autounattended-generator'
 $Script:IsoPageUrl   = 'https://www.microsoft.com/software-download/windows10ISO'
+$Script:IsoPageUrl11 = 'https://www.microsoft.com/software-download/windows11'
 $Script:CatalogBase  = 'https://www.catalog.update.microsoft.com'
 $Script:Dism         = Join-Path $env:SystemRoot 'System32\dism.exe'
 $Script:Inv          = [Globalization.CultureInfo]::InvariantCulture

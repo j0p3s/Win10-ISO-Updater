@@ -54,7 +54,7 @@ function Invoke-Build([switch]$Auto, [string]$OutIso) {
     $label = if ($S.Family -and $S.Family.Label) { $S.Family.Label } else { 'WIN10_CUSTOM' }
     if ($label.Length -gt 32) { $label = $label.Substring(0, 32) }
     New-Item -ItemType Directory -Force -Path $P.Output | Out-Null
-    $iso = Join-Path $P.Output ('Win10_{0}_{1}_{2}_{3:yyyyMMdd}.iso' -f $tag, $build, $arch, (Get-Date))
+    $iso = Join-Path $P.Output ('Win{0}_{1}_{2}_{3}_{4:yyyyMMdd}.iso' -f (Get-FamilyOs $S.Family), $tag, $build, $arch, (Get-Date))
     if ($OutIso) { $iso = Resolve-OutIso $OutIso $iso }
     Write-Info "Output: $iso"
     New-Item -ItemType Directory -Force -Path (Split-Path $iso -Parent) | Out-Null
