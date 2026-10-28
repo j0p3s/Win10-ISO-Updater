@@ -90,7 +90,7 @@ try {
         Question = $null; Answer = $null; Result = $null
     })
     $Script:Busy = $false
-    $Script:CfgToggles = @('KeepOnlySelected', 'NetFx3', 'NetFx481', 'ResetBase', 'BootDrivers', 'ForceUnsigned', 'NoPrompt', 'Boot2023', 'SplitFat32', 'SignCleanup', 'InstallOemDrivers', 'SignOnlyThisPc', 'ParallelBoot', 'DefenderExclude', 'BootSkipPE')
+    $Script:CfgToggles = @('KeepOnlySelected', 'NetFx3', 'NetFx481', 'ResetBase', 'BootDrivers', 'ForceUnsigned', 'NoPrompt', 'Boot2023', 'SplitFat32', 'SignCleanup', 'InstallOemDrivers', 'SignOnlyThisPc', 'SignIsolate', 'ParallelBoot', 'DefenderExclude', 'BootSkipPE')
     $Script:Cfg = Import-Settings
     Initialize-Paths
     $Script:S = Import-State
@@ -160,6 +160,13 @@ try {
         $v = $Script:U.CutoffBox.Text.Trim()
         if ($v -match '^\d{4}-\d{2}$') { $Script:Cfg.Win10Cutoff = $v; Save-Settings }
         else { $Script:U.CutoffBox.Text = [string]$Script:Cfg.Win10Cutoff; if ($v) { Show-Msg 'Use the YYYY-MM format, e.g. 2025-10.' } }
+    })
+    $U.SignJobsBox.Add_LostFocus({
+        $v = $Script:U.SignJobsBox.Text.Trim()
+        if (-not $v) { $Script:Cfg.SignJobs = 0; Save-Settings }
+        elseif ($v -match '^[1-8]$') { if ([int]$v -ne (Get-SignJobs)) { $Script:Cfg.SignJobs = [int]$v; Save-Settings } }
+        else { Show-Msg 'Use a number from 1 to 8 (or leave it empty for the number of processor cores, up to 4).' }
+        $Script:U.SignJobsBox.Text = [string](Get-SignJobs)
     })
 
     # 1 source

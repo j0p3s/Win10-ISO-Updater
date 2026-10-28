@@ -1,11 +1,25 @@
 #!/bin/sh
 # fake Inf2Cat: /driver:<dir> -> writes every CatalogFile named in the INFs, unsigned
 # FAKE_INF2CAT_SLOW=1 prints one line per INF (full path) with a pause, like a long real run.
+# Files listed under [SourceDisksFiles] ("name = 1" or "name = 1,subdir") must exist, as with the real one.
+# FAKE_INF2CAT_LOG=<file>: one line per run (start/end in ms, folder, INF files).
+# FAKE_INF2CAT_FAIL_STAGE=1: fails in the isolated copies (folder name contains ~stage).
 for a in "$@"; do case "$a" in /driver:*) d="${a#/driver:}";; esac; done
+t0=$(date +%s%3N); infs=""
+case "$d" in *~stage*) if [ -n "$FAKE_INF2CAT_FAIL_STAGE" ]; then
+  [ -n "$FAKE_INF2CAT_LOG" ] && echo "$t0 $(date +%s%3N) $d : (failed)" >> "$FAKE_INF2CAT_LOG"
+  echo "Signability test failed."; echo "Errors:"; echo "22.9.4: isolated copy rejected"; exit 1; fi;; esac
 for inf in "$d"/*.inf; do
+  [ -f "$inf" ] || continue
+  infs="$infs $(basename "$inf")"
   if [ -n "$FAKE_INF2CAT_SLOW" ]; then echo "Processing INF: $inf"; echo "......"; sleep 1; fi
+  missing=$(awk -v d="$d" '/^\[/ { s = (tolower($0) ~ /^\[sourcedisksfiles/); next }
+    s && /=/ { split($0, a, "="); f = a[1]; gsub(/[ \t\r]/, "", f); n = split(a[2], b, ","); sd = ""; if (n >= 2) { sd = b[2]; gsub(/[ \t\r]/, "", sd) }
+               p = d "/" (sd != "" ? sd "/" : "") f; if (system("[ -f \"" p "\" ]") != 0) print f }' "$inf")
+  if [ -n "$missing" ]; then echo "Signability test failed."; echo "Errors:"; for m in $missing; do echo "22.9.4: $m in [SourceDisksFiles] of $(basename "$inf") is missing"; done; exit 1; fi
   c=$(grep -i '^ *CatalogFile' "$inf" | head -1 | sed 's/.*= *//; s/[ ;].*//' | tr -d '\r')
   [ -n "$c" ] && printf 'catalog-unsigned' > "$d/$c"
 done
+[ -n "$FAKE_INF2CAT_LOG" ] && echo "$t0 $(date +%s%3N) $d :$infs" >> "$FAKE_INF2CAT_LOG"
 echo "Signability test complete."
 exit 0

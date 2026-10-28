@@ -1,5 +1,16 @@
 #!/bin/sh
-if [ "$1" = "sign" ]; then for f; do last="$f"; done; printf 'signed' > "$last"; exit 0; fi
+# sign: every argument that is a file gets signed. FAKE_SIGNTOOL_LOG=<file>: one line per sign call.
+# FAKE_SIGNTOOL_FAIL=<file name>: that file is not signed and the call fails.
+if [ "$1" = "sign" ]; then
+  n=0; rc=0
+  for f; do
+    [ -f "$f" ] || continue
+    if [ -n "$FAKE_SIGNTOOL_FAIL" ] && [ "$(basename "$f")" = "$FAKE_SIGNTOOL_FAIL" ]; then echo "SignTool Error: An unexpected internal error has occurred." 1>&2; rc=1; continue; fi
+    printf 'signed' > "$f"; n=$((n+1))
+  done
+  [ -n "$FAKE_SIGNTOOL_LOG" ] && echo "sign $n" >> "$FAKE_SIGNTOOL_LOG"
+  exit $rc
+fi
 if [ "$1" = "verify" ]; then
   if grep -q nvcleanstall "$4"; then echo "SignTool Error: A certificate chain processed, but terminated in a root" 1>&2; echo "certificate which is not trusted by the trust provider." 1>&2; exit 1; fi
   grep -q signed "$4" && exit 0 || { echo "SignTool Error: File not valid" 1>&2; exit 1; }

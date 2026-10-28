@@ -19,7 +19,7 @@ def edit(text, old, new, count=1):
 # ---- kept regions of the v1 engine -----------------------------------------
 settings = rng(162, 353)          # settings/state + process/DISM helpers
 settings = edit(settings, "        LastDriverFolder = ''\n",
-                "        LastDriverFolder = ''\n        SignCleanup      = $true\n        InstallOemDrivers = $false\n        SignOnlyThisPc   = $false\n        ParallelBoot     = $true\n        BootSkipPE       = $false\n        DefenderExclude  = $false\n")
+                "        LastDriverFolder = ''\n        SignCleanup      = $true\n        InstallOemDrivers = $false\n        SignOnlyThisPc   = $false\n        SignIsolate      = $true\n        SignJobs         = 0\n        ParallelBoot     = $true\n        BootSkipPE       = $false\n        DefenderExclude  = $false\n")
 settings = edit(settings, "        Output   = Join-Path $w 'output'\n",
                 "        Output   = Join-Path $w 'output'\n        Signed   = Join-Path $w 'signed'\n        Scratch  = Join-Path $w 'temp\\scratch'\n")
 # servicing commands use a scratch folder inside the work folder (covered by the Defender option)

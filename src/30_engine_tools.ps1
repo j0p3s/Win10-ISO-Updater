@@ -70,52 +70,113 @@ function ConvertTo-ArgText([string]$A) {
 }
 function Format-Span([TimeSpan]$T) { return ('{0}:{1:mm\:ss}' -f [int][math]::Floor($T.TotalHours), $T) }
 # Inf2Cat can run for a long time on big packages (NVIDIA Display.Driver has dozens of INF files
-# that all point at the same ~1 GB of files). Its output is read live, so the status line shows
-# what it is doing and for how long, even while it prints nothing.
-function Invoke-Inf2Cat([string]$Exe, [string]$Dir, [string]$Os, [string]$Label) {
-    $argText = (@("/driver:$Dir", "/os:$Os", '/uselocaltime', '/verbose') | ForEach-Object { ConvertTo-ArgText $_ }) -join ' '
-    Add-Log "EXEC $Exe $argText"
-    $psi = New-Object Diagnostics.ProcessStartInfo
-    $psi.FileName = $Exe
-    $psi.Arguments = $argText
-    $psi.UseShellExecute = $false
-    $psi.RedirectStandardOutput = $true
-    $psi.RedirectStandardError = $true
-    $psi.CreateNoWindow = $true
-    $start = Get-Date
-    $p = [Diagnostics.Process]::Start($psi)
-    $errTask = $p.StandardError.ReadToEndAsync()
-    $out = New-Object System.Collections.Generic.List[string]
-    $what = 'starting'
+# that all point at the same ~1 GB of files). One run uses one processor core, so several folders
+# are catalogued at the same time (up to $Jobs runs). The output of every run is read live: the
+# status line shows what is running and for how long, even while Inf2Cat prints nothing. With an
+# estimate for every item (Est, seconds) it also shows the time left and drives the progress bar.
+# Items: Dir, Label, Est. Returns one result per item, in the same order.
+function Invoke-Inf2CatQueue([string]$Exe, $Items, [string]$Os, [int]$Jobs = 1) {
+    $Items = @($Items)
+    $Jobs = [math]::Max(1, $Jobs)
+    $res = New-Object 'object[]' $Items.Count
+    $run = New-Object System.Collections.Generic.List[object]
+    $useEst = $Items.Count -gt 0 -and @($Items | Where-Object { [double]$_.Est -gt 0 }).Count -eq $Items.Count
+    $allW = 0.0; foreach ($it in $Items) { $allW += [double]$it.Est }
+    $doneW = 0.0
+    $next = 0; $done = 0
+    $t0 = Get-Date
     $shown = [datetime]::MinValue
-    $beat = 5                      # engine.log gets a "still running" line every 5 minutes
-    $read =$p.StandardOutput.ReadLineAsync()
-    while ($true) {
-        if ($read.Wait(500)) {
-            $line = $read.Result
-            if ($null -eq $line) { break }
-            $out.Add($line)
-            $t = $line.Trim()
-            if ($t -and $t -notmatch '^[\.\s]+$') {
-                # full paths -> file names, so the line fits the status bar
-                $t = $t -replace '(?i)\b[A-Z]:\\(?:[^\\\r\n]*\\)+', '' -replace '(?<![\w:])(?:/[^/\s]+)+/', ''
-                if ($t.Length -gt 90) { $t = $t.Substring(0, 87) + '...' }
-                $what = $t
-            }
-            $read = $p.StandardOutput.ReadLineAsync()
+    $last = $null
+    while ($next -lt $Items.Count -or $run.Count -gt 0) {
+        while ($next -lt $Items.Count -and $run.Count -lt $Jobs) {
+            $it = $Items[$next]
+            $argText = (@("/driver:$($it.Dir)", "/os:$Os", '/uselocaltime', '/verbose') | ForEach-Object { ConvertTo-ArgText $_ }) -join ' '
+            Add-Log "EXEC $Exe $argText"
+            $psi = New-Object Diagnostics.ProcessStartInfo
+            $psi.FileName = $Exe
+            $psi.Arguments = $argText
+            $psi.UseShellExecute = $false
+            $psi.RedirectStandardOutput = $true
+            $psi.RedirectStandardError = $true
+            $psi.CreateNoWindow = $true
+            $p = [Diagnostics.Process]::Start($psi)
+            $last = [pscustomobject]@{ I = $next; It = $it; P = $p; Err = $p.StandardError.ReadToEndAsync(); Read = $p.StandardOutput.ReadLineAsync()
+                                       Out = (New-Object System.Collections.Generic.List[string]); What = 'starting'; Start = (Get-Date); Beat = 5; Est = [double]$it.Est }
+            $run.Add($last)
+            $next++
         }
+        [void][Threading.Tasks.Task]::WaitAny([Threading.Tasks.Task[]]@($run | ForEach-Object { $_.Read }), 400)
         $now = Get-Date
-        if (($now - $start).TotalMinutes -ge $beat) { Add-Log ('Inf2Cat {0} still running ({1}) - {2}' -f $Label, (Format-Span ($now - $start)), $what); $beat += 5 }
-        if ($Script:Sync -and ($now - $shown).TotalMilliseconds -ge 400) {
-            $Script:Sync.Status = ('Inf2Cat {0}  {1}  - {2}' -f $Label, (Format-Span ($now - $start)), $what)
+        foreach ($j in $run.ToArray()) {
+            $eof = $false
+            while ($j.Read.IsCompleted) {
+                $line = $j.Read.Result
+                if ($null -eq $line) { $eof = $true; break }
+                $j.Out.Add($line)
+                $t = $line.Trim()
+                if ($t -and $t -notmatch '^[\.\s]+$') {
+                    # full paths -> file names, so the line fits the status bar
+                    $t = $t -replace '(?i)\b[A-Z]:\\(?:[^\\\r\n]*\\)+', '' -replace '(?<![\w:])(?:/[^/\s]+)+/', ''
+                    if ($t.Length -gt 90) { $t = $t.Substring(0, 87) + '...' }
+                    $j.What = $t; $last = $j
+                }
+                $j.Read = $j.P.StandardOutput.ReadLineAsync()
+            }
+            if ($eof) {
+                $j.P.WaitForExit()
+                foreach ($l in ($j.Err.Result -split "`r?`n")) { if ($l.Trim()) { $j.Out.Add($l) } }
+                $lines = @($j.Out)
+                $res[$j.I] = [pscustomobject]@{ Code = [int]$j.P.ExitCode; Output = $lines; Text = ($lines -join "`r`n"); Time = ((Get-Date) - $j.Start); Dir = [string]$j.It.Dir }
+                [void]$run.Remove($j)
+                $done++; $doneW += [double]$j.It.Est
+                if ($last -eq $j) { $last = $null }
+                continue
+            }
+            # engine.log gets a "still running" line every 5 minutes
+            if (($now - $j.Start).TotalMinutes -ge $j.Beat) { Add-Log ('Inf2Cat {0} still running ({1}) - {2}' -f $j.It.Label, (Format-Span ($now - $j.Start)), $j.What); $j.Beat += 5 }
+        }
+        if ($Script:Sync -and $run.Count -gt 0 -and ($now - $shown).TotalMilliseconds -ge 400) {
+            $eta = ''
+            if ($useEst) {
+                $w = $doneW
+                $remain = @()
+                foreach ($j in $run) {
+                    $e = ($now - $j.Start).TotalSeconds
+                    if ($e -gt 0.9 * $j.Est) { $j.Est = $e / 0.9 }      # slower than expected: stretch the estimate
+                    $remain += $j.Est - $e
+                    $w += [double]$j.It.Est * [math]::Min(0.95, $e / $j.Est)
+                }
+                $left = Get-LaneTime $remain @(for ($k = $next; $k -lt $Items.Count; $k++) { [double]$Items[$k].Est }) $Jobs
+                $Script:Sync.Pct = [math]::Min(99.0, 100.0 * $w / $allW)
+                $eta = '  (about {0} left)' -f (Format-Span ([timespan]::FromSeconds([math]::Ceiling($left))))
+            }
+            $j = if ($last) { $last } else { $run[0] }
+            if ($run.Count -eq 1) {
+                $Script:Sync.Status = ('Inf2Cat {0}  {1}{2}  - {3}' -f $j.It.Label, (Format-Span ($now - $j.Start)), $eta, $j.What)
+            } else {
+                $Script:Sync.Status = ('Inf2Cat {0} runs at the same time, {1} of {2} done  {3}{4}  - {5}: {6}' -f $run.Count, $done, $Items.Count, (Format-Span ($now - $t0)), $eta, $j.It.Label, $j.What)
+            }
             $shown = $now
         }
     }
-    $p.WaitForExit()
-    foreach ($l in ($errTask.Result -split "`r?`n")) { if ($l.Trim()) { $out.Add($l) } }
-    if ($Script:Sync) { $Script:Sync.Status = '' }
-    $lines = @($out)
-    return [pscustomobject]@{ Code = [int]$p.ExitCode; Output = $lines; Text = ($lines -join "`r`n"); Time = ((Get-Date) - $start) }
+    if ($Script:Sync) { $Script:Sync.Status = ''; if ($useEst) { $Script:Sync.Pct = -1 } }
+    return $res
+}
+# Time until a queue is through: the seconds the running items still need, then every waiting
+# item goes to the slot that is free first.
+function Get-LaneTime([double[]]$Running, [double[]]$Waiting, [int]$Jobs) {
+    $lanes = New-Object System.Collections.Generic.List[double]
+    foreach ($v in @($Running)) { $lanes.Add([math]::Max(0.0, $v)) }
+    while ($lanes.Count -lt [math]::Max(1, $Jobs)) { $lanes.Add(0.0) }
+    foreach ($v in @($Waiting)) {
+        $m = 0; for ($x = 1; $x -lt $lanes.Count; $x++) { if ($lanes[$x] -lt $lanes[$m]) { $m = $x } }
+        $lanes[$m] += $v
+    }
+    $max = 0.0; foreach ($v in $lanes) { if ($v -gt $max) { $max = $v } }
+    return $max
+}
+function Invoke-Inf2Cat([string]$Exe, [string]$Dir, [string]$Os, [string]$Label) {
+    return @(Invoke-Inf2CatQueue $Exe @([pscustomobject]@{ Dir = $Dir; Label = $Label; Est = 0 }) $Os 1)[0]
 }
 # ok | untrusted (signed, but by a certificate Windows does not trust) | mismatch (edited / not in the catalog)
 function Get-VerifyState([string]$Cat, [string]$Inf) {

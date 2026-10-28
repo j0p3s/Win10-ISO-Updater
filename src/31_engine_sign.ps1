@@ -185,14 +185,110 @@ function Invoke-SignCatalog([string]$CatFile, $Cert) {
     $r = Set-AuthenticodeSignature -FilePath $CatFile -Certificate $Cert -HashAlgorithm SHA256
     return ($null -ne $r.SignerCertificate)
 }
+# Signs up to 16 catalogs per signtool call instead of one call each. Returns the files that
+# could not be signed (a batch that fails is signed again one file at a time to find them).
+function Invoke-SignCatalogs([string[]]$Files, $Cert) {
+    $Files = @($Files | Where-Object { $_ })
+    $failed = @()
+    if (-not $Files.Count) { return $failed }
+    if (-not $Script:SignTool) {
+        foreach ($s in @(Set-AuthenticodeSignature -FilePath $Files -Certificate $Cert -HashAlgorithm SHA256)) { if (-not $s.SignerCertificate) { $failed += $s.Path } }
+        return $failed
+    }
+    for ($i = 0; $i -lt $Files.Count; $i += 16) {
+        $chunk = @($Files[$i..([math]::Min($i + 15, $Files.Count - 1))])
+        $r = Invoke-Native $Script:SignTool (@('sign', '/fd', 'SHA256', '/sha1', $Cert.Thumbprint, '/s', 'My') + $chunk)
+        Add-Log $r.Text
+        if ($r.Code -eq 0) { continue }
+        foreach ($f in $chunk) { if (-not (Invoke-SignCatalog $f $Cert)) { $failed += $f } }
+    }
+    return $failed
+}
 function Test-SignedCatalog([string]$CatFile, [string]$Inf) {
     if ($Script:SignTool) {
         return ((Get-VerifyState $CatFile $Inf) -eq 'ok')
     }
     return ((Get-AuthenticodeSignature -FilePath $CatFile).Status -eq 'Valid')
 }
-function Invoke-SignFolder([string]$Root, $Cert, [string]$Inf2Cat, [bool]$All, [bool]$OnlyThisPc = $false) {
+# Inf2Cat runs at the same time: the setting, or the processor cores up to 4 (0 = automatic).
+function Get-SignJobs {
+    $n = 0
+    if ($Script:Cfg) { $n = [int]$Script:Cfg.SignJobs }
+    if ($n -lt 1) { $n = [math]::Min(4, [Environment]::ProcessorCount) }
+    return [int][math]::Max(1, [math]::Min(8, $n))
+}
+# How fast Inf2Cat was in earlier runs, for the time estimate: MB of driver files x INF files per
+# second (one INF checked against 1 GB at 12 per second takes about 85 s). Kept with the tools.
+function Get-Inf2CatRate {
+    try {
+        $v = [double](Get-Content -LiteralPath (Join-Path $ToolsDir 'inf2cat-speed.json') -Raw | ConvertFrom-Json).Rate
+        if ($v -gt 0) { return $v }
+    } catch { }
+    return 12.0
+}
+function Save-Inf2CatRate([double]$Rate) {
+    $f = Join-Path $ToolsDir 'inf2cat-speed.json'
+    $v = $Rate
+    if (Test-Path -LiteralPath $f) { $v = 0.5 * (Get-Inf2CatRate) + 0.5 * $Rate }
+    $v = [math]::Round([math]::Max(0.5, [math]::Min(2000.0, $v)), 2)
+    try {
+        New-Item -ItemType Directory -Force -Path $ToolsDir | Out-Null
+        ConvertTo-Json @{ Rate = $v } | Set-Content -LiteralPath $f -Encoding ASCII
+    } catch { }
+}
+# Splits the INF files of one folder into groups that share a catalog (a new catalog has to cover
+# every INF that names it), keeps the groups with an INF from $Need and spreads them over at most
+# $Parts runs, the biggest group first. Returns one object per run with its INF files.
+function Split-InfGroups([string[]]$Infs, [string[]]$Need, [int]$Parts) {
+    $groups = New-Object System.Collections.Generic.List[object]
+    foreach ($inf in $Infs) {
+        $cats = @(Get-InfCatalogs $inf | ForEach-Object { $_.ToLowerInvariant() })
+        $g = [pscustomobject]@{ Infs = @($inf); Cats = $cats }
+        foreach ($o in $groups.ToArray()) {
+            if (@($o.Cats | Where-Object { $cats -contains $_ }).Count) { $g.Infs += $o.Infs; $g.Cats = @(@($g.Cats) + @($o.Cats) | Sort-Object -Unique); [void]$groups.Remove($o) }
+        }
+        $groups.Add($g)
+    }
+    $keep = @($groups | Where-Object { $inf = $_; @($inf.Infs | Where-Object { $Need -contains $_ }).Count } | Sort-Object { @($_.Infs).Count } -Descending)
+    $n = [math]::Max(1, [math]::Min($Parts, $keep.Count))
+    $bins = @(1..$n | ForEach-Object { [pscustomobject]@{ Infs = @() } })
+    foreach ($g in $keep) {
+        $b = $bins | Sort-Object { @($_.Infs).Count } | Select-Object -First 1
+        $b.Infs += $g.Infs
+    }
+    return @($bins | Where-Object { @($_.Infs).Count })
+}
+function New-HardLink([string]$Link, [string]$Target) {
+    try {
+        if (-not ('W10U.Fs' -as [type])) {
+            Add-Type -Namespace W10U -Name Fs -MemberDefinition '[DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)] public static extern bool CreateHardLink(string lpFileName, string lpExistingFileName, IntPtr lpSecurityAttributes);'
+        }
+        return [W10U.Fs]::CreateHardLink($Link, $Target, [IntPtr]::Zero)
+    } catch { return $false }
+}
+# A copy of a package folder for Inf2Cat with only some of its INF files: the driver files are hard
+# links (instant, no extra space; copied where the drive has no hard links), no catalogs, and only
+# the INF files given. Inf2Cat then checks those INF files instead of every INF in the folder.
+function New-InfStage([string]$Dir, [string]$Stage, [string[]]$Infs) {
+    New-Item -ItemType Directory -Force -Path $Stage | Out-Null
+    $base = $Dir.TrimEnd('\', '/').Length
+    $res = [pscustomobject]@{ Links = 0; Copies = 0 }
+    foreach ($f in @(Get-ChildItem -LiteralPath $Dir -Recurse -File -Force -ErrorAction SilentlyContinue)) {
+        if ($f.Extension -ieq '.inf' -or $f.Extension -ieq '.cat') { continue }
+        $dst = Join-Path $Stage $f.FullName.Substring($base).TrimStart('\', '/')
+        $pd = Split-Path -Parent $dst
+        if (-not (Test-Path -LiteralPath $pd)) { New-Item -ItemType Directory -Force -Path $pd | Out-Null }
+        if (New-HardLink $dst $f.FullName) { $res.Links++ } else { Copy-Item -LiteralPath $f.FullName -Destination $dst -Force; $res.Copies++ }
+    }
+    foreach ($i in $Infs) { Copy-Item -LiteralPath $i -Destination $Stage -Force }
+    return $res
+}
+# $Isolate: only the INF files that need a new signature (and the ones sharing their catalog) are
+# catalogued, in copies of the folder - every other INF keeps its catalog and signature. $Jobs:
+# Inf2Cat runs at the same time. A folder whose isolated run fails is catalogued whole, as before.
+function Invoke-SignFolder([string]$Root, $Cert, [string]$Inf2Cat, [bool]$All, [bool]$OnlyThisPc = $false, [bool]$Isolate = $true, [int]$Jobs = 1) {
     $os = if ($Script:S.Family -and $Script:S.Family.Arch -eq 'x86') { '10_X86' } else { '10_X64' }
+    $Jobs = [math]::Max(1, [math]::Min(8, $Jobs))
     $pkgs = @(Get-InfFolders $Root)
     $trim = [pscustomobject]@{ Removed = 0; Kept = @() }
     if ($OnlyThisPc) { $trim = Limit-InfsToHost $Root $pkgs }
@@ -212,42 +308,128 @@ function Invoke-SignFolder([string]$Root, $Cert, [string]$Inf2Cat, [bool]$All, [
         $need = @($p.Infs | Where-Object { $states[$_] -in 'mismatch', 'untrusted', 'catalog-missing', 'unknown' })
         if ($withCat.Count -eq 0) { Write-Info "$rel : no CatalogFile= line in the INF - left as is"; $res.Skipped++; continue }
         if (-not $All -and $need.Count -eq 0) { $res.Untouched++; continue }
-        $todo += [pscustomobject]@{ Pkg = $p; Rel = $rel; WithCat = $withCat }
+        $todo += [pscustomobject]@{ Pkg = $p; Rel = $rel; WithCat = $withCat; Need = $(if ($All) { $withCat } else { $need }); Staged = $false; Runs = @(); Check = $withCat; Cats = @(); Ok = $true; Start = $null; Mb = 1.0 }
     }
-    $i = 0
-    foreach ($t in $todo) {
-        $i++
-        $p = $t.Pkg; $rel = $t.Rel; $withCat = $t.WithCat
-        $cnt = @($p.Infs).Count
-        Write-Sub ('{0}  ({1} INF file(s), folder {2} of {3})' -f $rel, $cnt, $i, $todo.Count)
-        if ($cnt -ge 10) {
-            Write-Info "Inf2Cat checks each of these INF files against every file of the package - this can take a long time (up to an hour for a full NVIDIA package). It is still working while the time in the status line keeps counting."
-            if (-not $OnlyThisPc) { Write-Info 'Faster next time: "Only keep the INF files for this PC''s hardware" on this page.' }
+    $stageBase = $Root.TrimEnd('\', '/') + '~stage'
+    if (Test-Path -LiteralPath $stageBase) { Remove-Item -LiteralPath $stageBase -Recurse -Force -ErrorAction SilentlyContinue }
+    $rate = Get-Inf2CatRate
+    try {
+        # ---- what every Inf2Cat run gets
+        $i = 0; $ns = 0
+        foreach ($t in $todo) {
+            $i++
+            $p = $t.Pkg
+            $cnt = @($p.Infs).Count
+            Write-Sub ('{0}  ({1} INF file(s), folder {2} of {3})' -f $t.Rel, $cnt, $i, $todo.Count)
+            $mb = [math]::Max(1.0, [double](@(Get-ChildItem -LiteralPath $p.Dir -Recurse -File -Force -ErrorAction SilentlyContinue | Measure-Object -Property Length -Sum)[0].Sum) / 1MB)
+            $t.Mb = $mb
+            $parts = @()
+            if ($Isolate) { $parts = @(Split-InfGroups $t.WithCat $t.Need $Jobs) }
+            $picked = 0; foreach ($x in $parts) { $picked += @($x.Infs).Count }
+            if ($parts.Count -gt 1 -or ($parts.Count -eq 1 -and $picked -lt $t.WithCat.Count)) {
+                try {
+                    $runs = @()
+                    foreach ($x in $parts) {
+                        $ns++
+                        $sd = Join-Path $stageBase $ns
+                        $m = New-InfStage $p.Dir $sd @($x.Infs)
+                        if ($m.Copies -gt 0) { Add-Log "$($t.Rel): $($m.Copies) file(s) copied for Inf2Cat (no hard links on this drive)" }
+                        $lbl = if ($parts.Count -gt 1) { '{0} part {1}/{2}' -f $t.Rel, ($runs.Count + 1), $parts.Count } else { $t.Rel }
+                        $runs += [pscustomobject]@{ Dir = $sd; Label = $lbl; Infs = @($x.Infs).Count; Est = (3 + @($x.Infs).Count * $mb / $rate); R = $null }
+                    }
+                    $t.Runs = $runs; $t.Staged = $true
+                    $t.Check = @($parts | ForEach-Object { $_.Infs })
+                    $msg = '{0} of {1} INF file(s) get a new catalog - the others keep their signature' -f $picked, $t.WithCat.Count
+                    if ($parts.Count -gt 1) { $msg += " (in $($parts.Count) Inf2Cat runs at the same time)" }
+                    Write-Info $msg
+                } catch {
+                    Add-Log "$($t.Rel): isolated copy not possible ($($_.Exception.Message)) - the whole folder is catalogued"
+                    $t.Staged = $false; $t.Check = $t.WithCat
+                }
+            }
+            if (-not $t.Staged) { $t.Runs = @([pscustomobject]@{ Dir = $p.Dir; Label = $t.Rel; Infs = $cnt; Est = (3 + $cnt * $mb / $rate); R = $null }) }
+            if (@($t.Runs | Where-Object { $_.Infs -ge 10 }).Count) {
+                Write-Info "Inf2Cat checks each of these INF files against every file of the package - this can take a long time (up to an hour for a full NVIDIA package). It is still working while the time in the status line keeps counting."
+                if (-not $OnlyThisPc) { Write-Info 'Faster next time: "Only keep the INF files for this PC''s hardware" on this page.' }
+            }
         }
-        $start = Get-Date
-        $r = Invoke-Inf2Cat $Inf2Cat $p.Dir $os ('{0} ({1} of {2})' -f $rel, $i, $todo.Count)
-        $o = $r.Output
-        $code = $r.Code
-        Add-Log ("[$rel] Inf2Cat exit $code after $(Format-Span $r.Time)`r`n" + ($o | Out-String))
-        if ($code -ne 0) {
-            Write-Err "Inf2Cat failed for $rel"
-            @($o | Out-String -Stream | Where-Object { $_.Trim() } | Select-Object -Last 4) | ForEach-Object { Write-Host "       $_" -ForegroundColor DarkYellow }
-            if (($o | Out-String) -match 'Signability test failed') { Write-Info 'Hint: delete inf2cat.exe.manifest next to Inf2Cat.exe and try again.' }
-            $res.Failed++
-            continue
+        # ---- Inf2Cat, up to $Jobs runs at the same time; then the folders whose isolated run failed, whole
+        $pending = @($todo | ForEach-Object { $_.Runs })
+        while ($pending.Count) {
+            $start = Get-Date
+            foreach ($t in $todo) { if (@($t.Runs | Where-Object { $pending -contains $_ }).Count) { $t.Start = $start } }
+            $est = Get-LaneTime @() @($pending | ForEach-Object { [double]$_.Est }) $Jobs
+            $how = if ($pending.Count -eq 1) { '1 run' } else { '{0} runs, up to {1} at the same time' -f $pending.Count, [math]::Min($Jobs, $pending.Count) }
+            Write-Info ('Inf2Cat: {0} - estimated time {1}' -f $how, (Format-Span ([timespan]::FromSeconds([math]::Ceiling($est)))))
+            $out = @(Invoke-Inf2CatQueue $Inf2Cat $pending $os $Jobs)
+            for ($k = 0; $k -lt $pending.Count; $k++) { $pending[$k].R = $out[$k] }
+            $retry = @()
+            foreach ($t in $todo) {
+                $mine = @($t.Runs | Where-Object { $pending -contains $_ })
+                foreach ($r in $mine) { Add-Log ("[$($r.Label)] Inf2Cat exit $($r.R.Code) after $(Format-Span $r.R.Time)`r`n" + ($r.R.Output | Out-String)) }
+                if ($t.Staged -and @($mine | Where-Object { $_.R.Code -ne 0 }).Count) {
+                    $f = @($mine | Where-Object { $_.R.Code -ne 0 })[0]
+                    Write-Warn "$($t.Rel): Inf2Cat failed on the isolated INF file(s) - the whole folder is catalogued instead (slower)"
+                    @($f.R.Output | Out-String -Stream | Where-Object { $_.Trim() } | Select-Object -Last 3) | ForEach-Object { Write-Host "       $_" -ForegroundColor DarkYellow }
+                    $cnt = @($t.Pkg.Infs).Count
+                    $t.Staged = $false; $t.Check = $t.WithCat
+                    $t.Runs = @([pscustomobject]@{ Dir = $t.Pkg.Dir; Label = $t.Rel; Infs = $cnt; Est = (3 + $cnt * $t.Mb / $rate); R = $null })
+                    $retry += $t.Runs
+                }
+            }
+            $pending = $retry
         }
-        $cats = @(Get-ChildItem -LiteralPath $p.Dir -Filter *.cat -File | Where-Object { $_.LastWriteTime -ge $start.AddSeconds(-2) })
-        $ok = $cats.Count -gt 0
-        foreach ($c in $cats) { if (-not (Invoke-SignCatalog $c.FullName $Cert)) { $ok = $false; Write-Err "Signing failed: $($c.Name)" } }
-        if ($ok) {
-            foreach ($inf in $withCat) { foreach ($c in (Get-InfCatalogs $inf)) { if (-not (Test-SignedCatalog (Join-Path $p.Dir $c) $inf)) { $ok = $false; Write-Err "Verification failed: $c" } } }
+        # learned speed for the next estimate (runs shorter than a few seconds say little)
+        $work = 0.0; $secs = 0.0
+        foreach ($t in $todo) { foreach ($r in $t.Runs) { if ($r.R -and $r.R.Code -eq 0 -and $r.R.Time.TotalSeconds -gt 8) { $work += $r.Infs * $t.Mb; $secs += $r.R.Time.TotalSeconds - 3 } } }
+        if ($secs -gt 0) { Save-Inf2CatRate ($work / $secs) }
+
+        # ---- the new catalogs, signed together
+        $newCats = @()
+        foreach ($t in $todo) {
+            if (@($t.Runs | Where-Object { $_.R.Code -ne 0 }).Count) {
+                $f = @($t.Runs | Where-Object { $_.R.Code -ne 0 })[0]
+                Write-Err "Inf2Cat failed for $($t.Rel)"
+                @($f.R.Output | Out-String -Stream | Where-Object { $_.Trim() } | Select-Object -Last 4) | ForEach-Object { Write-Host "       $_" -ForegroundColor DarkYellow }
+                if (($f.R.Output | Out-String) -match 'Signability test failed') { Write-Info 'Hint: delete inf2cat.exe.manifest next to Inf2Cat.exe and try again.' }
+                $t.Ok = $false; continue
+            }
+            if ($t.Staged) {
+                foreach ($r in $t.Runs) {
+                    foreach ($c in @(Get-ChildItem -LiteralPath $r.Dir -Filter *.cat -File)) {
+                        $dst = Join-Path $t.Pkg.Dir $c.Name
+                        Copy-Item -LiteralPath $c.FullName -Destination $dst -Force
+                        $t.Cats += $dst
+                    }
+                }
+            } else {
+                $t.Cats = @(Get-ChildItem -LiteralPath $t.Pkg.Dir -Filter *.cat -File | Where-Object { $_.LastWriteTime -ge $t.Start.AddSeconds(-2) } | ForEach-Object { $_.FullName })
+            }
+            if (-not $t.Cats.Count) { Write-Err "Inf2Cat wrote no catalog for $($t.Rel)"; $t.Ok = $false; continue }
+            $newCats += $t.Cats
         }
-        if ($ok) { $res.Signed++; Write-Ok "$rel signed and verified (Inf2Cat took $(Format-Span $r.Time))" } else { $res.Failed++ }
+        if ($newCats.Count) { Write-Host "signing $($newCats.Count) catalog(s)" -NoNewline }
+        $failed = @(Invoke-SignCatalogs $newCats $Cert)
+        if ($Script:Sync) { $Script:Sync.Status = '' }
+        foreach ($t in $todo) {
+            if (-not $t.Ok) { $res.Failed++; continue }
+            $ok = $true
+            foreach ($c in $t.Cats) { if ($failed -contains $c) { $ok = $false; Write-Err "Signing failed: $(Split-Path $c -Leaf)" } }
+            if ($ok) {
+                foreach ($inf in $t.Check) { foreach ($c in (Get-InfCatalogs $inf)) { if (-not (Test-SignedCatalog (Join-Path $t.Pkg.Dir $c) $inf)) { $ok = $false; Write-Err "Verification failed: $c" } } }
+            }
+            $runs = @($t.Runs)
+            $longest = ($runs | ForEach-Object { $_.R.Time } | Sort-Object -Descending | Select-Object -First 1)
+            $took = if ($runs.Count -eq 1) { "Inf2Cat took $(Format-Span $longest)" } else { "$($runs.Count) Inf2Cat runs, the longest took $(Format-Span $longest)" }
+            if ($ok) { $res.Signed++; Write-Ok "$($t.Rel) signed and verified ($took)" } else { $res.Failed++ }
+        }
+    } finally {
+        if (Test-Path -LiteralPath $stageBase) { Remove-Item -LiteralPath $stageBase -Recurse -Force -ErrorAction SilentlyContinue }
     }
     if ($Script:Sync) { $Script:Sync.Status = '' }
     return $res
 }
-function Invoke-SignPackage([string]$Source, [string]$Name, $Password, [bool]$All, [bool]$OnlyThisPc = $false) {
+function Invoke-SignPackage([string]$Source, [string]$Name, $Password, [bool]$All, [bool]$OnlyThisPc = $false, [bool]$Isolate = $true, [int]$Jobs = 1) {
     if (-not (Test-Path -LiteralPath $Source -PathType Container)) { throw "Folder not found: $Source" }
     $Name = ($Name -replace '[^\w\.-]', '_').Trim('_')
     if (-not $Name) { $Name = 'Driver' }
@@ -264,7 +446,8 @@ function Invoke-SignPackage([string]$Source, [string]$Name, $Password, [bool]$Al
     Write-Step 'Building new catalogs and signing them'
     $added = @(Add-TempTrust $cer)   # only while verifying - the ISO trusts it during setup
     if ($OnlyThisPc) { Write-Info 'Only the INF files for this PC''s hardware are kept - the ISO installs this driver on this PC only.' }
-    try { $res = Invoke-SignFolder $dest $cert $tools.Inf2Cat $All $OnlyThisPc }
+    Write-Info ('Inf2Cat: up to {0} run(s) at the same time{1}' -f $Jobs, $(if ($Isolate) { ', only the INF files that need a new catalog get one' } else { ', every folder that needs a new catalog is catalogued whole' }))
+    try { $res = Invoke-SignFolder $dest $cert $tools.Inf2Cat $All $OnlyThisPc $Isolate $Jobs }
     finally { if ($added.Count) { Remove-TempTrust $cer $added } }
     $rec = [ordered]@{
         Name = $Name; Source = $Source; Path = $dest; InstallDir = "C:\Drivers\$Name"; When = (Get-Date).ToString('yyyy-MM-dd HH:mm')

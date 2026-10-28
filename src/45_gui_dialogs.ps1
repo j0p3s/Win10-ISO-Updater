@@ -102,8 +102,15 @@ $Script:XPages = @'
               </Grid>
               <CheckBox x:Name="SignAll" Style="{StaticResource Toggle}" Margin="0,12,0,0" Content="Re-sign every package, not only the modified ones"/>
               <CheckBox x:Name="cfg_SignCleanup" Style="{StaticResource Toggle}" Content="Delete the driver copy from C:\Drivers once it is installed"/>
+              <CheckBox x:Name="cfg_SignIsolate" Style="{StaticResource Toggle}" Content="Faster: new catalogs only for the INF files that need one"/>
+              <TextBlock Style="{StaticResource Sub}" Margin="48,-2,0,4" Text="Inf2Cat gets a copy of the folder with only the edited INF files (the driver files are hard links - no extra space), so it checks a few INF files instead of all of them. Every INF stays in the package, and the ones you did not edit keep their NVIDIA / Microsoft signature. If Inf2Cat fails on that copy, the whole folder is catalogued as before."/>
               <CheckBox x:Name="cfg_SignOnlyThisPc" Style="{StaticResource Toggle}" Content="Faster: only keep the INF files for this PC's hardware (when the ISO is for this PC)"/>
               <TextBlock Style="{StaticResource Sub}" Margin="48,-2,0,4" Text="NVIDIA's Display.Driver has one INF file per laptop and desktop maker, and Inf2Cat checks every one of them against the whole package - that can take up to an hour. With this on, only the INF files that list a device of this PC are signed (minutes instead), the others are removed from the copy. The original folder is not touched."/>
+              <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
+                <TextBlock Text="Inf2Cat runs at the same time" VerticalAlignment="Center" Margin="0,0,12,0"/>
+                <TextBox x:Name="SignJobsBox" Width="50"/>
+                <TextBlock Style="{StaticResource Sub}" VerticalAlignment="Center" Margin="12,0,0,0" Text="1-8, empty = processor cores up to 4. Each Inf2Cat run uses one core."/>
+              </StackPanel>
               <WrapPanel Margin="0,14,0,0">
                 <Button x:Name="SignBtn" Style="{StaticResource Primary}" Content="Sign and add to the ISO"/>
                 <Button x:Name="SignOpen" Style="{StaticResource Btn}" Content="Open signing folder"/>

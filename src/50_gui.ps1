@@ -252,6 +252,7 @@ function Update-Ui {
         Update-Status
         foreach ($k in $Script:CfgToggles) { $U["cfg_$k"].IsChecked = [bool]$Cfg[$k] }
         $U.CutoffBox.Text = [string]$Cfg.Win10Cutoff
+        $U.SignJobsBox.Text = [string](Get-SignJobs)
         $U.WorkBox.Text = [string]$Cfg.WorkDir
         if (-not $U.IsoBox.Text -and $S.SourceIso) { $U.IsoBox.Text = $S.SourceIso }
 
