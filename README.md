@@ -16,7 +16,7 @@
 
 Missing tools (`oscdimg`, `Inf2Cat`, `signtool`) are downloaded automatically from Microsoft and verified.
 
-**Contents:** [Screenshots](#screenshots) · [Quick start](#quick-start) · [The pages](#the-pages) · [Speed](#speed) · [Modded drivers](#modded-drivers-nvidia--nvcleanstall) · [Install check](#install-check) · [Windows 10 updates and ESU](#windows-10-updates-and-esu) · [Privacy](#privacy-what-stays-on-your-pc) · [Files the tool creates](#files-the-tool-creates) · [Troubleshooting](#troubleshooting) · [Building from source](#building-from-source)
+**Contents:** [Screenshots](#screenshots) · [Quick start](#quick-start) · [The pages](#the-pages) · [Speed](#speed) · [Modded drivers](#modded-drivers-nvidia--nvcleanstall) · [Install check](#install-check) · [Windows 10 updates and ESU](#windows-10-updates-and-esu) · [Privacy](#privacy-what-stays-on-your-pc) · [Files the tool creates](#files-the-tool-creates) · [Troubleshooting](#troubleshooting) · [Building from source](#building-from-source) · [Legal notice](#legal-notice)
 
 ---
 
@@ -41,7 +41,7 @@ The console line at start shows the version (`Starting Win10 ISO Updater v3.2.0 
 
 **Updating:** replace `Win10-ISO-Updater.cmd` with the new one. Your settings, the `signing` folder and the work folder (unpacked media, updates, drivers) are kept — the tool picks up where you left off.
 
-> Requirements: Windows 10 or 11, Windows PowerShell 5.1 (built in), administrator rights, an NTFS drive with about 30 GB free, and an internet connection.
+> Requirements: Windows 10 or 11, Windows PowerShell 5.1 (built in), administrator rights, an NTFS drive with about 30 GB free, and an internet connection. You bring your own Windows 10 ISO and need a valid Windows license for every PC you install it on — see [Legal notice](#legal-notice).
 
 ---
 
@@ -275,7 +275,7 @@ Eleven suites (about 310 checks) run the PowerShell part on Linux / macOS with P
 
 ## Contributing
 
-Bug reports and ideas are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md). Security problems: [SECURITY.md](SECURITY.md).
+Bug reports and ideas are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md). Security problems: [SECURITY.md](SECURITY.md). By sending a pull request you agree that your contribution is published under this project's [MIT license](LICENSE).
 
 ---
 
@@ -285,10 +285,67 @@ Bug reports and ideas are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md). Se
 - [Update-SecureBootCert](https://github.com/j0p3s/Update-SecureBootCert) — Secure Boot certificate updater
 - [Build-exe_from_bat_cmd_or_ps1](https://github.com/j0p3s/Build-exe_from_bat_cmd_or_ps1) — turn this .cmd into an .exe
 
-## Disclaimer
+---
 
-Use at your own risk. Answer files can wipe disks — read the Install check findings before booting the ISO on a PC with data you care about. Windows, DISM and NVIDIA are trademarks of their respective owners. This project is not affiliated with Microsoft or NVIDIA.
+## Legal notice
+
+This notice is not legal advice. If you plan to use the tool in a business, or to hand ISOs or drivers made with it to anyone else, check the license terms below (or ask a lawyer) first.
+
+### Independent project, trademarks
+
+Win10 ISO Updater is an independent, unofficial project. It is **not made, endorsed, sponsored or supported by Microsoft, NVIDIA or TechPowerUp** (the maker of NVCleanstall), and none of them is responsible for it.
+
+Microsoft, Windows, Windows PE, DISM, Microsoft Defender (Windows Defender) and Windows Update are trademarks of the Microsoft group of companies. NVIDIA is a trademark or registered trademark of NVIDIA Corporation in the U.S. and other countries. NVCleanstall is a product of TechPowerUp. Other product and company names are trademarks of their respective owners. They are used here only to say which products the tool works with.
+
+### Windows is not included — you need your own license
+
+- The tool contains **no Windows files, no product keys and no activation workaround**, and it doesn't change licensing or activation. You supply the Windows 10 ISO yourself (for example from [Microsoft's download page](https://www.microsoft.com/software-download/windows10ISO)).
+- Every PC you install Windows on with the ISO needs a **valid Windows license**. Installing from an updated ISO doesn't change that.
+- **ESU:** the tool doesn't integrate Extended Security Updates (November 2025 and later) and doesn't get around ESU enrolment. Enrolled PCs get those updates from Windows Update.
+
+### Microsoft updates and tools
+
+- Updates come from the Microsoft Update Catalog. `oscdimg.exe` comes from the Microsoft symbol server. If that fails, the tool installs the Windows ADK *Deployment Tools* from Microsoft. `signtool` and `Inf2Cat` come from Microsoft's NuGet packages (`Microsoft.Windows.SDK.BuildTools`, `Microsoft.Windows.WDK.x64`).
+- The tool downloads them **straight from Microsoft to your PC** when a step needs them (or uses copies already on the PC). **This repository does not contain or redistribute any of them.**
+- They stay Microsoft's software under Microsoft's license terms: the Windows license terms for updates, the Windows ADK terms for `oscdimg`, and the Windows SDK / Windows Driver Kit terms for `signtool` and `Inf2Cat`. You are responsible for following them.
+- The SDK and WDK packages are meant for developing and testing software. Check that your use is allowed under their terms.
+
+### The ISO you build: for your own use
+
+- The ISO contains Microsoft's software and any drivers you added. **Uploading, selling or otherwise passing it on** can break Microsoft's license terms, the drivers' licenses and copyright law. Build it for PCs you are licensed to install it on.
+- It also contains your answer file, which usually holds a password and a Wi‑Fi key (see [Privacy](#privacy-what-stays-on-your-pc)). That is one more reason not to share it.
+
+### Drivers and NVIDIA / NVCleanstall packages
+
+- Drivers you slipstream or re-sign belong to their vendors and are covered by their licenses, for example the NVIDIA software license agreement. Editing a driver's INF file, re-signing it, or giving a modified package to someone else may not be allowed under that license. **Check before you do it**, above all before sharing a modified package.
+- The tool doesn't change any driver binary (`.sys`, `.dll`). In its own work copy of the package, it does three things:
+  - writes new catalog files;
+  - signs them with your certificate;
+  - for an INF whose catalog is shared with other INF files, changes the `CatalogFile=` line.
+
+  Your original folder is not touched.
+- Re-signed packages carry **your self-signed certificate, not a signature from Microsoft (WHQL) or the vendor**.
+  - The vendor is not responsible for a modified driver and may not support it.
+  - Every PC set up from the ISO trusts your certificate (Trusted Root and Trusted Publishers). Keep `DriverSigning.pfx` private ([SECURITY.md](SECURITY.md)).
+- The tool doesn't turn off driver signature enforcement or Secure Boot.
+
+### No warranty
+
+The software is provided **"as is", without warranty of any kind**, under the [MIT license](LICENSE). The authors are not liable for any damage or loss from using it, including:
+
+- lost data (an answer file can wipe disks);
+- PCs that don't boot or install;
+- driver problems;
+- use that breaks a license.
+
+Read the Install check findings before booting an ISO on a PC with data you care about. Back up first, and try a new ISO in a virtual machine or on a spare PC.
+
+### Privacy
+
+The tool sends no telemetry and nothing about you or your PC. Its only network requests go to Microsoft's servers (Update Catalog and download servers, symbol server) and to nuget.org, to download the files above. Those services' own privacy policies apply to those requests. Two buttons, *Download Windows 10 from Microsoft* and *Open the generator*, open a web page in your browser. Details: [Privacy](#privacy-what-stays-on-your-pc).
 
 ## License
 
-[MIT](LICENSE)
+This project's own code and documentation are under the [MIT license](LICENSE). The license doesn't cover Windows, Microsoft's updates and tools, or the drivers the tool works with. Those keep their own license terms (see above).
+
+The signing speed-ups come from [NVIDIA Modded Drivers Signer](https://github.com/j0p3s/nvidia-modded-drivers-signer), by the same author and also under MIT.
