@@ -1,6 +1,6 @@
 @echo off
 :: ===========================================================================
-::  Win10-ISO-Updater.cmd  (v3.1.0)  -  one file, graphical interface
+::  Win10-ISO-Updater.cmd  (v3.2.0)  -  one file, graphical interface
 ::  - unpacks a Windows 10 ISO and detects its build
 ::  - downloads its updates from the Microsoft Update Catalog
 ::  - slipstreams updates and drivers (this PC or a Drivers-Backup folder)
@@ -23,7 +23,7 @@ exit /b
 set "W10U_SELF=%~f0"
 set "PSEXE=%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe"
 if exist "%SystemRoot%\Sysnative\WindowsPowerShell\v1.0\powershell.exe" set "PSEXE=%SystemRoot%\Sysnative\WindowsPowerShell\v1.0\powershell.exe"
-echo Starting Win10 ISO Updater v3.1.0 ...  (this window hides when the program opens)
+echo Starting Win10 ISO Updater v3.2.0 ...  (this window hides when the program opens)
 "%PSEXE%" -NoProfile -STA -ExecutionPolicy Bypass -Command "$t=[IO.File]::ReadAllText($env:W10U_SELF);$i=$t.IndexOf('#'+'PS-BEGIN');Invoke-Expression $t.Substring($i)"
 if errorlevel 1 pause
 exit /b
@@ -38,7 +38,7 @@ $ErrorActionPreference = 'Stop'
 $ProgressPreference    = 'SilentlyContinue'
 
 $Script:AppName      = 'Win10-ISO-Updater'
-$Script:AppVersion   = '3.1.0'
+$Script:AppVersion   = '3.2.0'
 $Script:Root         = Split-Path -Parent $env:W10U_SELF
 $ToolsDir            = Join-Path $Script:Root 'tools'
 $IsoPath             = $null
@@ -1981,11 +1981,11 @@ function Test-SignedCatalog([string]$CatFile, [string]$Inf) {
     }
     return ((Get-AuthenticodeSignature -FilePath $CatFile).Status -eq 'Valid')
 }
-# Inf2Cat runs at the same time: the setting, or the processor cores up to 4 (0 = automatic).
+# Inf2Cat runs at the same time: the setting, or the processor cores up to 8 (0 = automatic).
 function Get-SignJobs {
     $n = 0
     if ($Script:Cfg) { $n = [int]$Script:Cfg.SignJobs }
-    if ($n -lt 1) { $n = [math]::Min(4, [Environment]::ProcessorCount) }
+    if ($n -lt 1) { $n = [math]::Min(8, [Environment]::ProcessorCount) }
     return [int][math]::Max(1, [math]::Min(8, $n))
 }
 # How fast Inf2Cat was in earlier runs, for the time estimate: MB of driver files x INF files per
@@ -2007,27 +2007,31 @@ function Save-Inf2CatRate([double]$Rate) {
         ConvertTo-Json @{ Rate = $v } | Set-Content -LiteralPath $f -Encoding ASCII
     } catch { }
 }
-# Splits the INF files of one folder into groups that share a catalog (a new catalog has to cover
-# every INF that names it), keeps the groups with an INF from $Need and spreads them over at most
-# $Parts runs, the biggest group first. Returns one object per run with its INF files.
-function Split-InfGroups([string[]]$Infs, [string[]]$Need, [int]$Parts) {
-    $groups = New-Object System.Collections.Generic.List[object]
-    foreach ($inf in $Infs) {
-        $cats = @(Get-InfCatalogs $inf | ForEach-Object { $_.ToLowerInvariant() })
-        $g = [pscustomobject]@{ Infs = @($inf); Cats = $cats }
-        foreach ($o in $groups.ToArray()) {
-            if (@($o.Cats | Where-Object { $cats -contains $_ }).Count) { $g.Infs += $o.Infs; $g.Cats = @(@($g.Cats) + @($o.Cats) | Sort-Object -Unique); [void]$groups.Remove($o) }
-        }
-        $groups.Add($g)
-    }
-    $keep = @($groups | Where-Object { $inf = $_; @($inf.Infs | Where-Object { $Need -contains $_ }).Count } | Sort-Object { @($_.Infs).Count } -Descending)
-    $n = [math]::Max(1, [math]::Min($Parts, $keep.Count))
+# Spreads INF files over at most $Parts Inf2Cat runs (each run gets its own copy of the folder).
+function Split-InfRuns([string[]]$Infs, [int]$Parts) {
+    $Infs = @($Infs)
+    $n = [math]::Max(1, [math]::Min($Parts, $Infs.Count))
     $bins = @(1..$n | ForEach-Object { [pscustomobject]@{ Infs = @() } })
-    foreach ($g in $keep) {
-        $b = $bins | Sort-Object { @($_.Infs).Count } | Select-Object -First 1
-        $b.Infs += $g.Infs
-    }
+    for ($k = 0; $k -lt $Infs.Count; $k++) { $bins[$k % $n].Infs += $Infs[$k] }
     return @($bins | Where-Object { @($_.Infs).Count })
+}
+# The catalog an INF gets when its own one is shared with other INF files (NVIDIA's nv_dispi.cat):
+# a new catalog for one INF would leave the others without theirs, so it gets a file of its own.
+function Get-OwnCatalogName([string]$Inf) {
+    return ([IO.Path]::GetFileNameWithoutExtension($Inf).ToLowerInvariant() + '_w10u.cat')
+}
+# Copies an INF with every CatalogFile= line pointing at $Cat. The encoding is kept: UTF-16 and
+# UTF-8 by their byte order mark, anything else byte for byte (Latin-1 maps every byte to itself).
+function Set-InfCatalog([string]$Src, [string]$Dst, [string]$Cat) {
+    $bytes = [IO.File]::ReadAllBytes($Src)
+    $off = 0
+    if ($bytes.Length -ge 2 -and $bytes[0] -eq 0xFF -and $bytes[1] -eq 0xFE) { $enc = New-Object Text.UnicodeEncoding -ArgumentList $false, $true; $off = 2 }
+    elseif ($bytes.Length -ge 2 -and $bytes[0] -eq 0xFE -and $bytes[1] -eq 0xFF) { $enc = New-Object Text.UnicodeEncoding -ArgumentList $true, $true; $off = 2 }
+    elseif ($bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF) { $enc = New-Object Text.UTF8Encoding -ArgumentList $true; $off = 3 }
+    else { $enc = [Text.Encoding]::GetEncoding(28591) }
+    $text = $enc.GetString($bytes, $off, $bytes.Length - $off)
+    $text = [regex]::Replace($text, '(?im)^(\s*CatalogFile(?:\.\w+)?\s*=\s*)"?[^";\s]+"?', ('${1}' + $Cat))
+    [IO.File]::WriteAllBytes($Dst, [byte[]](@($enc.GetPreamble()) + @($enc.GetBytes($text))))
 }
 function New-HardLink([string]$Link, [string]$Target) {
     try {
@@ -2054,9 +2058,10 @@ function New-InfStage([string]$Dir, [string]$Stage, [string[]]$Infs) {
     foreach ($i in $Infs) { Copy-Item -LiteralPath $i -Destination $Stage -Force }
     return $res
 }
-# $Isolate: only the INF files that need a new signature (and the ones sharing their catalog) are
-# catalogued, in copies of the folder - every other INF keeps its catalog and signature. $Jobs:
-# Inf2Cat runs at the same time. A folder whose isolated run fails is catalogued whole, as before.
+# $Isolate: only the INF files that need a new signature are catalogued, in copies of the folder -
+# every other INF keeps its catalog and signature. One whose catalog is shared with other INF files
+# gets a catalog of its own (Get-OwnCatalogName), so the shared one stays valid for the others.
+# $Jobs: Inf2Cat runs at the same time. A folder whose isolated run fails is catalogued whole, as before.
 function Invoke-SignFolder([string]$Root, $Cert, [string]$Inf2Cat, [bool]$All, [bool]$OnlyThisPc = $false, [bool]$Isolate = $true, [int]$Jobs = 1) {
     $os = if ($Script:S.Family -and $Script:S.Family.Arch -eq 'x86') { '10_X86' } else { '10_X64' }
     $Jobs = [math]::Max(1, [math]::Min(8, $Jobs))
@@ -2079,7 +2084,7 @@ function Invoke-SignFolder([string]$Root, $Cert, [string]$Inf2Cat, [bool]$All, [
         $need = @($p.Infs | Where-Object { $states[$_] -in 'mismatch', 'untrusted', 'catalog-missing', 'unknown' })
         if ($withCat.Count -eq 0) { Write-Info "$rel : no CatalogFile= line in the INF - left as is"; $res.Skipped++; continue }
         if (-not $All -and $need.Count -eq 0) { $res.Untouched++; continue }
-        $todo += [pscustomobject]@{ Pkg = $p; Rel = $rel; WithCat = $withCat; Need = $(if ($All) { $withCat } else { $need }); Staged = $false; Runs = @(); Check = $withCat; Cats = @(); Ok = $true; Start = $null; Mb = 1.0 }
+        $todo += [pscustomobject]@{ Pkg = $p; Rel = $rel; WithCat = $withCat; Need = $(if ($All) { $withCat } else { $need }); Staged = $false; Runs = @(); Check = $withCat; Cats = @(); Ok = $true; Start = $null; Mb = 1.0; Own = @{} }
     }
     $stageBase = $Root.TrimEnd('\', '/') + '~stage'
     if (Test-Path -LiteralPath $stageBase) { Remove-Item -LiteralPath $stageBase -Recurse -Force -ErrorAction SilentlyContinue }
@@ -2095,15 +2100,25 @@ function Invoke-SignFolder([string]$Root, $Cert, [string]$Inf2Cat, [bool]$All, [
             $mb = [math]::Max(1.0, [double](@(Get-ChildItem -LiteralPath $p.Dir -Recurse -File -Force -ErrorAction SilentlyContinue | Measure-Object -Property Length -Sum)[0].Sum) / 1MB)
             $t.Mb = $mb
             $parts = @()
-            if ($Isolate) { $parts = @(Split-InfGroups $t.WithCat $t.Need $Jobs) }
+            if ($Isolate) { $parts = @(Split-InfRuns $t.Need $Jobs) }
             $picked = 0; foreach ($x in $parts) { $picked += @($x.Infs).Count }
             if ($parts.Count -gt 1 -or ($parts.Count -eq 1 -and $picked -lt $t.WithCat.Count)) {
                 try {
+                    # catalogs named by more than one INF of the folder
+                    $uses = @{}
+                    foreach ($inf in $p.Infs) { foreach ($c in @(Get-InfCatalogs $inf)) { $k = $c.ToLowerInvariant(); $uses[$k] = 1 + [int]$uses[$k] } }
+                    $own = @{}; $sharedNames = @()
+                    foreach ($inf in $t.Need) {
+                        $sc = @(Get-InfCatalogs $inf | Where-Object { [int]$uses[$_.ToLowerInvariant()] -gt 1 })
+                        if ($sc.Count) { $own[$inf] = Get-OwnCatalogName $inf; $sharedNames += $sc }
+                    }
+                    $t.Own = $own
                     $runs = @()
                     foreach ($x in $parts) {
                         $ns++
                         $sd = Join-Path $stageBase $ns
                         $m = New-InfStage $p.Dir $sd @($x.Infs)
+                        foreach ($inf in @($x.Infs)) { if ($own.ContainsKey($inf)) { Set-InfCatalog $inf (Join-Path $sd (Split-Path $inf -Leaf)) $own[$inf] } }
                         if ($m.Copies -gt 0) { Add-Log "$($t.Rel): $($m.Copies) file(s) copied for Inf2Cat (no hard links on this drive)" }
                         $lbl = if ($parts.Count -gt 1) { '{0} part {1}/{2}' -f $t.Rel, ($runs.Count + 1), $parts.Count } else { $t.Rel }
                         $runs += [pscustomobject]@{ Dir = $sd; Label = $lbl; Infs = @($x.Infs).Count; Est = (3 + @($x.Infs).Count * $mb / $rate); R = $null }
@@ -2113,9 +2128,13 @@ function Invoke-SignFolder([string]$Root, $Cert, [string]$Inf2Cat, [bool]$All, [
                     $msg = '{0} of {1} INF file(s) get a new catalog - the others keep their signature' -f $picked, $t.WithCat.Count
                     if ($parts.Count -gt 1) { $msg += " (in $($parts.Count) Inf2Cat runs at the same time)" }
                     Write-Info $msg
+                    if ($own.Count) {
+                        $names = @($sharedNames | ForEach-Object { $_.ToLowerInvariant() } | Sort-Object -Unique)
+                        Write-Info ('{0} of them get a catalog file of their own (<name>_w10u.cat), because {1} is named by several INF files - it is left as it is' -f $own.Count, (($names | Select-Object -First 3) -join ', '))
+                    }
                 } catch {
                     Add-Log "$($t.Rel): isolated copy not possible ($($_.Exception.Message)) - the whole folder is catalogued"
-                    $t.Staged = $false; $t.Check = $t.WithCat
+                    $t.Staged = $false; $t.Check = $t.WithCat; $t.Own = @{}
                 }
             }
             if (-not $t.Staged) { $t.Runs = @([pscustomobject]@{ Dir = $p.Dir; Label = $t.Rel; Infs = $cnt; Est = (3 + $cnt * $mb / $rate); R = $null }) }
@@ -2143,7 +2162,7 @@ function Invoke-SignFolder([string]$Root, $Cert, [string]$Inf2Cat, [bool]$All, [
                     Write-Warn "$($t.Rel): Inf2Cat failed on the isolated INF file(s) - the whole folder is catalogued instead (slower)"
                     @($f.R.Output | Out-String -Stream | Where-Object { $_.Trim() } | Select-Object -Last 3) | ForEach-Object { Write-Host "       $_" -ForegroundColor DarkYellow }
                     $cnt = @($t.Pkg.Infs).Count
-                    $t.Staged = $false; $t.Check = $t.WithCat
+                    $t.Staged = $false; $t.Check = $t.WithCat; $t.Own = @{}
                     $t.Runs = @([pscustomobject]@{ Dir = $t.Pkg.Dir; Label = $t.Rel; Infs = $cnt; Est = (3 + $cnt * $t.Mb / $rate); R = $null })
                     $retry += $t.Runs
                 }
@@ -2171,6 +2190,10 @@ function Invoke-SignFolder([string]$Root, $Cert, [string]$Inf2Cat, [bool]$All, [
                         $dst = Join-Path $t.Pkg.Dir $c.Name
                         Copy-Item -LiteralPath $c.FullName -Destination $dst -Force
                         $t.Cats += $dst
+                    }
+                    foreach ($inf in @($t.Own.Keys)) {
+                        $staged = Join-Path $r.Dir (Split-Path $inf -Leaf)
+                        if (Test-Path -LiteralPath $staged) { Copy-Item -LiteralPath $staged -Destination $inf -Force }
                     }
                 }
             } else {
@@ -3757,7 +3780,7 @@ __RES__
           <TextBlock Text="W10" Foreground="White" FontWeight="Bold" FontSize="12" HorizontalAlignment="Center" VerticalAlignment="Center"/>
         </Border>
         <StackPanel Margin="12,0,0,0" VerticalAlignment="Center">
-          <TextBlock FontSize="15" FontWeight="SemiBold"><Run Text="Win10 ISO Updater"/><Run x:Name="VerRun" Text="  v3.1.0" Foreground="#5B6478" FontWeight="Normal" FontSize="12"/></TextBlock>
+          <TextBlock FontSize="15" FontWeight="SemiBold"><Run Text="Win10 ISO Updater"/><Run x:Name="VerRun" Text="  v3.2.0" Foreground="#5B6478" FontWeight="Normal" FontSize="12"/></TextBlock>
           <TextBlock Text="updates + drivers + signed NVIDIA mods + autounattend + $OEM$  ->  bootable ISO" Foreground="#8A94A8" FontSize="11"/>
         </StackPanel>
       </StackPanel>
@@ -3995,13 +4018,13 @@ $Script:XPages = @'
               <CheckBox x:Name="SignAll" Style="{StaticResource Toggle}" Margin="0,12,0,0" Content="Re-sign every package, not only the modified ones"/>
               <CheckBox x:Name="cfg_SignCleanup" Style="{StaticResource Toggle}" Content="Delete the driver copy from C:\Drivers once it is installed"/>
               <CheckBox x:Name="cfg_SignIsolate" Style="{StaticResource Toggle}" Content="Faster: new catalogs only for the INF files that need one"/>
-              <TextBlock Style="{StaticResource Sub}" Margin="48,-2,0,4" Text="Inf2Cat gets a copy of the folder with only the edited INF files (the driver files are hard links - no extra space), so it checks a few INF files instead of all of them. Every INF stays in the package, and the ones you did not edit keep their NVIDIA / Microsoft signature. If Inf2Cat fails on that copy, the whole folder is catalogued as before."/>
+              <TextBlock Style="{StaticResource Sub}" Margin="48,-2,0,4" Text="Inf2Cat gets a copy of the folder with only the edited INF files (the driver files are hard links - no extra space), so it checks a few INF files instead of all of them, several at the same time. Every INF stays in the package, and the ones you did not edit keep their NVIDIA / Microsoft signature: an edited INF whose catalog is shared with them (nv_dispi.cat) gets a catalog file of its own. If Inf2Cat fails on that copy, the whole folder is catalogued as before."/>
               <CheckBox x:Name="cfg_SignOnlyThisPc" Style="{StaticResource Toggle}" Content="Faster: only keep the INF files for this PC's hardware (when the ISO is for this PC)"/>
               <TextBlock Style="{StaticResource Sub}" Margin="48,-2,0,4" Text="NVIDIA's Display.Driver has one INF file per laptop and desktop maker, and Inf2Cat checks every one of them against the whole package - that can take up to an hour. With this on, only the INF files that list a device of this PC are signed (minutes instead), the others are removed from the copy. The original folder is not touched."/>
               <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
                 <TextBlock Text="Inf2Cat runs at the same time" VerticalAlignment="Center" Margin="0,0,12,0"/>
                 <TextBox x:Name="SignJobsBox" Width="50"/>
-                <TextBlock Style="{StaticResource Sub}" VerticalAlignment="Center" Margin="12,0,0,0" Text="1-8, empty = processor cores up to 4. Each Inf2Cat run uses one core."/>
+                <TextBlock Style="{StaticResource Sub}" VerticalAlignment="Center" Margin="12,0,0,0" Text="1-8, empty = processor cores up to 8. Each Inf2Cat run uses one core."/>
               </StackPanel>
               <WrapPanel Margin="0,14,0,0">
                 <Button x:Name="SignBtn" Style="{StaticResource Primary}" Content="Sign and add to the ISO"/>
@@ -4863,7 +4886,7 @@ try {
         $v = $Script:U.SignJobsBox.Text.Trim()
         if (-not $v) { $Script:Cfg.SignJobs = 0; Save-Settings }
         elseif ($v -match '^[1-8]$') { if ([int]$v -ne (Get-SignJobs)) { $Script:Cfg.SignJobs = [int]$v; Save-Settings } }
-        else { Show-Msg 'Use a number from 1 to 8 (or leave it empty for the number of processor cores, up to 4).' }
+        else { Show-Msg 'Use a number from 1 to 8 (or leave it empty for the number of processor cores, up to 8).' }
         $Script:U.SignJobsBox.Text = [string](Get-SignJobs)
     })
 

@@ -19,7 +19,9 @@ function Drain { $it = $null; $l = @(); while ($Script:Sync.Queue.TryDequeue([re
 function Runs { @(if (Test-Path $env:FAKE_INF2CAT_LOG) { Get-Content $env:FAKE_INF2CAT_LOG | ForEach-Object { $p = $_ -split ' ', 4; [pscustomobject]@{ Start = [long]$p[0]; End = [long]$p[1]; Dir = $p[2]; Infs = @(($p[3] -replace '^:\s*', '') -split ' ' | Where-Object { $_ }) } } }) }
 function Signs { @(if (Test-Path $env:FAKE_SIGNTOOL_LOG) { Get-Content $env:FAKE_SIGNTOOL_LOG }) }
 # an NVIDIA-like package: Display.Driver with one INF (and catalog) per maker, all pointing at the same driver files
-function New-Pkg([string]$Name, [hashtable]$Cats, [string[]]$Edited, [string]$Missing = '') {
+# $Edited: INF files whose catalog NVCleanstall signed with its own certificate (untrusted);
+# $Modified: INF files changed after their (still valid) original catalog was made.
+function New-Pkg([string]$Name, [hashtable]$Cats, [string[]]$Edited, [string]$Missing = '', [string[]]$Modified = @()) {
     $root = Join-Path $tmp $Name
     Remove-Item $root -Recurse -Force -ErrorAction SilentlyContinue
     $dd = Join-Path $root 'Display.Driver'
@@ -27,7 +29,8 @@ function New-Pkg([string]$Name, [hashtable]$Cats, [string[]]$Edited, [string]$Mi
     Set-Content (Join-Path $dd 'nvlddmkm.sys') 'driver-binary'; Set-Content (Join-Path $dd 'bin/nvapi64.dll') 'api-binary'
     foreach ($inf in $Cats.Keys) {
         $extra = if ($Missing -and $inf -eq $Edited[0]) { "`n$Missing = 1" } else { '' }
-        Set-Content (Join-Path $dd "$inf.inf") "[Version]`nSignature=`"`$Windows NT`$`"`nCatalogFile=$($Cats[$inf])`n[SourceDisksFiles]`nnvlddmkm.sys = 1`nnvapi64.dll = 1,bin$extra`n[Strings]`nX=1"
+        $mod = if ($Modified -contains $inf) { "`n; edited`n%NEW% = Section001, PCI\VEN_10DE&DEV_2206" } else { '' }
+        Set-Content (Join-Path $dd "$inf.inf") "[Version]`nSignature=`"`$Windows NT`$`"`nCatalogFile=$($Cats[$inf])`n[SourceDisksFiles]`nnvlddmkm.sys = 1`nnvapi64.dll = 1,bin$extra`n[Strings]`nX=1$mod"
     }
     foreach ($c in @($Cats.Values | Sort-Object -Unique)) {
         $hit = @($Cats.Keys | Where-Object { $Cats[$_] -eq $c -and $Edited -contains $_ }).Count
@@ -71,12 +74,26 @@ $null = Drain; $runs = Runs
 Check "one job: one isolated run with the three edited INF files (signed=$($res.Signed))" ($res.Signed -eq 1 -and $runs.Count -eq 1 -and $runs[0].Infs.Count -eq 3 -and $runs[0].Dir -like '*~stage*' -and $Script:Links -eq 2)
 Check 'one job: the three others keep their catalog' (@('nvami.cat', 'nvbli.cat', 'nvdmi.cat' | Where-Object { (CatText $root $_) -eq 'signed-whql' }).Count -eq 3)
 
-# ---- a catalog shared by an edited and an unedited INF: both get the new catalog
-$root = New-Pkg 'shared' @{ nv_dispi = 'nv_disp.cat'; nvaci = 'nv_disp.cat'; nvami = 'nvami.cat'; nvbli = 'nvbli.cat' } @('nv_dispi')
+# ---- NVIDIA's case (signer 1.5.0): one INF edited, its catalog shared with INF files that stay valid
+$root = New-Pkg 'shared' @{ nv_dispi = 'nv_dispi.cat'; nvaci = 'nv_dispi.cat'; nvami = 'nv_dispi.cat'; nvbli = 'nv_dispi.cat' } @() '' @('nv_dispi')
 $res = Invoke-SignFolder $root $cert $fake $false $false $true 4
+$log = @(Drain); $runs = Runs
+$dd = Join-Path $root 'Display.Driver'
+Check "shared catalog: one isolated run with only the edited INF (signed=$($res.Signed) failed=$($res.Failed))" ($res.Signed -eq 1 -and $res.Failed -eq 0 -and $runs.Count -eq 1 -and ($runs[0].Infs -join ',') -eq 'nv_dispi.inf' -and $runs[0].Dir -like '*~stage*')
+Check 'shared catalog: the edited INF now names a catalog of its own' ((Get-InfCatalogs "$dd/nv_dispi.inf") -join ',' -eq 'nv_dispi_w10u.cat' -and (CatText $root 'nv_dispi_w10u.cat') -eq 'signed')
+Check 'shared catalog: the shared one is untouched and still named by the others' ((CatText $root 'nv_dispi.cat') -eq 'signed-whql' -and @('nvaci', 'nvami', 'nvbli' | Where-Object { (Get-InfCatalogs "$dd/$_.inf") -join ',' -eq 'nv_dispi.cat' }).Count -eq 3)
+Check 'shared catalog: every INF verifies (edited -> own catalog, others -> shared one)' (@('nv_dispi', 'nvaci', 'nvami', 'nvbli' | Where-Object { (Get-InfState "$dd/$_.inf") -eq 'ok' }).Count -eq 4)
+Check 'shared catalog: rest of the edited INF unchanged' ((Get-Content "$dd/nv_dispi.inf" -Raw) -match '; edited' -and (Get-Content "$dd/nv_dispi.inf" -Raw) -match 'nvapi64\.dll = 1,bin')
+Check 'shared catalog: log explains the own catalog' (@($log | Where-Object { $_ -match '1 of them get a catalog file of their own \(<name>_w10u\.cat\), because nv_dispi\.cat is named by several INF files - it is left as it is' }).Count -eq 1)
+
+# ---- a shared catalog signed by NVCleanstall: every INF needs a new one, each gets its own, side by side
+$root = New-Pkg 'sharedall' @{ a = 'nv_disp.cat'; b = 'nv_disp.cat'; c = 'nv_disp.cat'; d = 'nvd.cat' } @('a', 'b', 'c')
+$res = Invoke-SignFolder $root $cert $fake $false $false $true 3
 $null = Drain; $runs = Runs
-Check "shared catalog: one run with both INF files that name it (signed=$($res.Signed))" ($res.Signed -eq 1 -and $runs.Count -eq 1 -and (($runs[0].Infs | Sort-Object) -join ',') -eq 'nv_dispi.inf,nvaci.inf')
-Check 'shared catalog: re-signed, the unrelated ones untouched' ((CatText $root 'nv_disp.cat') -eq 'signed' -and (CatText $root 'nvami.cat') -eq 'signed-whql' -and (CatText $root 'nvbli.cat') -eq 'signed-whql')
+$dd = Join-Path $root 'Display.Driver'
+Check "shared untrusted catalog: three runs of one INF each (signed=$($res.Signed))" ($res.Signed -eq 1 -and $runs.Count -eq 3 -and @($runs | Where-Object { $_.Infs.Count -eq 1 }).Count -eq 3)
+Check 'shared untrusted catalog: a_w10u.cat, b_w10u.cat, c_w10u.cat signed and named' (@('a', 'b', 'c' | Where-Object { (CatText $root "$($_)_w10u.cat") -eq 'signed' -and (Get-InfCatalogs "$dd/$_.inf") -join ',' -eq "$($_)_w10u.cat" }).Count -eq 3)
+Check 'shared untrusted catalog: the unrelated INF and its catalog untouched' ((CatText $root 'nvd.cat') -eq 'signed-whql' -and (Get-InfCatalogs "$dd/d.inf") -join ',' -eq 'nvd.cat')
 
 # ---- every INF edited, one job: nothing to isolate, the folder is catalogued whole (as in 3.0)
 $root = New-Pkg 'allin' @{ a = 'nv_disp.cat'; b = 'nv_disp.cat'; c = 'nv_disp.cat' } @('a', 'b', 'c')
@@ -138,13 +155,22 @@ Remove-Item Env:\FAKE_SIGNTOOL_FAIL
 Check "failing catalog reported, the others signed ($($failed -join ','))" ($failed.Count -eq 1 -and $failed[0] -like '*c3.cat' -and (Get-Content $cats[4] -Raw).Trim() -eq 'signed')
 
 # ---- groups, runs and the estimate
-$g = Join-Path $tmp 'groups'; New-Item -ItemType Directory -Force $g | Out-Null
-foreach ($x in @(@('a', 'x.cat'), @('b', 'x.cat'), @('c', 'y.cat'), @('d', 'z.cat'), @('e', 'w.cat'))) { Set-Content "$g/$($x[0]).inf" "[Version]`nCatalogFile=$($x[1])" }
-$infs = @('a', 'b', 'c', 'd', 'e' | ForEach-Object { "$g/$_.inf" })
-$parts = @(Split-InfGroups $infs @("$g/a.inf", "$g/c.inf", "$g/d.inf") 2)
-$desc = ($parts | ForEach-Object { (@($_.Infs | ForEach-Object { Split-Path $_ -LeafBase }) | Sort-Object) -join '+' } | Sort-Object) -join ','
-Check "groups: a+b share a catalog, e is not needed, two runs ($desc)" ($desc -eq 'a+b,c+d')
-Check 'groups: never more runs than groups' (@(Split-InfGroups $infs @("$g/c.inf") 4).Count -eq 1)
+$parts = @(Split-InfRuns @('a', 'b', 'c', 'd', 'e') 2)
+Check "runs: five INF files over two runs (3 + 2)" ($parts.Count -eq 2 -and @($parts[0].Infs).Count -eq 3 -and @($parts[1].Infs).Count -eq 2)
+Check 'runs: never more runs than INF files' (@(Split-InfRuns @('a') 4).Count -eq 1)
+Check 'own catalog name' ((Get-OwnCatalogName (Join-Path $tmp 'Display.Driver/NV_DispI.inf')) -eq 'nv_dispi_w10u.cat')
+# the INF keeps its encoding: UTF-16 with BOM, and ANSI byte for byte
+$g = Join-Path $tmp 'enc'; New-Item -ItemType Directory -Force $g | Out-Null
+$u16 = "[Version]`r`nSignature=`"`$Windows NT`$`"`r`nCatalogFile.NTamd64 = nv_dispi.cat ; shared`r`nCatalogFile=`"nv_dispi.cat`"`r`n[Strings]`r`nX=`"GeForce`"`r`n"
+[IO.File]::WriteAllBytes("$g/u.inf", [byte[]](@(0xFF, 0xFE) + @([Text.Encoding]::Unicode.GetBytes($u16))))
+Set-InfCatalog "$g/u.inf" "$g/u2.inf" 'u_w10u.cat'
+$b2 = [IO.File]::ReadAllBytes("$g/u2.inf"); $t2 = [Text.Encoding]::Unicode.GetString($b2, 2, $b2.Length - 2)
+Check 'UTF-16 INF: BOM kept, every CatalogFile line renamed, rest unchanged' ($b2[0] -eq 0xFF -and $b2[1] -eq 0xFE -and $t2 -eq $u16.Replace('nv_dispi.cat ; shared', 'u_w10u.cat ; shared').Replace('"nv_dispi.cat"', 'u_w10u.cat'))
+$ansi = [byte[]](@([Text.Encoding]::ASCII.GetBytes("[Version]`r`nCatalogFile=a.cat`r`n[Strings]`r`nX=`"Caf")) + @(0xE9, 0x81) + @([Text.Encoding]::ASCII.GetBytes("`"`r`n")))
+[IO.File]::WriteAllBytes("$g/a.inf", $ansi)
+Set-InfCatalog "$g/a.inf" "$g/a2.inf" 'a_w10u.cat'
+$a2 = [IO.File]::ReadAllBytes("$g/a2.inf")
+Check 'ANSI INF: other bytes unchanged (no BOM added)' ([Text.Encoding]::ASCII.GetString($a2, 0, 12) -eq '[Version]' + "`r`nC" -and $a2[-5] -eq 0xE9 -and $a2[-4] -eq 0x81 -and $a2.Length -eq $ansi.Length + 5 -and [Text.Encoding]::ASCII.GetString($a2) -match 'CatalogFile=a_w10u\.cat')
 Check 'time left: three 10 s runs on two slots = 20 s' ((Get-LaneTime @() @(10, 10, 10) 2) -eq 20)
 Check 'time left: running 5 s + waiting 10 s on two slots = 10 s' ((Get-LaneTime @(5) @(10) 2) -eq 10)
 Check 'time left: nothing to do = 0' ((Get-LaneTime @() @() 3) -eq 0)
@@ -154,7 +180,7 @@ Check 'Inf2Cat speed: first measurement kept' ((Get-Inf2CatRate) -eq 20)
 Save-Inf2CatRate 40
 Check 'Inf2Cat speed: then averaged with the new one' ((Get-Inf2CatRate) -eq 30)
 $Script:Cfg = @{ SignJobs = 0 }
-Check "jobs: automatic = processor cores up to 4 ($(Get-SignJobs))" ((Get-SignJobs) -eq [math]::Min(4, [Environment]::ProcessorCount))
+Check "jobs: automatic = processor cores up to 8 ($(Get-SignJobs))" ((Get-SignJobs) -eq [math]::Min(8, [Environment]::ProcessorCount))
 $Script:Cfg.SignJobs = 3; $three = Get-SignJobs; $Script:Cfg.SignJobs = 20; $many = Get-SignJobs
 Check 'jobs: setting used, at most 8' ($three -eq 3 -and $many -eq 8)
 

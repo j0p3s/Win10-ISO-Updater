@@ -12,6 +12,8 @@ if [ "$1" = "sign" ]; then
   exit $rc
 fi
 if [ "$1" = "verify" ]; then
+  # an INF edited after its original catalog was made: its hash is not in that catalog
+  if [ -n "$5" ] && grep -q '^; edited' "$5" 2>/dev/null && grep -q 'signed-whql' "$4"; then echo "SignTool Error: The file is not signed or the signature is not valid (hash not found in catalog)." 1>&2; exit 1; fi
   if grep -q nvcleanstall "$4"; then echo "SignTool Error: A certificate chain processed, but terminated in a root" 1>&2; echo "certificate which is not trusted by the trust provider." 1>&2; exit 1; fi
   grep -q signed "$4" && exit 0 || { echo "SignTool Error: File not valid" 1>&2; exit 1; }
 fi

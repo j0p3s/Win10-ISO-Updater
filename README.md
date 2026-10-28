@@ -1,6 +1,6 @@
 # Win10 ISO Updater
 
-![version](https://img.shields.io/badge/version-3.1.0-2F9BFF) ![platform](https://img.shields.io/badge/Windows-10%20%7C%2011-8B5CF6) ![license](https://img.shields.io/badge/license-MIT-3DDC97) [![tests](https://github.com/j0p3s/Win10-ISO-Updater/actions/workflows/tests.yml/badge.svg)](https://github.com/j0p3s/Win10-ISO-Updater/actions/workflows/tests.yml)
+![version](https://img.shields.io/badge/version-3.2.0-2F9BFF) ![platform](https://img.shields.io/badge/Windows-10%20%7C%2011-8B5CF6) ![license](https://img.shields.io/badge/license-MIT-3DDC97) [![tests](https://github.com/j0p3s/Win10-ISO-Updater/actions/workflows/tests.yml/badge.svg)](https://github.com/j0p3s/Win10-ISO-Updater/actions/workflows/tests.yml)
 
 **One file. Double-click. Get a fully updated Windows 10 ISO with your drivers, your signed NVIDIA mod, your answer file and your `$OEM$` folder baked in.**
 
@@ -37,7 +37,7 @@ Missing tools (`oscdimg`, `Inf2Cat`, `signtool`) are downloaded automatically fr
 
 That's it. The new ISO lands in `C:\W10U\output` (the work folder can be changed under *Options*).
 
-The console line at start shows the version (`Starting Win10 ISO Updater v3.1.0 ...`), then the console hides and the window opens.
+The console line at start shows the version (`Starting Win10 ISO Updater v3.2.0 ...`), then the console hides and the window opens.
 
 **Updating:** replace `Win10-ISO-Updater.cmd` with the new one. Your settings, the `signing` folder and the work folder (unpacked media, updates, drivers) are kept — the tool picks up where you left off.
 
@@ -116,12 +116,12 @@ If your `$OEM$` already has a `SetupComplete.cmd`, a `call "%~dp0SetupComplete-d
 
 NVIDIA's `Display.Driver` folder has one INF file per laptop and desktop maker (about 40), all pointing at the same ~1 GB of files. `Inf2Cat` checks every INF it is given against the whole package, so cataloguing a full NVIDIA folder can take **up to an hour**. The status line keeps counting while it works; `engine.log` gets a "still running" line every 5 minutes.
 
-The speed-ups come from [NVIDIA Modded Drivers Signer](https://github.com/j0p3s/nvidia-modded-drivers-signer) 1.1–1.4 (page 5):
+The speed-ups come from [NVIDIA Modded Drivers Signer](https://github.com/j0p3s/nvidia-modded-drivers-signer) 1.1–1.5 (page 5):
 
 | Option | Default | Effect |
 |---|---|---|
-| **Faster: new catalogs only for the INF files that need one** | on | Usually NVCleanstall edits one or a few INF files. `Inf2Cat` gets a copy of the folder with only those INF files (plus any INF that shares their catalog file), so it checks a few INF files instead of 40. The driver files in that copy are hard links (no time, no extra space; copied on drives without hard links). The other INF files keep their NVIDIA / Microsoft catalog and signature, and every INF stays in the package, so the driver still installs on any hardware. If `Inf2Cat` fails on the copy, the whole folder is catalogued as before. Off: every INF in a folder that needs signing gets a new catalog. |
-| **Inf2Cat runs at the same time** | processor cores, up to 4 | One `Inf2Cat` uses one core. Folders (and groups of INF files within a folder) are catalogued side by side, 1–8 at a time. |
+| **Faster: new catalogs only for the INF files that need one** | on | Usually NVCleanstall edits one or a few INF files. `Inf2Cat` gets a copy of the folder with only those INF files, so it checks a few INF files instead of 40. The driver files in that copy are hard links (no time, no extra space; copied on drives without hard links). The other INF files keep their NVIDIA / Microsoft catalog and signature, and every INF stays in the package, so the driver still installs on any hardware. NVIDIA's INF files share one catalog (`nv_dispi.cat`): an edited INF then gets a catalog file of its own (`nv_dispi_w10u.cat`, only its `CatalogFile=` line changes in the work copy), so the shared catalog stays valid for the others. If `Inf2Cat` fails on the copy, the whole folder is catalogued as before. Off: every INF in a folder that needs signing gets a new catalog. |
+| **Inf2Cat runs at the same time** | processor cores, up to 8 | One `Inf2Cat` uses one core. Folders (and the INF files within a folder that need a new catalog) are catalogued side by side, 1–8 at a time. |
 | **Only keep the INF files for this PC's hardware** | off | Removes the INF files for other hardware from the work copy (details below). Use it when every INF needs a new catalog and the ISO is for this PC. |
 
 Always on: all new catalogs are signed together (up to 16 per `signtool` call), and the time estimate learns how fast `Inf2Cat` is on this PC (`tools\inf2cat-speed.json`).
@@ -269,7 +269,7 @@ python src/build.py
 pwsh tests/run-tests.ps1
 ```
 
-Eleven suites (about 300 checks) run the PowerShell part on Linux / macOS with PowerShell 7: catalog parsing, signing with stand-ins for `signtool` / `Inf2Cat` (an NVCleanstall-style untrusted catalog, live Inf2Cat status from a worker runspace, keeping only this PC's INF files, isolated copies with only the edited INF files, several Inf2Cat runs at the same time, the fallback to the whole folder, batched signing, the time estimate), `$OEM$` assembly, every install check finding and fix, an answer file made by the autounattend generator (`tests/fixtures`, personal data removed), the page refresh with Windows PowerShell 5.1's JSON behaviour simulated (and the taskbar progress), a whole slipstream against a stand-in `dism` (boot.wim and WinRE in the background vs. sequential, a failed WinRE update, the driver set, the Defender option), the ISO build against a stand-in `oscdimg` (failed build, ISO in use, free space), and the download step with a stand-in catalog (the servicing stack lookup running while the other updates download). DISM, WPF and real driver installs still need a Windows test run.
+Eleven suites (about 310 checks) run the PowerShell part on Linux / macOS with PowerShell 7: catalog parsing, signing with stand-ins for `signtool` / `Inf2Cat` (an NVCleanstall-style untrusted catalog, live Inf2Cat status from a worker runspace, keeping only this PC's INF files, isolated copies with only the edited INF files, an own catalog for an INF whose catalog is shared (NVIDIA's `nv_dispi.cat`) with its encoding kept, several Inf2Cat runs at the same time, the fallback to the whole folder, batched signing, the time estimate), `$OEM$` assembly, every install check finding and fix, an answer file made by the autounattend generator (`tests/fixtures`, personal data removed), the page refresh with Windows PowerShell 5.1's JSON behaviour simulated (and the taskbar progress), a whole slipstream against a stand-in `dism` (boot.wim and WinRE in the background vs. sequential, a failed WinRE update, the driver set, the Defender option), the ISO build against a stand-in `oscdimg` (failed build, ISO in use, free space), and the download step with a stand-in catalog (the servicing stack lookup running while the other updates download). DISM, WPF and real driver installs still need a Windows test run.
 
 ---
 
