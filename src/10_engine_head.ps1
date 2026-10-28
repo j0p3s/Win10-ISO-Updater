@@ -8,13 +8,17 @@
 $ErrorActionPreference = 'Stop'
 $ProgressPreference    = 'SilentlyContinue'
 
-$Script:AppName      = 'Win10-ISO-Updater'
-$Script:AppVersion   = '3.3.0'
+$Script:AppName      = 'Windows-ISO-Updater'
+$Script:AppTitle     = 'Windows ISO Updater'
+$Script:AppVersion   = '3.4.0'
 $Script:Root         = Split-Path -Parent $env:W10U_SELF
 $ToolsDir            = Join-Path $Script:Root 'tools'
 $IsoPath             = $null
 $Script:NoAsk        = $false
-$Script:SettingsFile = Join-Path $Script:Root 'Win10-ISO-Updater.settings.json'
+# The file name carries the version (Windows-ISO-updater-GUI_vX.X.X.cmd), so the settings file does not:
+# a new version picks up the options of the old one. Win10-ISO-Updater.settings.json (3.3 and older) is read once.
+$Script:SettingsFile = Join-Path $Script:Root 'Windows-ISO-Updater.settings.json'
+$Script:LegacySettingsFile = Join-Path $Script:Root 'Win10-ISO-Updater.settings.json'
 $Script:SignDir      = Join-Path $Script:Root 'signing'
 $Script:CertSubject  = 'CN=Custom Driver Signing'
 $Script:GeneratorUrl = 'https://github.com/j0p3s/autounattended-generator'

@@ -19,7 +19,7 @@ function Invoke-HostDriversClick {
         $items = @($Script:Sync.Result)
         if ($items.Count -eq 0) { return }
         $pick = @(Show-DriverPicker $items 'Drivers installed on this PC' 'Third-party drivers exported from this PC. Ticked ones are slipstreamed into the ISO.')
-        if ($pick.Count -gt 0) { Start-Work 'CommitHost' @{ Pick = $pick } } else { Start-Work 'CommitHost' @{ Pick = @() } }
+        Start-Work 'CommitHost' @{ Pick = $pick }
     }
 }
 function Invoke-ImportDriversClick {
@@ -39,8 +39,7 @@ function Invoke-SignClick {
     if (-not $src -or -not (Test-Path -LiteralPath $src -PathType Container)) { Show-Msg 'Choose the driver folder first (for example the folder NVCleanstall extracted).' 'Warning'; return }
     $hasInf = Get-ChildItem -LiteralPath $src -Recurse -Filter *.inf -File -ErrorAction SilentlyContinue | Select-Object -First 1
     if (-not $hasInf) { Show-Msg 'There are no .inf files in that folder or its subfolders.' 'Warning'; return }
-    $name = ($Script:U.SignName.Text -replace '[^\w\.-]', '_').Trim('_')
-    if (-not $name) { $name = 'Driver' }
+    $name = ConvertTo-PackageName $Script:U.SignName.Text
     $mode = Get-CertStatus
     $pw = $null
     if ($mode -ne 'ready') {
@@ -211,7 +210,7 @@ try {
         if ($d) {
             $Script:U.SignSrc.Text = $d
             $leaf = Split-Path $d -Leaf
-            $Script:U.SignName.Text = if ($leaf -match '(?i)nvidia|nvcleanstall|geforce|^\d{3}\.\d{2}') { 'NVIDIA' } else { ($leaf -replace '[^\w\.-]', '_') }
+            $Script:U.SignName.Text = if ($leaf -match '(?i)nvidia|nvcleanstall|geforce|^\d{3}\.\d{2}') { 'NVIDIA' } else { ConvertTo-PackageName $leaf }
         }
     })
     $U.SignName.Add_TextChanged({ Update-SignDest })
@@ -241,7 +240,7 @@ try {
     # 7 build
     $U.OutBrowse.Add_Click({
         $d = New-Object Microsoft.Win32.SaveFileDialog
-        $d.Filter = 'ISO image (*.iso)|*.iso'; $d.FileName = 'Win10_custom.iso'
+        $d.Filter = 'ISO image (*.iso)|*.iso'; $d.FileName = if ($Script:S -and $Script:S.Family) { 'Win' + (Get-FamilyOs $Script:S.Family) + '_custom.iso' } else { 'Windows_custom.iso' }
         if ($d.ShowDialog($Script:W)) { $Script:U.OutBox.Text = $d.FileName }
     })
     $U.SvcBtn.Add_Click({ Invoke-ServiceClick })
@@ -308,7 +307,7 @@ try {
     $W.Add_Closing({
         param($s, $ev)
         if ($Script:Busy) {
-            $r = [Windows.MessageBox]::Show($Script:W, "'$($Script:JobLabel)' is still running. Closing now can leave a mounted image behind (run Clean up next time). Close anyway?", 'Win10 ISO Updater', 'YesNo', 'Warning')
+            $r = [Windows.MessageBox]::Show($Script:W, "'$($Script:JobLabel)' is still running. Closing now can leave a mounted image behind (run Clean up next time). Close anyway?", $Script:AppTitle, 'YesNo', 'Warning')
             if ($r -ne 'Yes') { $ev.Cancel = $true; return }
             try { [void]$Script:Ps.BeginStop($null, $null) } catch { }
         }
@@ -334,7 +333,7 @@ try {
     $Script:Timer.Start()
 
     try { Update-Ui } catch { Write-Err "Could not refresh every page: $($_.Exception.Message)" }
-    Write-Title "Win10 ISO Updater $Script:AppVersion"
+    Write-Title "$Script:AppTitle v$Script:AppVersion"
     Write-Info "Work folder: $($Script:P.Work)"
     if ($Script:S.Unpacked) { Write-Info "Unpacked media: $(Split-Path ([string]$Script:S.SourceIso) -Leaf) - pick up where you left off." }
     else { Write-Info 'Start on page 1: choose Windows 10 or 11, pick its ISO and unpack it - or set everything up and press Run everything.' }
@@ -363,7 +362,7 @@ public static bool Flash(IntPtr h) {
 } catch {
     try { [void][W10U.Con]::ShowWindow([W10U.Con]::GetConsoleWindow(), 5) } catch { }
     Microsoft.PowerShell.Utility\Write-Host ''
-    Microsoft.PowerShell.Utility\Write-Host "  Win10 ISO Updater could not start: $($_.Exception.Message)" -ForegroundColor Red
+    Microsoft.PowerShell.Utility\Write-Host "  $Script:AppTitle could not start: $($_.Exception.Message)" -ForegroundColor Red
     Microsoft.PowerShell.Utility\Write-Host "  $($_.InvocationInfo.PositionMessage)" -ForegroundColor DarkGray
     exit 1
 }

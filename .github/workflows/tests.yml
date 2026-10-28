@@ -14,10 +14,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Win10-ISO-Updater.cmd matches src/
+      - name: Windows-ISO-updater-GUI_vX.X.X.cmd matches src/
         run: |
           python3 src/build.py
-          git diff --exit-code -- Win10-ISO-Updater.cmd || { echo "::error::Win10-ISO-Updater.cmd is not the build of src/ - run python src/build.py and commit it"; exit 1; }
+          # the build writes Windows-ISO-updater-GUI_v<AppVersion>.cmd and removes older ones: any change, new or deleted file is a mismatch
+          if [ -n "$(git status --porcelain)" ]; then
+            git status --short
+            echo "::error::The .cmd in the repo is not the build of src/ - run python src/build.py and commit the result (new Windows-ISO-updater-GUI_v*.cmd, old one removed)"
+            exit 1
+          fi
 
       - name: Test suites
         shell: pwsh

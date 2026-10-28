@@ -1,6 +1,7 @@
 @echo off
 :: ===========================================================================
-::  Win10-ISO-Updater.cmd  (v3.3.0)  -  one file, graphical interface
+::  Windows-ISO-updater-GUI_v3.4.0.cmd  -  one file, graphical interface
+::  Windows ISO Updater: the file name carries the version (vX.X.X).
 ::  - unpacks a Windows 10 or Windows 11 ISO and detects its build
 ::  - downloads its updates from the Microsoft Update Catalog
 ::  - slipstreams updates and drivers (this PC or a Drivers-Backup folder)
@@ -12,18 +13,20 @@
 ::  Just double-click this file.
 :: ===========================================================================
 setlocal EnableExtensions DisableDelayedExpansion
-title Win10 ISO Updater
+title Windows ISO Updater
+:: Windows PowerShell by its full path: cmd.exe looks in the current folder first, so a plain "powershell"
+:: would run a powershell.exe lying next to this file - and with administrator rights.
+set "PSEXE=%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe"
+if exist "%SystemRoot%\Sysnative\WindowsPowerShell\v1.0\powershell.exe" set "PSEXE=%SystemRoot%\Sysnative\WindowsPowerShell\v1.0\powershell.exe"
 fltmc >nul 2>&1 && goto :admin_ok
 echo Requesting administrator rights...
 set "W10U_SELF=%~f0"
-powershell -NoProfile -ExecutionPolicy Bypass -Command "Start-Process -FilePath $env:W10U_SELF -Verb RunAs"
+"%PSEXE%" -NoProfile -ExecutionPolicy Bypass -Command "Start-Process -FilePath $env:W10U_SELF -Verb RunAs"
 exit /b
 
 :admin_ok
 set "W10U_SELF=%~f0"
-set "PSEXE=%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe"
-if exist "%SystemRoot%\Sysnative\WindowsPowerShell\v1.0\powershell.exe" set "PSEXE=%SystemRoot%\Sysnative\WindowsPowerShell\v1.0\powershell.exe"
-echo Starting Win10 ISO Updater v3.3.0 ...  (this window hides when the program opens)
+echo Starting Windows ISO Updater v3.4.0 ...  (this window hides when the program opens)
 "%PSEXE%" -NoProfile -STA -ExecutionPolicy Bypass -Command "$t=[IO.File]::ReadAllText($env:W10U_SELF);$i=$t.IndexOf('#'+'PS-BEGIN');Invoke-Expression $t.Substring($i)"
 if errorlevel 1 pause
 exit /b
@@ -37,13 +40,17 @@ exit /b
 $ErrorActionPreference = 'Stop'
 $ProgressPreference    = 'SilentlyContinue'
 
-$Script:AppName      = 'Win10-ISO-Updater'
-$Script:AppVersion   = '3.3.0'
+$Script:AppName      = 'Windows-ISO-Updater'
+$Script:AppTitle     = 'Windows ISO Updater'
+$Script:AppVersion   = '3.4.0'
 $Script:Root         = Split-Path -Parent $env:W10U_SELF
 $ToolsDir            = Join-Path $Script:Root 'tools'
 $IsoPath             = $null
 $Script:NoAsk        = $false
-$Script:SettingsFile = Join-Path $Script:Root 'Win10-ISO-Updater.settings.json'
+# The file name carries the version (Windows-ISO-updater-GUI_vX.X.X.cmd), so the settings file does not:
+# a new version picks up the options of the old one. Win10-ISO-Updater.settings.json (3.3 and older) is read once.
+$Script:SettingsFile = Join-Path $Script:Root 'Windows-ISO-Updater.settings.json'
+$Script:LegacySettingsFile = Join-Path $Script:Root 'Win10-ISO-Updater.settings.json'
 $Script:SignDir      = Join-Path $Script:Root 'signing'
 $Script:CertSubject  = 'CN=Custom Driver Signing'
 $Script:GeneratorUrl = 'https://github.com/j0p3s/autounattended-generator'
@@ -141,9 +148,11 @@ function Get-DefaultSettings {
 }
 function Import-Settings {
     $s = Get-DefaultSettings
-    if (Test-Path -LiteralPath $Script:SettingsFile) {
+    $sf = $Script:SettingsFile
+    if (-not (Test-Path -LiteralPath $sf) -and $Script:LegacySettingsFile -and (Test-Path -LiteralPath $Script:LegacySettingsFile)) { $sf = $Script:LegacySettingsFile }
+    if (Test-Path -LiteralPath $sf) {
         try {
-            $j = Get-Content -LiteralPath $Script:SettingsFile -Raw | ConvertFrom-Json
+            $j = Get-Content -LiteralPath $sf -Raw | ConvertFrom-Json
             foreach ($p in $j.PSObject.Properties) { if ($s.Contains($p.Name)) { $s[$p.Name] = $p.Value } }
         } catch { Write-Warn 'Settings file is unreadable - using defaults.' }
     }
@@ -292,6 +301,7 @@ function Test-WorkDir([double]$NeedGB = 30) {
     if ($w -match '\s') { Write-Warn "The work folder has spaces in its path ($w). A short path like C:\W10U is safer for DISM." }
     New-Item -ItemType Directory -Force -Path $w | Out-Null
     $root = [IO.Path]::GetPathRoot([IO.Path]::GetFullPath($w))
+    if ($root -notmatch '^[A-Za-z]:\\') { throw "The work folder must be on a local NTFS drive, not a network path ($w)." }
     $drv = New-Object IO.DriveInfo($root)
     if ($drv.DriveFormat -ne 'NTFS') { throw "The work folder must be on an NTFS drive ($root is $($drv.DriveFormat))." }
     if ($drv.AvailableFreeSpace -lt ($NeedGB * 1GB)) {
@@ -986,10 +996,13 @@ function Test-UnattendSelection {
     foreach ($n in $nodes) {
         $key = ''; $val = ''
         foreach ($c in $n.ChildNodes) { if ($c.LocalName -eq 'Key') { $key = $c.InnerText } elseif ($c.LocalName -eq 'Value') { $val = $c.InnerText } }
-        if ($key -match '/IMAGE/INDEX' -and [int]$val -gt $img.Count) {
+        $idx = 0
+        if ($key -match '/IMAGE/INDEX' -and -not [int]::TryParse($val.Trim(), [ref]$idx)) {
+            Write-Warn "autounattend.xml has an image INDEX that is not a number ('$val')."
+        } elseif ($key -match '/IMAGE/INDEX' -and $idx -gt $img.Count) {
             Write-Warn "autounattend.xml installs image INDEX $val but the new install.wim has $($img.Count) edition(s)."
         } elseif ($key -match '/IMAGE/INDEX') {
-            Write-Info "autounattend.xml picks index $val = $(($img | Where-Object { $_.ImageIndex -eq [int]$val }).ImageName)"
+            Write-Info "autounattend.xml picks index $val = $(($img | Where-Object { $_.ImageIndex -eq $idx }).ImageName)"
         } elseif ($key -match '/IMAGE/NAME' -and -not ($img | Where-Object { $_.ImageName -eq $val })) {
             Write-Warn "autounattend.xml installs '$val' but that edition is not in the new install.wim."
         }
@@ -1490,7 +1503,7 @@ function Invoke-Build([switch]$Auto, [string]$OutIso) {
     $build = if ($S.Serviced) { $S.Serviced.Build } elseif (@($S.Images).Count -gt 0) { $S.Images[0].Version } else { 'unknown' }
     $tag = if ($S.Family -and $S.Family.VerToken) { $S.Family.VerToken } else { 'custom' }
     $arch = if ($S.Family) { $S.Family.Arch } else { 'x64' }
-    $label = if ($S.Family -and $S.Family.Label) { $S.Family.Label } else { 'WIN10_CUSTOM' }
+    $label = if ($S.Family -and $S.Family.Label) { $S.Family.Label } else { 'WINDOWS_CUSTOM' }
     if ($label.Length -gt 32) { $label = $label.Substring(0, 32) }
     New-Item -ItemType Directory -Force -Path $P.Output | Out-Null
     $iso = Join-Path $P.Output ('Win{0}_{1}_{2}_{3}_{4:yyyyMMdd}.iso' -f (Get-FamilyOs $S.Family), $tag, $build, $arch, (Get-Date))
@@ -1537,7 +1550,8 @@ function Invoke-Build([switch]$Auto, [string]$OutIso) {
     Write-Ok "ISO ready: $iso ($(Format-Size $size))"
     Write-Info 'Calculating SHA-256...'
     $hash = (Get-FileHash -LiteralPath $iso -Algorithm SHA256).Hash
-    Set-Content -LiteralPath "$iso.sha256" -Value "$hash *$(Split-Path $iso -Leaf)" -Encoding ASCII
+    # UTF-8 without BOM (sha256sum -c cannot read a BOM) so a file name with accents stays intact
+    [IO.File]::WriteAllText("$iso.sha256", "$hash *$(Split-Path $iso -Leaf)`n", (New-Object Text.UTF8Encoding $false))
     Write-Info "SHA-256: $hash"
     $S.Iso = $iso
     Save-State
@@ -2328,10 +2342,19 @@ function Invoke-SignFolder([string]$Root, $Cert, [string]$Inf2Cat, [bool]$All, [
     if ($Script:Sync) { $Script:Sync.Status = '' }
     return $res
 }
+# Folder / file name of a driver package. ASCII only: it ends up in SetupComplete-drivers.cmd, which is
+# written as ASCII, so "Treiber fuer Mueller" typed with accents must not turn into question marks there.
+function ConvertTo-PackageName([string]$Text) {
+    if ($null -eq $Text) { $Text = '' }
+    $d = $Text.Normalize([Text.NormalizationForm]::FormD)
+    $d = [regex]::Replace($d, '\p{Mn}', '')
+    $n = ([regex]::Replace($d, '[^A-Za-z0-9_\.-]', '_')).Trim('_')
+    if (-not $n) { $n = 'Driver' }
+    return $n
+}
 function Invoke-SignPackage([string]$Source, [string]$Name, $Password, [bool]$All, [bool]$OnlyThisPc = $false, [bool]$Isolate = $true, [int]$Jobs = 1) {
     if (-not (Test-Path -LiteralPath $Source -PathType Container)) { throw "Folder not found: $Source" }
-    $Name = ($Name -replace '[^\w\.-]', '_').Trim('_')
-    if (-not $Name) { $Name = 'Driver' }
+    $Name = ConvertTo-PackageName $Name
     Write-Title "Re-sign modded drivers - $Name"
     $tools = Get-SignTools
     $Script:SignTool = $tools.SignTool
@@ -2368,7 +2391,7 @@ function Remove-SignedPackage([string]$Name) {
 function New-SetupCompleteDrivers($Packages, [bool]$Cleanup, $ExtraRoots = @()) {
     $l = New-Object System.Collections.Generic.List[string]
     $l.Add('@echo off')
-    $l.Add('rem Generated by Win10-ISO-Updater: trusts the driver-signing certificate and installs the driver packages.')
+    $l.Add('rem Generated by Windows-ISO-Updater: trusts the driver-signing certificate and installs the driver packages.')
     $l.Add('rem Called from SetupComplete.cmd and (optionally) from the specialize pass - it runs only once.')
     $l.Add('set "LOG=%windir%\Temp\SetupComplete-drivers.log"')
     $l.Add('set "DONE=%windir%\Setup\Scripts\drivers.done"')
@@ -2438,13 +2461,21 @@ function Sync-Oem {
         $main = Join-Path $scDir 'SetupComplete.cmd'
         $call = 'call "%~dp0SetupComplete-drivers.cmd"'
         if (Test-Path -LiteralPath $main) {
-            $lines = @([IO.File]::ReadAllLines($main))
-            if (-not (($lines -join "`n") -match 'SetupComplete-drivers\.cmd')) {
+            # Byte-preserving: the file is read and written as Latin-1 (1 byte = 1 char), so accents in the
+            # user's own script survive (writing it back as ASCII would turn them into "?"). A UTF-8 BOM is kept.
+            $bytes = [IO.File]::ReadAllBytes($main)
+            $bom = ($bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF)
+            $latin = [Text.Encoding]::GetEncoding(28591)
+            $text = if ($bom) { $latin.GetString($bytes, 3, $bytes.Length - 3) } else { $latin.GetString($bytes) }
+            if ($text -notmatch 'SetupComplete-drivers\.cmd') {
+                $lines = New-Object System.Collections.Generic.List[string]
+                $lines.AddRange([string[]]@($text -split "`r?`n"))
+                if ($lines.Count -gt 0 -and $lines[$lines.Count - 1] -eq '') { $lines.RemoveAt($lines.Count - 1) }
                 $at = if ($lines.Count -gt 0 -and $lines[0] -match '^\s*@?echo\s+off') { 1 } else { 0 }
-                $new = New-Object System.Collections.Generic.List[string]
-                for ($i = 0; $i -lt $lines.Count; $i++) { if ($i -eq $at) { $new.Add($call) }; $new.Add($lines[$i]) }
-                if ($at -ge $lines.Count) { $new.Add($call) }
-                [IO.File]::WriteAllText($main, (($new -join "`r`n") + "`r`n"), [Text.Encoding]::ASCII)
+                $lines.Insert($at, $call)
+                $out = $latin.GetBytes(($lines -join "`r`n") + "`r`n")
+                if ($bom) { $out = [byte[]](@(0xEF, 0xBB, 0xBF) + $out) }
+                [IO.File]::WriteAllBytes($main, $out)
                 Write-Sub 'your SetupComplete.cmd now calls SetupComplete-drivers.cmd first'
             }
         } else {
@@ -2536,6 +2567,7 @@ function Get-OemDriverRoots([string]$OemDir, $Signed) {
         $rel = $f.DirectoryName.Substring($one.Length).TrimStart('\', '/')
         $seg = @($rel -split '[\\/]' | Where-Object { $_ })
         $root = if ($seg.Count -ge 2) { $seg[0] + '\' + $seg[1] } elseif ($seg.Count -eq 1) { $seg[0] } else { '' }
+        if ($root -cmatch '[^\x20-\x7E]') { Add-Log "OEM driver folder skipped (non-ASCII name cannot go into the .cmd script): $root"; continue }
         if ($root -and $skip -notcontains $root.ToLower() -and -not $roots.Contains($root)) { $roots.Add($root) }
     }
     return @($roots)
@@ -3584,7 +3616,7 @@ function Enable-DefenderSkip {
         if (@($pref.ExclusionPath) -contains $w) { Add-Log "Defender already excludes $w (left as it is)"; return }
         New-Item -ItemType Directory -Force -Path $w | Out-Null
         Add-MpPreference -ExclusionPath $w -ErrorAction Stop
-        Set-Content -LiteralPath (Join-Path $w 'defender-exclusion.txt') -Value $w -Encoding ASCII
+        Set-Content -LiteralPath (Join-Path $w 'defender-exclusion.txt') -Value $w -Encoding UTF8
         $Script:DefenderAdded = $w
         Write-Info "Windows Defender skips $w during this job (removed again at the end)."
     } catch { Write-Warn "Could not add the Defender exclusion ($($_.Exception.Message)) - normal scanning stays on." }
@@ -3829,7 +3861,7 @@ $Script:XRes = @'
 $Script:XMain = @'
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Win10 ISO Updater" Width="1220" Height="800" MinWidth="1040" MinHeight="680"
+        Title="Windows ISO Updater" Width="1220" Height="800" MinWidth="1040" MinHeight="680"
         WindowStartupLocation="CenterScreen" Background="#0B0E14" Foreground="#E6EAF2"
         FontFamily="Segoe UI" FontSize="13" WindowStyle="None" ResizeMode="CanResize" BorderBrush="#232B3D" BorderThickness="1">
   <WindowChrome.WindowChrome>
@@ -3910,7 +3942,7 @@ __RES__
           <TextBlock Text="W10" Foreground="White" FontWeight="Bold" FontSize="12" HorizontalAlignment="Center" VerticalAlignment="Center"/>
         </Border>
         <StackPanel Margin="12,0,0,0" VerticalAlignment="Center">
-          <TextBlock FontSize="15" FontWeight="SemiBold"><Run Text="Win10 ISO Updater"/><Run x:Name="VerRun" Text="  v3.3.0" Foreground="#5B6478" FontWeight="Normal" FontSize="12"/></TextBlock>
+          <TextBlock FontSize="15" FontWeight="SemiBold"><Run Text="Windows ISO Updater"/><Run x:Name="VerRun" Text="  v3.4.0" Foreground="#5B6478" FontWeight="Normal" FontSize="12"/></TextBlock>
           <TextBlock Text="updates + drivers + signed NVIDIA mods + autounattend + $OEM$  ->  bootable ISO" Foreground="#8A94A8" FontSize="11"/>
         </StackPanel>
       </StackPanel>
@@ -4438,10 +4470,10 @@ function New-Table([string[]]$Cols, $Rows) {
     return , $t
 }
 function Show-Msg([string]$Text, [string]$Icon = 'Information') {
-    [void][Windows.MessageBox]::Show($Script:W, $Text, 'Win10 ISO Updater', 'OK', $Icon)
+    [void][Windows.MessageBox]::Show($Script:W, $Text, $Script:AppTitle, 'OK', $Icon)
 }
 function Confirm-Ui([string]$Text, [string]$Icon = 'Question') {
-    return ([Windows.MessageBox]::Show($Script:W, $Text, 'Win10 ISO Updater', 'YesNo', $Icon) -eq 'Yes')
+    return ([Windows.MessageBox]::Show($Script:W, $Text, $Script:AppTitle, 'YesNo', $Icon) -eq 'Yes')
 }
 function Select-Folder([string]$Title, [string]$Start) {
     $d = New-Object System.Windows.Forms.FolderBrowserDialog
@@ -4584,7 +4616,7 @@ function Invoke-Tick {
         Set-TaskbarState 'Paused' 1     # yellow: the job waits for an answer
         Request-Attention
         $def = if ($q.Default) { 'Yes' } else { 'No' }
-        $r = [Windows.MessageBox]::Show($Script:W, [string]$q.Text, 'Win10 ISO Updater', 'YesNo', 'Question', $def)
+        $r = [Windows.MessageBox]::Show($Script:W, [string]$q.Text, $Script:AppTitle, 'YesNo', 'Question', $def)
         $Script:Sync.Answer = ($r -eq 'Yes')
         $Script:Timer.Start()
     }
@@ -4820,8 +4852,7 @@ function Save-EditionPick {
     Update-Status
 }
 function Update-SignDest {
-    $n = ($Script:U.SignName.Text -replace '[^\w\.-]', '_').Trim('_')
-    if (-not $n) { $n = 'Driver' }
+    $n = ConvertTo-PackageName $Script:U.SignName.Text
     $Script:U.SignDest.Text = "installs from C:\Drivers\$n during Windows setup"
 }
 #endregion
@@ -4899,7 +4930,7 @@ function Invoke-HostDriversClick {
         $items = @($Script:Sync.Result)
         if ($items.Count -eq 0) { return }
         $pick = @(Show-DriverPicker $items 'Drivers installed on this PC' 'Third-party drivers exported from this PC. Ticked ones are slipstreamed into the ISO.')
-        if ($pick.Count -gt 0) { Start-Work 'CommitHost' @{ Pick = $pick } } else { Start-Work 'CommitHost' @{ Pick = @() } }
+        Start-Work 'CommitHost' @{ Pick = $pick }
     }
 }
 function Invoke-ImportDriversClick {
@@ -4919,8 +4950,7 @@ function Invoke-SignClick {
     if (-not $src -or -not (Test-Path -LiteralPath $src -PathType Container)) { Show-Msg 'Choose the driver folder first (for example the folder NVCleanstall extracted).' 'Warning'; return }
     $hasInf = Get-ChildItem -LiteralPath $src -Recurse -Filter *.inf -File -ErrorAction SilentlyContinue | Select-Object -First 1
     if (-not $hasInf) { Show-Msg 'There are no .inf files in that folder or its subfolders.' 'Warning'; return }
-    $name = ($Script:U.SignName.Text -replace '[^\w\.-]', '_').Trim('_')
-    if (-not $name) { $name = 'Driver' }
+    $name = ConvertTo-PackageName $Script:U.SignName.Text
     $mode = Get-CertStatus
     $pw = $null
     if ($mode -ne 'ready') {
@@ -5091,7 +5121,7 @@ try {
         if ($d) {
             $Script:U.SignSrc.Text = $d
             $leaf = Split-Path $d -Leaf
-            $Script:U.SignName.Text = if ($leaf -match '(?i)nvidia|nvcleanstall|geforce|^\d{3}\.\d{2}') { 'NVIDIA' } else { ($leaf -replace '[^\w\.-]', '_') }
+            $Script:U.SignName.Text = if ($leaf -match '(?i)nvidia|nvcleanstall|geforce|^\d{3}\.\d{2}') { 'NVIDIA' } else { ConvertTo-PackageName $leaf }
         }
     })
     $U.SignName.Add_TextChanged({ Update-SignDest })
@@ -5121,7 +5151,7 @@ try {
     # 7 build
     $U.OutBrowse.Add_Click({
         $d = New-Object Microsoft.Win32.SaveFileDialog
-        $d.Filter = 'ISO image (*.iso)|*.iso'; $d.FileName = 'Win10_custom.iso'
+        $d.Filter = 'ISO image (*.iso)|*.iso'; $d.FileName = if ($Script:S -and $Script:S.Family) { 'Win' + (Get-FamilyOs $Script:S.Family) + '_custom.iso' } else { 'Windows_custom.iso' }
         if ($d.ShowDialog($Script:W)) { $Script:U.OutBox.Text = $d.FileName }
     })
     $U.SvcBtn.Add_Click({ Invoke-ServiceClick })
@@ -5188,7 +5218,7 @@ try {
     $W.Add_Closing({
         param($s, $ev)
         if ($Script:Busy) {
-            $r = [Windows.MessageBox]::Show($Script:W, "'$($Script:JobLabel)' is still running. Closing now can leave a mounted image behind (run Clean up next time). Close anyway?", 'Win10 ISO Updater', 'YesNo', 'Warning')
+            $r = [Windows.MessageBox]::Show($Script:W, "'$($Script:JobLabel)' is still running. Closing now can leave a mounted image behind (run Clean up next time). Close anyway?", $Script:AppTitle, 'YesNo', 'Warning')
             if ($r -ne 'Yes') { $ev.Cancel = $true; return }
             try { [void]$Script:Ps.BeginStop($null, $null) } catch { }
         }
@@ -5214,7 +5244,7 @@ try {
     $Script:Timer.Start()
 
     try { Update-Ui } catch { Write-Err "Could not refresh every page: $($_.Exception.Message)" }
-    Write-Title "Win10 ISO Updater $Script:AppVersion"
+    Write-Title "$Script:AppTitle v$Script:AppVersion"
     Write-Info "Work folder: $($Script:P.Work)"
     if ($Script:S.Unpacked) { Write-Info "Unpacked media: $(Split-Path ([string]$Script:S.SourceIso) -Leaf) - pick up where you left off." }
     else { Write-Info 'Start on page 1: choose Windows 10 or 11, pick its ISO and unpack it - or set everything up and press Run everything.' }
@@ -5243,7 +5273,7 @@ public static bool Flash(IntPtr h) {
 } catch {
     try { [void][W10U.Con]::ShowWindow([W10U.Con]::GetConsoleWindow(), 5) } catch { }
     Microsoft.PowerShell.Utility\Write-Host ''
-    Microsoft.PowerShell.Utility\Write-Host "  Win10 ISO Updater could not start: $($_.Exception.Message)" -ForegroundColor Red
+    Microsoft.PowerShell.Utility\Write-Host "  $Script:AppTitle could not start: $($_.Exception.Message)" -ForegroundColor Red
     Microsoft.PowerShell.Utility\Write-Host "  $($_.InvocationInfo.PositionMessage)" -ForegroundColor DarkGray
     exit 1
 }

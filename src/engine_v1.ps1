@@ -1,5 +1,5 @@
 <#
-    Win10-ISO-Updater.ps1  -  engine  (v1.1.0)
+    Windows-ISO-Updater engine  (v1.1.0, history)
     -------------------------------------------------------------------------
     Unpacks a Windows 10 ISO, detects its build, downloads the matching
     updates from the Microsoft Update Catalog (SSU, LCU, Safe OS + Setup
@@ -7,14 +7,14 @@
     exported from this PC and an autounattend.xml, then rebuilds a bootable
     BIOS + UEFI ISO.
 
-    Normally started from Win10-ISO-Updater.cmd (menu). Direct use:
-        powershell -ExecutionPolicy Bypass -File Win10-ISO-Updater.ps1 -Action All
+    Normally started from Windows-ISO-updater-GUI_vX.X.X.cmd. Direct use:
+        powershell -ExecutionPolicy Bypass -File Windows-ISO-Updater.ps1 -Action All
 
     Actions: Status, Unpack, Analyze, Editions, Download, Drivers, ImportDrivers,
              Unattend, Service, Build, All, Options, Clean
 
     Import a drivers folder directly (e.g. Drivers-Backup from Drivers.cmd):
-        ... -File Win10-ISO-Updater.ps1 -Action ImportDrivers -DriverPath D:\Drivers-Backup
+        ... -File Windows-ISO-Updater.ps1 -Action ImportDrivers -DriverPath D:\Drivers-Backup
 
     Servicing order follows Microsoft's "Update Windows installation media
     with Dynamic Update" guide (WinRE -> install.wim -> boot.wim -> media).
@@ -31,12 +31,12 @@ param(
 $ErrorActionPreference = 'Stop'
 $ProgressPreference    = 'SilentlyContinue'
 
-$Script:AppName      = 'Win10-ISO-Updater'
+$Script:AppName      = 'Windows-ISO-Updater'
 $Script:AppVersion   = '1.1.0'
 $Script:Root         = $PSScriptRoot
 if (-not $ToolsDir) { $ToolsDir = Join-Path $Script:Root 'tools' }
-$Script:SettingsFile = Join-Path $Script:Root 'Win10-ISO-Updater.settings.json'
-$Script:StatusFile   = Join-Path $env:TEMP 'Win10-ISO-Updater.status.cmd'
+$Script:SettingsFile = Join-Path $Script:Root 'Windows-ISO-Updater.settings.json'
+$Script:StatusFile   = Join-Path $env:TEMP 'Windows-ISO-Updater.status.cmd'
 $Script:GeneratorUrl = 'https://github.com/j0p3s/autounattended-generator'
 $Script:CatalogBase  = 'https://www.catalog.update.microsoft.com'
 $Script:Dism         = Join-Path $env:SystemRoot 'System32\dism.exe'

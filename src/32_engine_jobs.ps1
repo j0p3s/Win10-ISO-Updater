@@ -245,7 +245,7 @@ function Enable-DefenderSkip {
         if (@($pref.ExclusionPath) -contains $w) { Add-Log "Defender already excludes $w (left as it is)"; return }
         New-Item -ItemType Directory -Force -Path $w | Out-Null
         Add-MpPreference -ExclusionPath $w -ErrorAction Stop
-        Set-Content -LiteralPath (Join-Path $w 'defender-exclusion.txt') -Value $w -Encoding ASCII
+        Set-Content -LiteralPath (Join-Path $w 'defender-exclusion.txt') -Value $w -Encoding UTF8
         $Script:DefenderAdded = $w
         Write-Info "Windows Defender skips $w during this job (removed again at the end)."
     } catch { Write-Warn "Could not add the Defender exclusion ($($_.Exception.Message)) - normal scanning stays on." }

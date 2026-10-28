@@ -1,12 +1,12 @@
 # Contributing
 
-Thanks for helping. Win10 ISO Updater is one `.cmd` file built from the parts in [`src/`](src).
+Thanks for helping. Windows ISO Updater is one `.cmd` file built from the parts in [`src/`](src).
 
 ## Reporting a bug
 
 Open an issue with the **Bug report** form. The most useful things to include:
 
-- the version (first console line: `Starting Win10 ISO Updater v3.x.x ...`)
+- the version (first console line: `Starting Windows ISO Updater v3.x.x ...`)
 - what you did and on which page
 - the last 50–100 lines of `C:\W10U\logs\engine.log` (and `dism.log` for DISM errors)
 
@@ -14,7 +14,7 @@ Open an issue with the **Bug report** form. The most useful things to include:
 
 ## Changing the code
 
-1. Edit the files in `src/`, never `Win10-ISO-Updater.cmd` directly — it is generated.
+1. Edit the files in `src/`, never `Windows-ISO-updater-GUI_vX.X.X.cmd` directly — it is generated.
 2. Rebuild:
    ```
    python src/build.py
@@ -25,16 +25,16 @@ Open an issue with the **Bug report** form. The most useful things to include:
    pwsh tests/run-tests.ps1
    ```
 4. Test on Windows too for anything that touches DISM, WPF or driver installs — the test suite uses stand-ins for those.
-5. Commit both `src/` and the rebuilt `Win10-ISO-Updater.cmd`, and add a line to [CHANGELOG.md](CHANGELOG.md).
+5. Commit both `src/` and the rebuilt `Windows-ISO-updater-GUI_vX.X.X.cmd` (the build removes the older one — commit that deletion too), and add a line to [CHANGELOG.md](CHANGELOG.md).
 
 ## Releasing
 
-1. In `src/`, set the version in `00_header.cmd` (2 places) and `10_engine_head.ps1`. Also update the README badge and start line, and the bug report form.
+1. In `src/`, set the version in `10_engine_head.ps1` (`$Script:AppVersion`) — the only place: the build puts it in the file name, the header and the window. Also update the README badge and start line, and the bug report form.
 2. Add a `## vX.Y.Z — date` entry to `CHANGELOG.md`. It becomes the release notes.
 3. Rebuild, run the tests and merge to `main`.
 4. Go to **Actions → release → Run workflow** on `main`. Enter the version and, optionally, a title.
 
-The workflow checks the version and the changelog entry, rebuilds and tests. It then creates the tag and the GitHub release, with `Win10-ISO-Updater.cmd` and its `.sha256` attached.
+The workflow checks the version and the changelog entry, rebuilds and tests. It then creates the tag and the GitHub release, with `Windows-ISO-updater-GUI_vX.Y.Z.cmd` and its `.sha256` attached.
 
 ## Code notes
 
@@ -44,4 +44,4 @@ The workflow checks the version and the changelog entry, rebuilds and tests. It 
 
 ## Never commit
 
-`signing/`, `*.pfx`, `*.p12`, `Win10-ISO-Updater.settings.json`, work folders, ISOs or WIM files, real answer files. They are in [`.gitignore`](.gitignore) — please don't force-add them.
+`signing/`, `*.pfx`, `*.p12`, `Windows-ISO-Updater.settings.json`, `Win10-ISO-Updater.settings.json`, work folders, ISOs or WIM files, real answer files. They are in [`.gitignore`](.gitignore) — please don't force-add them.

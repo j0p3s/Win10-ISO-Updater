@@ -1,5 +1,5 @@
 <#
-    Runs every test suite against the PowerShell part of Win10-ISO-Updater.cmd.
+    Runs every test suite against the PowerShell part of Windows-ISO-updater-GUI_vX.X.X.cmd (the one build in the repo root).
 
     Needs PowerShell 7 on Linux or macOS: the stand-ins for signtool.exe and Inf2Cat.exe
     in tests/fake are sh scripts. Nothing here touches DISM, WPF or a real Windows install -
@@ -11,9 +11,11 @@
 $ErrorActionPreference = 'Stop'
 $here = $PSScriptRoot
 $root = Split-Path -Parent $here
-$cmd  = [IO.File]::ReadAllText((Join-Path $root 'Win10-ISO-Updater.cmd'))
+$built = @(Get-ChildItem -LiteralPath $root -Filter 'Windows-ISO-updater-GUI_v*.cmd' -File)
+if ($built.Count -ne 1) { throw "Expected exactly one Windows-ISO-updater-GUI_vX.X.X.cmd in $root (run python src/build.py), found $($built.Count)." }
+$cmd  = [IO.File]::ReadAllText($built[0].FullName)
 $i    = $cmd.IndexOf("`r`n#PS-BEGIN")
-if ($i -lt 0) { throw '#PS-BEGIN not found in Win10-ISO-Updater.cmd' }
+if ($i -lt 0) { throw "#PS-BEGIN not found in $($built[0].Name)" }
 $body = Join-Path $here 'v2body.ps1'
 [IO.File]::WriteAllText($body, $cmd.Substring($i + 2).Replace("`r`n", "`n"))
 if (Get-Command chmod -ErrorAction SilentlyContinue) { chmod +x (Join-Path $here 'fake/inf2cat') (Join-Path $here 'fake/signtool') (Join-Path $here 'fake/dism') }

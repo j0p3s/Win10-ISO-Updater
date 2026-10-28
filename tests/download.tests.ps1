@@ -8,7 +8,7 @@ foreach($f in $ast.FindAll({param($n)$n -is [System.Management.Automation.Langua
 $body = [IO.File]::ReadAllText($bodyFile)
 $b = $body.IndexOf('#ENGINE-BEGIN'); $e = $body.IndexOf('#ENGINE-END')
 $tmp = Join-Path ([IO.Path]::GetTempPath()) ('w10u_dl_' + [guid]::NewGuid().ToString('N').Substring(0, 6)); New-Item -ItemType Directory $tmp | Out-Null
-$env:SystemDrive = $tmp; $env:SystemRoot = $tmp; $env:W10U_DL = $tmp; $env:W10U_SELF = Join-Path $tmp 'Win10-ISO-Updater.cmd'
+$env:SystemDrive = $tmp; $env:SystemRoot = $tmp; $env:W10U_DL = $tmp; $env:W10U_SELF = Join-Path $tmp 'Windows-ISO-updater-GUI_v0.0.0.cmd'
 # stand-ins for the catalog (main job and side job): each lookup and download leaves a timestamped line
 $stubs = @'
 

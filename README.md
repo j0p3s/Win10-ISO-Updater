@@ -1,10 +1,10 @@
 # Windows ISO Updater
 
-![version](https://img.shields.io/badge/version-3.3.0-2F9BFF) ![platform](https://img.shields.io/badge/Windows-10%20%7C%2011-8B5CF6) ![license](https://img.shields.io/badge/license-MIT-3DDC97) [![tests](https://github.com/j0p3s/Win10-ISO-Updater/actions/workflows/tests.yml/badge.svg)](https://github.com/j0p3s/Win10-ISO-Updater/actions/workflows/tests.yml)
+![version](https://img.shields.io/badge/version-3.4.0-2F9BFF) ![platform](https://img.shields.io/badge/Windows-10%20%7C%2011-8B5CF6) ![license](https://img.shields.io/badge/license-MIT-3DDC97) [![tests](https://github.com/j0p3s/Windows-ISO-Updater/actions/workflows/tests.yml/badge.svg)](https://github.com/j0p3s/Windows-ISO-Updater/actions/workflows/tests.yml)
 
 **One file. Double-click. Get a fully updated Windows 10 or Windows 11 ISO with your drivers, your signed NVIDIA mod, your answer file and your `$OEM$` folder baked in.**
 
-`Win10-ISO-Updater.cmd` is a single-file tool with a dark graphical interface that:
+`Windows-ISO-updater-GUI_vX.X.X.cmd` (the version is part of the file name) is a single-file tool with a dark graphical interface that:
 
 1. **Unpacks a Windows 10 or Windows 11 ISO** (pick the version on page 1) and detects its build, editions, language and architecture
 2. **Downloads every update it needs** from the Microsoft Update Catalog (cumulative update, servicing stack, Safe OS and Setup Dynamic Updates, .NET)
@@ -40,16 +40,16 @@ Missing tools (`oscdimg`, `Inf2Cat`, `signtool`) are downloaded automatically fr
 
 ## Quick start
 
-1. Download **`Win10-ISO-Updater.cmd`** from the [latest release](https://github.com/j0p3s/Win10-ISO-Updater/releases/latest) (or [straight from the repository](https://github.com/j0p3s/Win10-ISO-Updater/raw/main/Win10-ISO-Updater.cmd)) and put it in a folder of its own, for example `C:\W10U-Tool`.
+1. Download **`Windows-ISO-updater-GUI_vX.X.X.cmd`** from the [latest release](https://github.com/j0p3s/Windows-ISO-Updater/releases/latest) and put it in a folder of its own, for example `C:\W10U-Tool`.
 2. Double-click it and accept the administrator prompt.
 3. On page **1**, choose **Windows 10** or **Windows 11** and pick its ISO. Set up the other pages as you like.
 4. Press **Run everything**.
 
 That's it. The new ISO lands in `C:\W10U\output` (the work folder can be changed under *Options*).
 
-The console line at start shows the version (`Starting Win10 ISO Updater v3.3.0 ...`), then the console hides and the window opens.
+The console line at start shows the version (`Starting Windows ISO Updater v3.4.0 ...`), then the console hides and the window opens.
 
-**Updating:** replace `Win10-ISO-Updater.cmd` with the new one. Your settings, the `signing` folder and the work folder (unpacked media, updates, drivers) are kept — the tool picks up where you left off.
+**Updating:** download the new `Windows-ISO-updater-GUI_vX.X.X.cmd`, put it in the same folder and delete the old one (the file name changes with every version). Your settings, the `signing` folder and the work folder (unpacked media, updates, drivers) are kept — the tool picks up where you left off.
 
 > Requirements: Windows 10 or 11, Windows PowerShell 5.1 (built in), administrator rights, an NTFS drive with about 30 GB free, and an internet connection. You bring your own Windows 10 or 11 ISO and need a valid Windows license for every PC you install it on — see [Legal notice](#legal-notice).
 
@@ -232,7 +232,7 @@ The repository's [`.gitignore`](.gitignore) excludes all of that, so a fork or p
 |------|----------|
 | `tools\` (next to the .cmd) | Downloaded `oscdimg`, `Inf2Cat`, `signtool` — safe to delete |
 | `signing\` (next to the .cmd) | `DriverSigning.pfx` (**private**) + `DriverSigning.cer` |
-| `Win10-ISO-Updater.settings.json` | Your options |
+| `Windows-ISO-Updater.settings.json` | Your options (the same file for every version; `Win10-ISO-Updater.settings.json` from 3.3 and older is read once) |
 | `C:\W10U\` (work folder) | Unpacked media, updates, drivers, signed copies, logs, `state.json`, output ISO — all removed by *Clean up → Everything* |
 
 Logs: `C:\W10U\logs\engine.log` and `dism.log` (`dism-boot.log` for boot.wim when it runs in the background). During install, the driver script writes `C:\Windows\Temp\SetupComplete-drivers.log`.
@@ -317,7 +317,7 @@ This notice is not legal advice. If you plan to use the tool in a business, or t
 
 ### Independent project, trademarks
 
-Win10 ISO Updater is an independent, unofficial project. It is **not made, endorsed, sponsored or supported by Microsoft, NVIDIA or TechPowerUp** (the maker of NVCleanstall), and none of them is responsible for it.
+Windows ISO Updater is an independent, unofficial project. It is **not made, endorsed, sponsored or supported by Microsoft, NVIDIA or TechPowerUp** (the maker of NVCleanstall), and none of them is responsible for it.
 
 Microsoft, Windows, Windows PE, DISM, Microsoft Defender (Windows Defender) and Windows Update are trademarks of the Microsoft group of companies. NVIDIA is a trademark or registered trademark of NVIDIA Corporation in the U.S. and other countries. NVCleanstall is a product of TechPowerUp. Other product and company names are trademarks of their respective owners. They are used here only to say which products the tool works with.
 

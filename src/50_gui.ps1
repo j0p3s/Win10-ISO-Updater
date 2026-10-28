@@ -35,10 +35,10 @@ function New-Table([string[]]$Cols, $Rows) {
     return , $t
 }
 function Show-Msg([string]$Text, [string]$Icon = 'Information') {
-    [void][Windows.MessageBox]::Show($Script:W, $Text, 'Win10 ISO Updater', 'OK', $Icon)
+    [void][Windows.MessageBox]::Show($Script:W, $Text, $Script:AppTitle, 'OK', $Icon)
 }
 function Confirm-Ui([string]$Text, [string]$Icon = 'Question') {
-    return ([Windows.MessageBox]::Show($Script:W, $Text, 'Win10 ISO Updater', 'YesNo', $Icon) -eq 'Yes')
+    return ([Windows.MessageBox]::Show($Script:W, $Text, $Script:AppTitle, 'YesNo', $Icon) -eq 'Yes')
 }
 function Select-Folder([string]$Title, [string]$Start) {
     $d = New-Object System.Windows.Forms.FolderBrowserDialog
@@ -181,7 +181,7 @@ function Invoke-Tick {
         Set-TaskbarState 'Paused' 1     # yellow: the job waits for an answer
         Request-Attention
         $def = if ($q.Default) { 'Yes' } else { 'No' }
-        $r = [Windows.MessageBox]::Show($Script:W, [string]$q.Text, 'Win10 ISO Updater', 'YesNo', 'Question', $def)
+        $r = [Windows.MessageBox]::Show($Script:W, [string]$q.Text, $Script:AppTitle, 'YesNo', 'Question', $def)
         $Script:Sync.Answer = ($r -eq 'Yes')
         $Script:Timer.Start()
     }
@@ -417,8 +417,7 @@ function Save-EditionPick {
     Update-Status
 }
 function Update-SignDest {
-    $n = ($Script:U.SignName.Text -replace '[^\w\.-]', '_').Trim('_')
-    if (-not $n) { $n = 'Driver' }
+    $n = ConvertTo-PackageName $Script:U.SignName.Text
     $Script:U.SignDest.Text = "installs from C:\Drivers\$n during Windows setup"
 }
 #endregion

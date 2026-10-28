@@ -6,6 +6,7 @@ Signing-Output/
 
 # downloaded tools and local state
 tools/
+Windows-ISO-Updater.settings.json
 Win10-ISO-Updater.settings.json
 
 # ISO work / output
@@ -18,3 +19,4 @@ Win10-ISO-Updater.settings.json
 # test run leftovers
 tests/v2body.ps1
 tests/findings.txt
+__pycache__/

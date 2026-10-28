@@ -71,6 +71,11 @@ Check 'trust lines come before pnputil' ($sc.IndexOf('TrustedPublisher') -lt $sc
 $sc2 = New-SetupCompleteDrivers @([ordered]@{ Name = 'NVIDIA'; InstallDir = 'C:\Drivers\NVIDIA' }) $false
 Check 'cleanup off keeps the files' ($sc2 -notmatch 'rd /s /q')
 
+# --- package names are plain ASCII (they end up in SetupComplete-drivers.cmd, written as ASCII)
+Check 'package name: accents transliterated' ((ConvertTo-PackageName ('Gr' + [char]0x00E1 + 'ficos ' + [char]0x00E7)) -eq 'Graficos_c')
+Check 'package name: version kept, spaces -> _' ((ConvertTo-PackageName 'NVIDIA 566.36') -eq 'NVIDIA_566.36')
+Check 'package name: nothing usable -> Driver' ((ConvertTo-PackageName '  ') -eq 'Driver' -and (ConvertTo-PackageName ([string][char]0x4E2D)) -eq 'Driver' -and (ConvertTo-PackageName $null) -eq 'Driver')
+
 # --- $OEM$ assembly on the media
 New-Item -ItemType Directory -Force (Join-Path $Script:P.Media 'sources') | Out-Null
 $user = Join-Path $tmp 'mine/$OEM$'
@@ -97,6 +102,17 @@ Sync-Oem
 $lines = [IO.File]::ReadAllLines(($(Get-ChildItem -Recurse -File $oem | ? { $_.Name -eq 'SetupComplete.cmd' } | Select-Object -First 1)).FullName)
 Check 'second sync does not add the call twice' (@($lines | ? { $_ -match 'SetupComplete-drivers' }).Count -eq 1)
 Check 'cer + driver script on the media' ((@(Get-ChildItem -Recurse -File $oem | ? { $_.Name -in 'DriverSigning.cer','SetupComplete-drivers.cmd' }).Count) -eq 2)
+# --- your own SetupComplete.cmd keeps its bytes (accents, UTF-8 BOM): only the call line is added
+$userSc = Join-Path (Join-Path $user $scDirName) 'SetupComplete.cmd'
+$body = [Text.Encoding]::UTF8.GetBytes("@echo off`r`necho Instala" + [char]0x00E7 + [char]0x00E3 + "o`r`nexit /b 0`r`n")
+[IO.File]::WriteAllBytes($userSc, [byte[]](@(0xEF, 0xBB, 0xBF) + $body))
+$Script:S.Signed = @([ordered]@{ Name = 'NVIDIA'; Path = $pkg; InstallDir = 'C:\Drivers\NVIDIA' })
+Sync-Oem
+$scOut = (Get-ChildItem -Recurse -File $oem | ? { $_.Name -eq 'SetupComplete.cmd' } | Select-Object -First 1).FullName
+$latin = [Text.Encoding]::GetEncoding(28591)
+$first = $latin.GetBytes("@echo off`r`n")
+$expect = [byte[]](@(0xEF, 0xBB, 0xBF) + $first + $latin.GetBytes("call `"%~dp0SetupComplete-drivers.cmd`"`r`n") + $body[$first.Length..($body.Length - 1)])
+Check 'accents + BOM in your SetupComplete.cmd survive, call inserted after @echo off' ([Convert]::ToBase64String([IO.File]::ReadAllBytes($scOut)) -eq [Convert]::ToBase64String($expect))
 $Script:S.Signed = @(); Set-OemFolder $null; Sync-Oem
 Check 'removing both takes $OEM$ out of the media' (-not (Test-Path $oem) -and -not $Script:S.OemSynced)
 

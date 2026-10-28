@@ -51,7 +51,7 @@ function Invoke-Build([switch]$Auto, [string]$OutIso) {
     $build = if ($S.Serviced) { $S.Serviced.Build } elseif (@($S.Images).Count -gt 0) { $S.Images[0].Version } else { 'unknown' }
     $tag = if ($S.Family -and $S.Family.VerToken) { $S.Family.VerToken } else { 'custom' }
     $arch = if ($S.Family) { $S.Family.Arch } else { 'x64' }
-    $label = if ($S.Family -and $S.Family.Label) { $S.Family.Label } else { 'WIN10_CUSTOM' }
+    $label = if ($S.Family -and $S.Family.Label) { $S.Family.Label } else { 'WINDOWS_CUSTOM' }
     if ($label.Length -gt 32) { $label = $label.Substring(0, 32) }
     New-Item -ItemType Directory -Force -Path $P.Output | Out-Null
     $iso = Join-Path $P.Output ('Win{0}_{1}_{2}_{3}_{4:yyyyMMdd}.iso' -f (Get-FamilyOs $S.Family), $tag, $build, $arch, (Get-Date))
@@ -98,7 +98,8 @@ function Invoke-Build([switch]$Auto, [string]$OutIso) {
     Write-Ok "ISO ready: $iso ($(Format-Size $size))"
     Write-Info 'Calculating SHA-256...'
     $hash = (Get-FileHash -LiteralPath $iso -Algorithm SHA256).Hash
-    Set-Content -LiteralPath "$iso.sha256" -Value "$hash *$(Split-Path $iso -Leaf)" -Encoding ASCII
+    # UTF-8 without BOM (sha256sum -c cannot read a BOM) so a file name with accents stays intact
+    [IO.File]::WriteAllText("$iso.sha256", "$hash *$(Split-Path $iso -Leaf)`n", (New-Object Text.UTF8Encoding $false))
     Write-Info "SHA-256: $hash"
     $S.Iso = $iso
     Save-State

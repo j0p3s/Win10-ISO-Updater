@@ -1,8 +1,21 @@
-"""Assembles Win10-ISO-Updater.cmd (single file) from src/ parts + the v1.1 engine."""
-import os, sys
+"""Assembles Windows-ISO-updater-GUI_v<version>.cmd (single file) from src/ parts + the v1.1 engine.
+
+The version is read from $Script:AppVersion in src/10_engine_head.ps1 - the one place to change it.
+It ends up in the file name, in the header of the .cmd and in the window.
+Older builds (Windows-ISO-updater-GUI_v*.cmd, and the pre-3.4 Win10-ISO-Updater.cmd) are removed.
+"""
+import glob, os, re, sys
 
 SRC = os.path.dirname(os.path.abspath(__file__))
-OUT = os.path.join(os.path.dirname(SRC), 'Win10-ISO-Updater.cmd')
+ROOT = os.path.dirname(SRC)
+
+_head = open(os.path.join(SRC, '10_engine_head.ps1'), encoding='ascii').read()
+_m = re.search(r"^\$Script:AppVersion\s*=\s*'(\d+\.\d+\.\d+)'", _head, re.M)
+if not _m:
+    sys.exit("$Script:AppVersion = 'X.Y.Z' not found in src/10_engine_head.ps1")
+VERSION = _m.group(1)
+FILENAME = f'Windows-ISO-updater-GUI_v{VERSION}.cmd'
+OUT = os.path.join(ROOT, FILENAME)
 
 v1 = open(os.path.join(SRC, 'engine_v1.ps1'), encoding='ascii').read().replace('\r\n', '\n').split('\n')
 
@@ -40,6 +53,23 @@ assert old_exe.startswith('function Invoke-Exe'), old_exe
 settings = edit(settings, old_exe + '\n', '')          # replaced by the live-output version
 settings = edit(settings, "use [C] Clean up in the menu first.", "use Clean up on the Options page first.")
 
+# settings: the file name does not carry the version, so a new version keeps the options of the old one;
+# the pre-3.4 name (Win10-ISO-Updater.settings.json) is read once when the new file does not exist yet
+settings = edit(settings, """    if (Test-Path -LiteralPath $Script:SettingsFile) {
+        try {
+            $j = Get-Content -LiteralPath $Script:SettingsFile -Raw | ConvertFrom-Json""",
+"""    $sf = $Script:SettingsFile
+    if (-not (Test-Path -LiteralPath $sf) -and $Script:LegacySettingsFile -and (Test-Path -LiteralPath $Script:LegacySettingsFile)) { $sf = $Script:LegacySettingsFile }
+    if (Test-Path -LiteralPath $sf) {
+        try {
+            $j = Get-Content -LiteralPath $sf -Raw | ConvertFrom-Json""")
+# a UNC work folder has no drive letter: say so instead of failing inside DriveInfo
+settings = edit(settings, """    $root = [IO.Path]::GetPathRoot([IO.Path]::GetFullPath($w))
+    $drv = New-Object IO.DriveInfo($root)""",
+"""    $root = [IO.Path]::GetPathRoot([IO.Path]::GetFullPath($w))
+    if ($root -notmatch '^[A-Za-z]:\\\\') { throw "The work folder must be on a local NTFS drive, not a network path ($w)." }
+    $drv = New-Object IO.DriveInfo($root)""")
+
 # v1 lines 401-431 (Resolve-Family), 508-537 (Find-Update, Find-ByKB) and 583-591 (Get-UpdateFiles)
 # now live in src/38_engine_windows.ps1, with Windows 11 support
 detect_catalog = rng(354, 400) + '\n' + rng(432, 507) + '\n' + rng(538, 582) + '\n#endregion'
@@ -75,6 +105,13 @@ drivers_b = edit(drivers_b, """        New-Item -ItemType Directory -Force -Path
         Copy-Item -LiteralPath $Source -Destination $Dest -Recurse -Force""", """        New-Item -ItemType Directory -Force -Path $Dest | Out-Null
         Get-ChildItem -LiteralPath $Source -Force | Copy-Item -Destination $Dest -Recurse -Force""")
 unattend = rng(1103, 1138) + '\n#endregion'
+# a non-numeric image INDEX in an answer file must not abort the analysis with a cast error
+unattend = edit(unattend, """        if ($key -match '/IMAGE/INDEX' -and [int]$val -gt $img.Count) {""",
+"""        $idx = 0
+        if ($key -match '/IMAGE/INDEX' -and -not [int]::TryParse($val.Trim(), [ref]$idx)) {
+            Write-Warn "autounattend.xml has an image INDEX that is not a number ('$val')."
+        } elseif ($key -match '/IMAGE/INDEX' -and $idx -gt $img.Count) {""")
+unattend = edit(unattend, "$_.ImageIndex -eq [int]$val })", "$_.ImageIndex -eq $idx })")
 
 # v1 lines 1177-1419 (slipstream) now live in src/35_engine_service.ps1
 
@@ -95,10 +132,19 @@ for extra in ('40_gui_xaml.ps1', '45_gui_dialogs.ps1', '50_gui.ps1', '55_gui_mai
     if os.path.exists(os.path.join(SRC, extra)):
         pieces.append(part(extra))
 text = '\n'.join(pieces) + '\n'
+text = text.replace('@@VERSION@@', VERSION).replace('@@FILENAME@@', FILENAME)
+if '@@' in text:
+    sys.exit('unreplaced placeholder: ' + text[text.index('@@'):][:40])
 
 bad = [(i + 1, l) for i, l in enumerate(text.split('\n')) if any(ord(c) > 127 for c in l)]
 if bad:
     sys.exit(f'non-ASCII on line {bad[0][0]}: {bad[0][1][:80]}')
+
+# one build in the repo root: drop older versions and the pre-3.4 file name
+for old in glob.glob(os.path.join(ROOT, 'Windows-ISO-updater-GUI_v*.cmd')) + [os.path.join(ROOT, 'Win10-ISO-Updater.cmd')]:
+    if os.path.exists(old) and os.path.abspath(old) != os.path.abspath(OUT):
+        os.remove(old)
+        print(f'removed {os.path.basename(old)}')
 with open(OUT, 'wb') as f:
     f.write(text.replace('\n', '\r\n').encode('ascii'))
 print(f'wrote {OUT}: {len(text.splitlines())} lines, {len(text)} chars')

@@ -15,7 +15,7 @@ function Get-WindowsImage { param($ImagePath, [switch]$Mounted) if ($Mounted) { 
 $Script:EngineText = $body.Substring($b, $e - $b) + $stubs
 . ([scriptblock]::Create($stubs))
 $tmp = Join-Path ([IO.Path]::GetTempPath()) ('w10u_svc_' + [guid]::NewGuid().ToString('N').Substring(0, 6)); New-Item -ItemType Directory $tmp | Out-Null
-$env:W10U_SELF = Join-Path $tmp 'Win10-ISO-Updater.cmd'
+$env:W10U_SELF = Join-Path $tmp 'Windows-ISO-updater-GUI_v0.0.0.cmd'
 $env:SystemDrive = $tmp; $env:SystemRoot = $tmp
 $Script:Sync = [hashtable]::Synchronized(@{ Queue = (New-Object 'System.Collections.Concurrent.ConcurrentQueue[object]'); Pct = -1; Status = ''; Result = $null })
 $Script:Inv = [Globalization.CultureInfo]::InvariantCulture

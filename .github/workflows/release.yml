@@ -2,7 +2,7 @@ name: release
 
 # Actions -> release -> Run workflow (on main). Checks that the version is the one in the code and has
 # a CHANGELOG entry, runs the tests, then creates the tag and the GitHub release with that CHANGELOG
-# entry as notes and Win10-ISO-Updater.cmd (+ its SHA-256) attached.
+# entry as notes and Windows-ISO-updater-GUI_vX.X.X.cmd (+ its SHA-256) attached.
 on:
   workflow_dispatch:
     inputs:
@@ -31,14 +31,21 @@ jobs:
           [ "$GITHUB_REF" = refs/heads/main ] || { echo "::error::Run the release from main (this run is on $GITHUB_REF)"; exit 1; }
           [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::Version must look like 3.0.0, not '$VERSION'"; exit 1; }
           grep -q "^\$Script:AppVersion   = '$VERSION'" src/10_engine_head.ps1 || { echo "::error::src/10_engine_head.ps1 is not version $VERSION"; exit 1; }
-          grep -q "Starting Win10 ISO Updater v$VERSION " src/00_header.cmd || { echo "::error::src/00_header.cmd is not version $VERSION"; exit 1; }
           grep -q "^## v$VERSION " CHANGELOG.md || { echo "::error::CHANGELOG.md has no '## v$VERSION' entry"; exit 1; }
           if git rev-parse -q --verify "refs/tags/v$VERSION" >/dev/null; then echo "::error::Tag v$VERSION already exists"; exit 1; fi
 
-      - name: Win10-ISO-Updater.cmd matches src/
+      - name: Windows-ISO-updater-GUI_vX.X.X.cmd matches src/
+        env:
+          VERSION: ${{ inputs.version }}
         run: |
           python3 src/build.py
-          git diff --exit-code -- Win10-ISO-Updater.cmd || { echo "::error::Win10-ISO-Updater.cmd is not the build of src/ - run python src/build.py and commit it"; exit 1; }
+          # the build writes Windows-ISO-updater-GUI_v<AppVersion>.cmd and removes older ones: any change, new or deleted file is a mismatch
+          if [ -n "$(git status --porcelain)" ]; then
+            git status --short
+            echo "::error::The .cmd in the repo is not the build of src/ - run python src/build.py and commit the result (new Windows-ISO-updater-GUI_v*.cmd, old one removed)"
+            exit 1
+          fi
+          [ -f "Windows-ISO-updater-GUI_v$VERSION.cmd" ] || { echo "::error::The build did not produce Windows-ISO-updater-GUI_v$VERSION.cmd"; exit 1; }
 
       - name: Test suites
         shell: pwsh
@@ -53,8 +60,9 @@ jobs:
           awk -v head="## v$VERSION " 'index($0, head) == 1 { on = 1; next } on && /^## v/ { exit } on { print }' CHANGELOG.md > notes.md
           prev=$(git tag --list 'v*' --sort=-v:refname | head -n 1)
           if [ -n "$prev" ]; then printf '\n**Full Changelog**: https://github.com/%s/compare/%s...v%s\n' "$GITHUB_REPOSITORY" "$prev" "$VERSION" >> notes.md; fi
-          sha256sum Win10-ISO-Updater.cmd > Win10-ISO-Updater.cmd.sha256
+          cmd="Windows-ISO-updater-GUI_v$VERSION.cmd"
+          sha256sum "$cmd" > "$cmd.sha256"
           name="v$VERSION"
           if [ -n "$TITLE" ]; then name="v$VERSION — $TITLE"; fi
-          gh release create "v$VERSION" Win10-ISO-Updater.cmd Win10-ISO-Updater.cmd.sha256 \
+          gh release create "v$VERSION" "$cmd" "$cmd.sha256" \
             --target "$GITHUB_SHA" --title "$name" --notes-file notes.md --latest

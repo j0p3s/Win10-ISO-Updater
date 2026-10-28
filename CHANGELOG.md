@@ -1,5 +1,26 @@
 # Changelog
 
+## v3.4.0 — 2026-10-28
+
+The program is now **Windows ISO Updater**: the file is called `Windows-ISO-updater-GUI_vX.X.X.cmd` and carries its version in the name. Plus a round of fixes found in a code review.
+
+**Upgrading from 3.3:** download `Windows-ISO-updater-GUI_v3.4.0.cmd`, put it in the same folder and delete the old `Win10-ISO-Updater.cmd`. Your options are carried over (`Win10-ISO-Updater.settings.json` is read once and saved as `Windows-ISO-Updater.settings.json`), and the `signing` folder and the work folder are kept. The GitHub repository is now `j0p3s/Windows-ISO-Updater`.
+
+### Changed
+- **New file name**: `Windows-ISO-updater-GUI_vX.X.X.cmd`. The version is read from one place (`$Script:AppVersion` in `src/10_engine_head.ps1`); `build.py` puts it in the file name, the header, the start line and the version label in the window, and removes older builds.
+- The release workflow attaches `Windows-ISO-updater-GUI_vX.Y.Z.cmd` and its `.sha256`; the `tests` workflow checks that the committed build is the build of `src/`.
+- Names and titles say *Windows ISO Updater* everywhere (window, message boxes, log, ISO label fallback `WINDOWS_CUSTOM`). The settings file name no longer changes with the version.
+- The *Save as* box of the Build page suggests `Win10_custom.iso` or `Win11_custom.iso` after the Windows version of the unpacked ISO.
+
+### Fixed
+- **Your own `SetupComplete.cmd` kept byte for byte.** Adding the driver call used to rewrite the file as ASCII, so accented characters in it became `?` and a UTF-8 BOM was dropped. Now only the `call` line is inserted; encoding and BOM stay.
+- **Accents in a driver package name** (for example a folder called `Gráficos`) no longer end up as `?` in `SetupComplete-drivers.cmd`: names are transliterated to plain ASCII. An `$OEM$` driver folder with non-ASCII characters is skipped with a note in the log, as it cannot be named in that script.
+- A **network path as work folder** (`\\server\share`) now gives a clear message instead of an error from `DriveInfo`.
+- A **non-numeric image INDEX** in `autounattend.xml` no longer aborts the check with a cast error; it is reported as a warning.
+- The Defender marker file and the `.sha256` next to the ISO keep non-ASCII characters in the path / file name (UTF-8; the `.sha256` has no BOM, so `sha256sum -c` reads it).
+- The launcher starts Windows PowerShell by its full path, so a `powershell.exe` lying next to the `.cmd` (the current folder is searched first) is never run with administrator rights.
+- Redundant branch in the driver import removed.
+
 ## v3.3.0 — 2026-10-28
 
 Windows 11 support, and a switch on page 1 to choose between Windows 10 and Windows 11.

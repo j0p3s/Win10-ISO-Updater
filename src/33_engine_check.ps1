@@ -64,6 +64,7 @@ function Get-OemDriverRoots([string]$OemDir, $Signed) {
         $rel = $f.DirectoryName.Substring($one.Length).TrimStart('\', '/')
         $seg = @($rel -split '[\\/]' | Where-Object { $_ })
         $root = if ($seg.Count -ge 2) { $seg[0] + '\' + $seg[1] } elseif ($seg.Count -eq 1) { $seg[0] } else { '' }
+        if ($root -cmatch '[^\x20-\x7E]') { Add-Log "OEM driver folder skipped (non-ASCII name cannot go into the .cmd script): $root"; continue }
         if ($root -and $skip -notcontains $root.ToLower() -and -not $roots.Contains($root)) { $roots.Add($root) }
     }
     return @($roots)
