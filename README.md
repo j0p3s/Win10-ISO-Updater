@@ -32,9 +32,8 @@ Missing tools (`oscdimg`, `Inf2Cat`, `signtool`) are downloaded automatically fr
 | **2 · Editions:** tick the editions to keep. | **3 · Windows updates:** the October 2025 cumulative update, Safe OS and Setup Dynamic Updates, and .NET, found and downloaded. |
 | ![Drivers page listing 116 driver packages from this PC](docs/screenshots/04-drivers.png) | ![Signed NVIDIA / modded drivers page with the signing options](docs/screenshots/05-signed.png) |
 | **4 · Drivers:** 116 packages from this PC, 17 of them also go into boot.wim and WinRE. | **5 · Signed NVIDIA / modded:** a modded package with the faster signing options. |
-
-![Slipstream + build ISO page while the slipstream runs, with the Speed options and boot.wim updating in the background](docs/screenshots/08-build.png)
-*Page 7 while the slipstream runs: boot and speed options, the progress bar, and boot.wim being updated in the background (status line, right).*
+| ![Answer file and $OEM$ page with an autounattend.xml and a $OEM$ folder set](docs/screenshots/06-answer-oem.png) | ![Slipstream + build ISO page while the slipstream runs, with the Speed options and boot.wim updating in the background](docs/screenshots/08-build.png) |
+| **6 · Answer file + $OEM$:** your `autounattend.xml` and `$OEM$` folder, copied into the media when the ISO is built. | **7 · Slipstream + build ISO**, while the slipstream runs: boot and speed options, the progress bar, and boot.wim updated in the background (status line, right). |
 <!-- /SCREENSHOTS -->
 
 ---
