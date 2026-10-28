@@ -58,6 +58,29 @@ $Script:XRes = @'
       <Setter Property="Foreground" Value="White"/>
       <Setter Property="FontWeight" Value="SemiBold"/>
     </Style>
+    <Style x:Key="Seg" TargetType="RadioButton">
+      <Setter Property="Foreground" Value="#E6EAF2"/>
+      <Setter Property="Margin" Value="0,0,8,0"/>
+      <Setter Property="Cursor" Value="Hand"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="RadioButton">
+            <Border x:Name="bd" Background="#222B3F" CornerRadius="8" Padding="22,8">
+              <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="bd" Property="Opacity" Value="0.82"/></Trigger>
+              <Trigger Property="IsChecked" Value="True">
+                <Setter TargetName="bd" Property="Background" Value="{StaticResource Grad}"/>
+                <Setter Property="Foreground" Value="White"/>
+                <Setter Property="FontWeight" Value="SemiBold"/>
+              </Trigger>
+              <Trigger Property="IsEnabled" Value="False"><Setter TargetName="bd" Property="Opacity" Value="0.35"/></Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
     <Style x:Key="Toggle" TargetType="CheckBox">
       <Setter Property="Foreground" Value="#E6EAF2"/>
       <Setter Property="Margin" Value="0,5,0,5"/>
@@ -235,7 +258,7 @@ __RES__
           <TextBlock Text="W10" Foreground="White" FontWeight="Bold" FontSize="12" HorizontalAlignment="Center" VerticalAlignment="Center"/>
         </Border>
         <StackPanel Margin="12,0,0,0" VerticalAlignment="Center">
-          <TextBlock FontSize="15" FontWeight="SemiBold"><Run Text="Win10 ISO Updater"/><Run x:Name="VerRun" Text="  v3.2.0" Foreground="#5B6478" FontWeight="Normal" FontSize="12"/></TextBlock>
+          <TextBlock FontSize="15" FontWeight="SemiBold"><Run Text="Win10 ISO Updater"/><Run x:Name="VerRun" Text="  v3.3.0" Foreground="#5B6478" FontWeight="Normal" FontSize="12"/></TextBlock>
           <TextBlock Text="updates + drivers + signed NVIDIA mods + autounattend + $OEM$  ->  bootable ISO" Foreground="#8A94A8" FontSize="11"/>
         </StackPanel>
       </StackPanel>

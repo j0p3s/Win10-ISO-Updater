@@ -53,8 +53,25 @@ $f = Resolve-Family @((img 19044 'Professional'))
 Check '21H2 Pro -> 22H2 + eKB' ($f.Product -eq 'Windows 10 Version 22H2' -and $f.NeedsEkb)
 $f = Resolve-Family @((img 17763 'EnterpriseS'))
 Check 'LTSC 2019 family, no cap' ($f.Product -eq 'Windows 10 Version 1809' -and -not $f.Cap)
+$f = Resolve-Family @((img 26100))
+Check 'Win11 24H2 family' ($f.Os -eq '11' -and $f.Product -eq 'Windows 11 Version 24H2' -and $f.Supported -and $f.NoSsu -and -not $f.Cap -and -not $f.NeedsEkb -and $f.Label -eq 'W11_24H2_X64' -and $f.Name -eq 'Windows 11 24H2')
+$f = Resolve-Family @((img 26100 'IoTEnterpriseS'))
+Check 'Win11 LTSC 2024' ($f.Name -eq 'Windows 11 LTSC 2024 (24H2)' -and $f.Product -eq 'Windows 11 Version 24H2')
+$f = Resolve-Family @((img 26200))
+Check 'Win11 25H2 family' ($f.Product -eq 'Windows 11 Version 25H2' -and $f.Supported)
 $f = Resolve-Family @((img 22631))
-Check 'Win11 unsupported' (-not $f.Supported)
+Check 'Win11 23H2 family' ($f.Product -eq 'Windows 11 Version 23H2' -and -not $f.NeedsEkb)
+$f = Resolve-Family @((img 22621))
+Check 'Win11 22H2 -> 23H2 + enablement package' ($f.Product -eq 'Windows 11 Version 23H2' -and $f.NeedsEkb -and $f.EkbKB -eq 'KB5027397' -and $f.EkbFor -eq '23H2')
+$f = Resolve-Family @((img 22000))
+Check 'Win11 21H2: last updates 2024-10' ($f.Product -eq 'Windows 11 Version 21H2' -and $f.Cap -eq '2024-10')
+$f = Resolve-Family @((img 26300))
+Check 'unknown Win11 build: no automatic updates' (-not $f.Supported -and $f.Os -eq '11' -and $f.Name -eq 'Windows 11 (build 26300)')
+$f = Resolve-Family @((img 26100 'Professional' 'arm64'))
+Check 'Win11 ARM64 arch title' ($f.ArchTitle -eq 'ARM64-based Systems' -and $f.Label -eq 'W11_24H2_ARM64')
+$f = Resolve-Family @((img 19044 'Professional'))
+Check 'Win10 eKB names its KB' ($f.Os -eq '10' -and $f.EkbKB -eq 'KB5015684' -and $f.EkbFor -eq '22H2' -and -not $f.NoSsu)
+Check 'OS of an old saved family (no Os key)' ((Get-FamilyOs ([ordered]@{ Build = 26100 })) -eq '11' -and (Get-FamilyOs ([ordered]@{ Build = 19045 })) -eq '10' -and (Get-FamilyOs $null) -eq '10')
 $f = Resolve-Family @((img 19045 'Professional' 'x86'))
 Check 'x86 arch title' ($f.ArchTitle -eq 'x86-based Systems' -and $f.ArchToken -eq 'x86')
 
@@ -134,6 +151,77 @@ function Search-Catalog([string]$Query) { return @(
         (MkHit 'Microsoft .NET Framework 4.8.1 for Windows 10 Version 22H2 for ARM64 (KB5011048)' 'x' '2022-10-11')) }
 $n481 = Find-ByKB 'KB5011048' $fam '\b22H2\b'
 Check '.NET 4.8.1 by KB picks 22H2 x64' ($n481.Title -eq 'Microsoft .NET Framework 4.8.1 for Windows 10 Version 22H2 for x64 (KB5011048)')
+
+# ---- 6b. Windows 11 catalog titles
+$script:hitsByMonth = @{}
+function Search-Catalog([string]$Query) { $ym = $Query.Substring(0, 7); if ($script:hitsByMonth.ContainsKey($ym)) { return $script:hitsByMonth[$ym] } }
+$script:hitsByMonth['2025-10'] = @(
+    (MkHit '2025-10 Cumulative Update for Microsoft server operating system version 24H2 for x64-based Systems (KB5066835)' 'Microsoft Server operating system-24H2' '2025-10-14'),
+    (MkHit '2025-10 Cumulative Update for Windows 11 Version 25H2 for x64-based Systems (KB5066835)' 'Windows 11' '2025-10-14'),
+    (MkHit '2025-10 Cumulative Update for Windows 11 Version 24H2 for x64-based Systems (KB5066835)' 'Windows 11' '2025-10-14'),
+    (MkHit '2025-10 Cumulative Update Preview for Windows 11 Version 24H2 for x64-based Systems (KB5067036)' 'Windows 11' '2025-10-28'),
+    (MkHit '2025-10 Cumulative Update for Windows 11 Version 24H2 for arm64-based Systems (KB5066835)' 'Windows 11' '2025-10-14'),
+    (MkHit '2025-10 Cumulative Update for Windows 10 Version 22H2 for x64-based Systems (KB5066791)' 'Windows 10' '2025-10-14'),
+    (MkHit '2025-10 Cumulative Update for .NET Framework 3.5 and 4.8.1 for Windows 11, version 24H2 for x64 (KB5066128)' 'Windows 11' '2025-10-14'),
+    (MkHit '2025-10 Cumulative Update for .NET Framework 3.5 and 4.8.1 for Windows 11, version 24H2 for ARM64 (KB5066128)' 'Windows 11' '2025-10-14'),
+    (MkHit '2025-10 Safe OS Dynamic Update for Windows 11 Version 24H2 for x64-based Systems (KB5067039)' 'Windows Safe OS Dynamic Update' '2025-10-14'),
+    (MkHit '2025-10 Setup Dynamic Update for Windows 11 Version 24H2 for x64-based Systems (KB5067040)' 'Windows 11 GDR-DU' '2025-10-14'),
+    (MkHit '2025-10 Dynamic Update for Windows 10 Version 22H2 for x64-based Systems (KB5067000)' 'Windows Safe OS Dynamic Update' '2025-10-14')
+)
+$f11 = Resolve-Family @((img 26100))
+$lcu = Find-Update 'LCU' $f11 '2025-10' 1
+Check 'Win11 LCU: 24H2 x64, not 25H2 / Server / preview / Windows 10' ($lcu.Title -eq '2025-10 Cumulative Update for Windows 11 Version 24H2 for x64-based Systems (KB5066835)')
+$lcu = Find-Update 'LCU' (Resolve-Family @((img 26200))) '2025-10' 1
+Check 'Win11 25H2 LCU' ($lcu.Title -like '*Windows 11 Version 25H2 for x64*')
+$lcu = Find-Update 'LCU' (Resolve-Family @((img 26100 'Professional' 'arm64'))) '2025-10' 1
+Check 'Win11 ARM64 LCU (catalog writes arm64 in lower case)' ($lcu.Title -like '*24H2 for arm64-based*')
+$net = @(Find-Update 'NET' $f11 '2025-10' 1)
+Check 'Win11 .NET: "Windows 11, version 24H2" x64 only' ($net.Count -eq 1 -and $net[0].Title -like '*Windows 11, version 24H2 for x64 (*')
+$safe = Find-Update 'SAFEOS' $f11 '2025-10' 1
+Check 'Win11 Safe OS DU' ($safe.KB -eq 'KB5067039')
+$setup = Find-Update 'SETUP' $f11 '2025-10' 1
+Check 'Win11 Setup DU (not the Windows 10 one)' ($setup.KB -eq 'KB5067040')
+$lcu = Find-Update 'LCU' $fam '2025-10' 1
+Check 'Windows 10 family still picks the Windows 10 LCU' ($lcu.KB -eq 'KB5066791')
+function Search-Catalog([string]$Query) { return @(
+        (MkHit '2023-10 Feature Update to Windows 11 Version 23H2 for x64-based Systems (KB5027397)' 'Windows 11' '2023-10-31'),
+        (MkHit '2023-10 Feature Update to Windows 11 Version 23H2 for arm64-based Systems (KB5027397)' 'Windows 11' '2023-10-31')) }
+$f22 = Resolve-Family @((img 22621))
+$ekb = Find-ByKB $f22.EkbKB $f22 $f22.EkbFor
+Check 'Win11 23H2 enablement package by KB, x64' ($ekb.Title -like '*23H2 for x64-based*')
+
+# ---- 6c. 24H2 checkpoint update goes in first
+$cp = Join-Path $tmp 'LCU'; New-Item -ItemType Directory -Force $cp | Out-Null
+$newer = Join-Path $cp ('windows11.0-kb5066835-x64_' + ('a' * 40) + '.msu'); $older = Join-Path $cp ('windows11.0-kb5043080-x64_' + ('b' * 40) + '.msu')
+Set-Content $newer 'x'; Set-Content $older 'x'
+$Script:S = New-State
+$Script:S.Updates = @([ordered]@{ Kind = 'LCU'; KB = 'KB5066835'; Title = 't'; Date = '2025-10-14'; Files = @($newer, $older) })
+$uf = Get-UpdateFiles
+Check 'checkpoint (older KB) before the cumulative update' ((@($uf.LCU | ForEach-Object { Get-FileKB $_ }) -join ',') -eq '5043080,5066835')
+Check 'KB from file name' ((Get-FileKB 'C:\u\windows10.0-kb5066791-x64_ab.msu') -eq 5066791 -and (Get-FileKB 'ssu.cab') -eq 0)
+
+# ---- 6d. DISM for the image (Windows only services an image with the same or a newer DISM)
+Check 'base builds' ((Get-BaseBuild 19045) -eq 19041 -and (Get-BaseBuild 22631) -eq 22621 -and (Get-BaseBuild 26200) -eq 26100 -and (Get-BaseBuild 17763) -eq 17763)
+$script:builds = @{ 'C:\sys\dism.exe' = 19041; 'C:\adk\dism.exe' = 26100 }
+function Get-DismBuild([string]$Exe) { return [int]$script:builds[$Exe] }
+$script:adkPath = 'C:\adk\dism.exe'; $script:asked = 0; $script:installed = 0; $script:answer = $true
+function Find-AdkDism { return $script:adkPath }
+function Read-YesNo([string]$Question, [bool]$Default = $true) { $script:asked++; return $script:answer }
+function Install-AdkDeploymentTools { $script:installed++; $script:adkPath = 'C:\adk\dism.exe'; return 0 }
+$Script:Dism = 'C:\sys\dism.exe'
+Check 'Windows 10 image on Windows 10: this PC''s DISM' ((Get-ServicingDism 19045) -eq 'C:\sys\dism.exe' -and (Get-ServicingDism 17763) -eq 'C:\sys\dism.exe')
+Check 'Windows 11 image on Windows 10: the ADK''s DISM' ((Get-ServicingDism 26100) -eq 'C:\adk\dism.exe' -and (Get-ServicingDism 22631) -eq 'C:\adk\dism.exe')
+$script:adkPath = $null
+Check 'no ADK, no -Install: this PC''s DISM, nothing asked' ((Get-ServicingDism 26100) -eq 'C:\sys\dism.exe' -and $script:asked -eq 0)
+$d = Get-ServicingDism 26100 -Install 3>$null
+Check 'no ADK, -Install, yes: ADK installed and used' ($d -eq 'C:\adk\dism.exe' -and $script:asked -eq 1 -and $script:installed -eq 1)
+$script:adkPath = $null; $script:answer = $false
+$d = Get-ServicingDism 26100 -Install 3>$null
+Check 'no ADK, -Install, no: this PC''s DISM, nothing installed' ($d -eq 'C:\sys\dism.exe' -and $script:installed -eq 1)
+$script:builds['C:\sys\dism.exe'] = 26100
+Check 'Windows 11 host: its own DISM for 23H2 and 25H2' ((Get-ServicingDism 22631) -eq 'C:\sys\dism.exe' -and (Get-ServicingDism 26200) -eq 'C:\sys\dism.exe')
+$Script:Dism = 'C:\fake\dism'
+Check 'DISM version unreadable (0): kept as it is' ((Get-ServicingDism 26100 -Install) -eq 'C:\fake\dism')
 
 # ---- 7. download-link extraction
 $script:page = @"

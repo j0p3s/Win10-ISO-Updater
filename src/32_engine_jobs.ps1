@@ -267,6 +267,8 @@ function Invoke-Job([string]$Job, $A) {
     $Script:Cfg = Import-Settings
     Initialize-Paths
     $Script:S = Import-State
+    $Script:Dism = Join-Path $env:SystemRoot 'System32\dism.exe'
+    if ($Script:S.Family -and $Script:S.Family.Build) { $Script:Dism = Get-ServicingDism ([int]$Script:S.Family.Build) }   # the ADK's DISM for Windows 11 on a Windows 10 PC
     $Script:NoAsk = [bool]$A.NoAsk
     $Script:Sync.Result = $null
     New-Item -ItemType Directory -Force -Path $Script:P.Logs | Out-Null

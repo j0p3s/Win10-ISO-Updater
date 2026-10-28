@@ -172,12 +172,19 @@ try {
     # 1 source
     $U.IsoBrowse.Add_Click({
         $start = if ($Script:S.SourceIso) { Split-Path ([string]$Script:S.SourceIso) -Parent } else { Join-Path $env:USERPROFILE 'Downloads' }
-        $f = Select-File 'Select a Windows 10 ISO' 'ISO images (*.iso)|*.iso' $start
+        $f = Select-File "Select a Windows $(if ($Script:Cfg.WinVersion -eq '11') { '11' } else { '10' }) ISO" 'ISO images (*.iso)|*.iso' $start
         if ($f) { $Script:U.IsoBox.Text = $f }
     })
     $U.UnpackBtn.Add_Click({ Invoke-UnpackClick })
     $U.AnalyzeBtn.Add_Click({ if (Test-Unpacked) { Start-Work 'Analyze' } })
-    $U.GetIsoBtn.Add_Click({ Start-Process $Script:IsoPageUrl })
+    $U.GetIsoBtn.Add_Click({ Start-Process $(if ($Script:Cfg.WinVersion -eq '11') { $Script:IsoPageUrl11 } else { $Script:IsoPageUrl }) })
+    foreach ($rb in @($U.WinVer10, $U.WinVer11)) {
+        $rb.Add_Click({
+            $Script:Cfg.WinVersion = if ($Script:U.WinVer11.IsChecked) { '11' } else { '10' }
+            Save-Settings
+            Update-WinVersion
+        })
+    }
     # 2 editions
     $U.EdGrid.Add_AutoGeneratingColumn({ param($s, $e) if ($e.PropertyName -eq 'Use') { $e.Cancel = $true } else { $e.Column.IsReadOnly = $true } })
     $U.EdAll.Add_Click({ $Script:Loading = $true; foreach ($r in $Script:EdTable.Rows) { $r['Use'] = $true }; $Script:Loading = $false; Save-EditionPick })
@@ -330,7 +337,7 @@ try {
     Write-Title "Win10 ISO Updater $Script:AppVersion"
     Write-Info "Work folder: $($Script:P.Work)"
     if ($Script:S.Unpacked) { Write-Info "Unpacked media: $(Split-Path ([string]$Script:S.SourceIso) -Leaf) - pick up where you left off." }
-    else { Write-Info 'Start on page 1: choose a Windows 10 ISO and unpack it - or set everything up and press Run everything.' }
+    else { Write-Info 'Start on page 1: choose Windows 10 or 11, pick its ISO and unpack it - or set everything up and press Run everything.' }
 
     try {
         # console window, keep-awake during jobs (Set-KeepAwake), taskbar flash (Request-Attention)

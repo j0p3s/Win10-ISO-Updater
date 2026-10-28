@@ -298,7 +298,7 @@ function Test-OemFolder($Ctx, [string]$OwnThumb, [string]$Arch) {
     }
     foreach ($i in @(Get-ChildItem -LiteralPath $u -Force -ErrorAction SilentlyContinue)) {
         if ($i.PSIsContainer -and @('$$', '$1') -notcontains $i.Name) {
-            Add-Finding 'Warning' '$OEM$' ('Folder "{0}" at the top of $OEM$ is ignored by Windows 10 Setup - only $$ (C:\Windows) and $1 (C:\) are copied.' -f $i.Name) '' 'Move its contents into $1 or $$'
+            Add-Finding 'Warning' '$OEM$' ('Folder "{0}" at the top of $OEM$ is ignored by Windows Setup - only $$ (C:\Windows) and $1 (C:\) are copied.' -f $i.Name) '' 'Move its contents into $1 or $$'
         } elseif (-not $i.PSIsContainer) {
             Add-Finding 'Warning' '$OEM$' ('File "{0}" at the top of $OEM$ is ignored - put it in $1 or $$.' -f $i.Name)
         }

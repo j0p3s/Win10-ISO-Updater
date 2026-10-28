@@ -250,6 +250,8 @@ function Invoke-Service([switch]$Auto) {
         if (-not (Read-YesNo 'Service it again anyway?' $false)) { return }
     }
     $upd = Get-UpdateFiles
+    $Script:Dism = Get-ServicingDism ([int]$S.Family.Build) -Install       # a newer DISM for Windows 11 on a Windows 10 PC
+    if ($Script:Dism -match '(?i)Assessment and Deployment Kit') { Write-Info "DISM of the Windows ADK: $($Script:Dism)" }
     $updCount = 0; foreach ($k in $upd.Keys) { $updCount += @($upd[$k]).Count }
     if ($updCount -eq 0) {
         Write-Warn 'No updates downloaded - only drivers and options will be applied.'
@@ -270,7 +272,8 @@ function Invoke-Service([switch]$Auto) {
     $hasDrv   = @($S.Drivers).Count -gt 0 -and (Test-Path -LiteralPath $P.DrvSel)
     $bootInfs = if ($Cfg.BootDrivers -and $hasDrv) { Get-BootDriverInfs } else { @() }
     $fu       = if ($Cfg.ForceUnsigned) { ' /ForceUnsigned' } else { '' }
-    $lcuTip   = 'If this is a Windows 10 update newer than 2025-10, Microsoft blocks offline ESU integration - set the month back in Options.'
+    $lcuTip   = if ((Get-FamilyOs $S.Family) -eq '10') { 'If this is a Windows 10 update newer than 2025-10, Microsoft blocks offline ESU integration - set the month back on the Windows updates page.' }
+                else { 'See logs\dism.log. A Windows 11 image needs a DISM of the same or a newer Windows (the Windows ADK Deployment Tools have one).' }
     New-Item -ItemType Directory -Force -Path $bfDir | Out-Null
     $bootSet  = New-BootDriverSet $bootInfs (Join-Path $P.Temp 'bootdrivers')
     $bootCtx  = @{
@@ -331,7 +334,7 @@ function Invoke-Service([switch]$Auto) {
                     try { Add-Pkg $P.Mount $x 'Cumulative update' -IgnoreHex @('800F081E') }
                     catch { Write-Err $lcuTip; throw }
                 }
-                foreach ($x in $upd.EKB) { Add-Pkg $P.Mount $x '22H2 enablement package' -IgnoreHex @('800F081E') -Soft }
+                foreach ($x in $upd.EKB) { Add-Pkg $P.Mount $x 'Enablement package' -IgnoreHex @('800F081E') -Soft }
                 if ($Cfg.ResetBase) { Invoke-ImageCleanup $P.Mount 'Windows' }
                 if ($Cfg.NetFx3) {
                     $sxs = Join-Path $P.Media 'sources\sxs'

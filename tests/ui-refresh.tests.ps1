@@ -65,6 +65,18 @@ $Script:Sync.SideSync = $null
 $ok = $true
 try { Set-KeepAwake $true; Set-KeepAwake $false; Request-Attention; $Script:W = $null; Set-TaskbarState 'Error' 1 } catch { $ok = $false }
 Check 'keep-awake, taskbar flash and a window without a taskbar button never throw' $ok
+
+# ---- Windows 10 / 11 selector on page 1 (the state above has a Windows 10 ISO unpacked)
+Check 'selector follows the unpacked Windows 10 ISO' ($Script:U.WinVer10.IsChecked -and -not $Script:U.WinVer11.IsChecked -and $Script:U.GetIsoBtn.Content -eq 'Download Windows 10 from Microsoft' -and $Script:U.CutoffRow.Visibility -eq 'Visible')
+$Script:Cfg.WinVersion = '11'; Update-WinVersion          # the user clicks Windows 11
+Check 'Windows 11 picked: download button, no cutoff row, mismatch noted' ($Script:U.WinVer11.IsChecked -and $Script:U.GetIsoBtn.Content -eq 'Download Windows 11 from Microsoft' -and $Script:U.CutoffRow.Visibility -eq 'Collapsed' -and $Script:U.WinVerNote.Text -match 'The unpacked ISO is Windows 10 - pick a Windows 11 ISO')
+Update-WinVersion
+Check 'choice kept while the same ISO stays unpacked' ($Script:Cfg.WinVersion -eq '11' -and $Script:U.WinVer11.IsChecked)
+$Script:S.SourceIso = 'E:\ISO\win11.iso'; $Script:S.Family = [ordered]@{ Os = '11'; Build = 26100; Arch = 'x64'; Supported = $true; Name = 'Windows 11 24H2'; Cap = $null; NeedsEkb = $false }
+$Script:Cfg.WinVersion = '10'; Update-WinVersion           # a Windows 11 ISO is unpacked with Windows 10 picked
+Check 'newly unpacked Windows 11 ISO switches the selector' ($Script:Cfg.WinVersion -eq '11' -and $Script:U.WinVer11.IsChecked -and $Script:U.WinVerNote.Text -notmatch 'unpacked ISO is')
+$Script:S.Family.Cap = '2024-10'; $Script:S.Family.Name = 'Windows 11 21H2'; Update-Ui
+Check "Windows 11 21H2 note: its last updates ($($Script:U.ImgNote.Text))" ($Script:U.ImgNote.Text -eq 'Its last updates (2024-10) - this version is out of servicing.')
 Remove-Item $tmp -Recurse -Force
 if ($fails) { exit 1 }
 exit 0
