@@ -22,6 +22,7 @@ $suites = @(
     @{ File = 'engine-catalog.tests.ps1';        Args = @('-Engine', $body) }   # catalog parsing, families, state (v1 engine)
     @{ File = 'gui-engine.tests.ps1';            Args = @() }                   # log sink, live process output, signing, $OEM$
     @{ File = 'signing.tests.ps1';               Args = @() }                   # untrusted (NVCleanstall) catalogs, stderr handling
+    @{ File = 'sign-speed.tests.ps1';            Args = @() }                   # isolated INF copies, parallel Inf2Cat, batched signing, time estimate
     @{ File = 'install-check.tests.ps1';         Args = @() }                   # install check findings + fixes
     @{ File = 'generator-answer-file.tests.ps1'; Args = @() }                   # a real autounattend-generator file
     @{ File = 'ui-refresh.tests.ps1';            Args = @() }                   # page refresh, check list, PS 5.1 JSON

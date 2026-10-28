@@ -1,5 +1,40 @@
 # Changelog
 
+## v3.1.0 — 2026-10-28
+
+Faster driver signing on page 5, with the speed-ups from [NVIDIA Modded Drivers Signer](https://github.com/j0p3s/nvidia-modded-drivers-signer) 1.1–1.4.
+
+**Upgrading from 3.0:** replace `Win10-ISO-Updater.cmd`. Your settings, the `signing` folder and the work folder are kept. Packages you already signed stay in the ISO as they are; sign them again to use the faster method.
+
+### Faster — signing modded drivers (page 5)
+- **New catalogs only for the INF files that need one** (new option, on by default). Before, a folder with one edited INF got new catalogs for all of its INF files, so Inf2Cat checked all ~40 INF files of NVIDIA's `Display.Driver` against the ~1 GB package. Now Inf2Cat gets a copy of the folder with only the edited INF files (and any INF that shares their catalog file). The driver files in that copy are hard links, so making it takes no time and no extra space (on drives without hard links they are copied).
+  - The other INF files keep their NVIDIA / Microsoft catalog and signature, and every INF stays in the package. Unlike *Only keep the INF files for this PC's hardware*, the driver still installs on any hardware, and NVIDIA's `setup.exe` keeps all its files.
+  - If Inf2Cat fails on the copy, the whole folder is catalogued as before, and the log says so.
+  - With *Re-sign every package*, all INF files get a new catalog, spread over several Inf2Cat runs.
+- **Several Inf2Cat runs at the same time.** One Inf2Cat run uses one processor core. Folders, and groups of INF files within a folder, are now catalogued side by side. New box on page 5, *Inf2Cat runs at the same time*: 1–8, by default the number of processor cores up to 4.
+- **All new catalogs are signed together**: up to 16 per signtool call instead of one call per catalog. If a batch fails, its files are signed one by one to find the one that failed.
+- **Time left.** While Inf2Cat runs, the status line shows the estimated time left and the progress bar fills.
+  - The estimate uses the size of the driver files, the number of INF files and how fast Inf2Cat was in earlier runs on this PC (`tools\inf2cat-speed.json`), so it gets more accurate each time.
+  - The log gives the estimate before Inf2Cat starts.
+  - With several runs, the status line shows how many are running and how many are done.
+
+### Not taken over from the signer
+- Signer 1.4.0 checks the INF files for one Windows version instead of seven. Win10 ISO Updater already checks a single target: Windows 10 for the ISO's architecture.
+- Signer 1.2.1 moves the removed INF files to a backup folder instead of deleting them. Here the original folder is never touched; only the work copy is trimmed.
+- Signer 1.3.0's *Fast* mode copies only the INF file. Here the copy also holds the driver files (as hard links), so the new catalog covers the files the INF installs.
+
+### Code and tests
+- `Invoke-Inf2CatQueue` runs Inf2Cat on a list of folders, a set number at the same time, and reads each run's output live. The single-folder `Invoke-Inf2Cat` uses it.
+- New suite `tests/sign-speed.tests.ps1` covers:
+  - isolated copies (hard links, catalogs left alone, a shared catalog, a leftover copy);
+  - two runs at the same time;
+  - the fallback to the whole folder;
+  - a missing driver file;
+  - batched signing;
+  - the time estimate and the live status of several runs.
+- The stand-in Inf2Cat now checks that the files an INF lists exist and logs each run. The stand-in signtool signs every file it is given.
+- In total there are 11 suites with about 300 checks.
+
 ## v3.0.0 — 2026-10-27
 
 Faster slipstream and downloads, a PC that stays awake through long jobs, progress on the taskbar, and an ISO build that never loses the previous ISO.
