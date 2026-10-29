@@ -1,8 +1,11 @@
 
 #region ---------------------------------------------------------------- GUI helpers
 function New-Xaml([string]$Text) {
-    $x = $Text.Replace('__PAGES__', $Script:XPages).Replace('__RES__', $Script:XRes)
+    $x = ConvertTo-ThemedXaml ($Text.Replace('__PAGES__', $Script:XPages).Replace('__RES__', $Script:XRes))
     $win = [Windows.Markup.XamlReader]::Parse($x)
+    foreach ($m in [regex]::Matches($x, 'DynamicResource T_([0-9A-F]{6})')) { if ($Script:ThemeKeys -notcontains $m.Groups[1].Value) { $Script:ThemeKeys += $m.Groups[1].Value } }
+    Set-ThemeResources $win
+    Set-WindowLook $win
     $names = @{}
     foreach ($m in [regex]::Matches($x, 'x:Name="([^"]+)"')) {
         $o = $win.FindName($m.Groups[1].Value)
@@ -11,7 +14,7 @@ function New-Xaml([string]$Text) {
     return @{ W = $win; U = $names }
 }
 function New-Brush([string]$Hex) {
-    $b = New-Object Windows.Media.SolidColorBrush ([Windows.Media.ColorConverter]::ConvertFromString($Hex))
+    $b = New-Object Windows.Media.SolidColorBrush ([Windows.Media.ColorConverter]::ConvertFromString((Get-ThemeHex $Hex)))
     $b.Freeze()
     return $b
 }
@@ -81,6 +84,7 @@ function Flush-Log {
         $p.Margin = New-Object Windows.Thickness 0
         $r = New-Object Windows.Documents.Run ([string]$item[1])
         $r.Foreground = Get-LogBrush ([string]$item[0])
+        $r.Tag = [string]$item[0]
         $p.Inlines.Add($r)
         $doc.Blocks.Add($p)
         $n++
@@ -89,6 +93,116 @@ function Flush-Log {
         while ($doc.Blocks.Count -gt 4000) { [void]$doc.Blocks.Remove($doc.Blocks.FirstBlock) }
         $Script:U.LogBox.ScrollToEnd()
     }
+}
+#endregion
+
+#region ---------------------------------------------------------------- theme, text size, font (title bar, top right)
+# The XAML is written with the dark colours. When a window is loaded, every colour of a brush property
+# becomes a resource (T_<hex>) that holds that colour in the current theme, so switching the theme swaps
+# the resources and the window follows at once. Brushes made in code go through New-Brush, which maps too.
+$Script:ThemeKeys = @()
+$Script:ThemeNow = 'Dark'
+$Script:ThemeProps = 'Foreground|Background|BorderBrush|Fill|Stroke|CaretBrush|SelectionBrush|RowBackground|AlternatingRowBackground'
+# dark colour -> light colour (text >= 4.5:1 on its background, see tests/theme.tests.ps1)
+$Script:LightColors = @{
+    '0B0E14' = 'F3F5F9'; '0E121B' = 'E8ECF3'; '0A0D13' = 'EEF1F6'; '0E131E' = 'FFFFFF'; '141A27' = 'FFFFFF'; '111726' = 'FFFFFF'
+    '141B2B' = 'F5F7FB'; '1A2133' = 'E1E6EF'; '1C2538' = 'D9E4F7'; '161D2C' = 'E3E9F3'; '222B3F' = 'E1E6EF'; '2A3348' = 'BCC5D3'
+    '2A3142' = 'D3DAE5'; '232B3D' = 'D0D7E2'; '24406E' = 'CADDFA'
+    'F4F6FB' = '0E1420'; 'E6EAF2' = '1B2230'; 'DCE3F0' = '222A38'; 'AEB7C8' = '404A5C'; 'A3ADC2' = '4B5568'; '8A94A8' = '505A6D'
+    '6F7A90' = '535D70'; '5B6478' = '5A6478'
+    '3DDC97' = '0B7A47'; 'FFC857' = '875600'; 'FF5C7A' = 'BA1F3A'; '2F9BFF' = '1A64C2'; '5CC8FF' = '0A5F8A'; '3A8FB7' = '245E7A'
+    'B48CFF' = '6B3FC4'; 'C9A043' = '7A5C0C'
+}
+function ConvertTo-ThemedXaml([string]$X) {
+    $p = $Script:ThemeProps
+    $X = [regex]::Replace($X, "\b($p)=`"#([0-9A-Fa-f]{6})`"", { param($m) '{0}="{{DynamicResource T_{1}}}"' -f $m.Groups[1].Value, $m.Groups[2].Value.ToUpperInvariant() })
+    $X = [regex]::Replace($X, "(Property=`"(?:$p)`"\s+Value=)`"#([0-9A-Fa-f]{6})`"", { param($m) '{0}"{{DynamicResource T_{1}}}"' -f $m.Groups[1].Value, $m.Groups[2].Value.ToUpperInvariant() })
+    return $X
+}
+function Get-ThemeHex([string]$Hex) {
+    $h = $Hex.TrimStart('#').ToUpperInvariant()
+    if ($Script:ThemeNow -eq 'Light' -and $Script:LightColors.ContainsKey($h)) { return '#' + $Script:LightColors[$h] }
+    return '#' + $h
+}
+function Test-WindowsLightTheme {
+    try { return ((Get-ItemProperty -LiteralPath 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize' -Name AppsUseLightTheme -ErrorAction Stop).AppsUseLightTheme -eq 1) }
+    catch { return $false }
+}
+# Dark | Light; "System" follows the app mode set in Windows (Settings > Personalization > Colors)
+function Get-ThemeName {
+    switch ([string]$Script:Cfg.UiTheme) {
+        'Light'  { return 'Light' }
+        'System' { if (Test-WindowsLightTheme) { return 'Light' } else { return 'Dark' } }
+        default  { return 'Dark' }
+    }
+}
+function Get-UiZoom {
+    $z = [int]$Script:Cfg.UiZoom
+    if (@(100, 115, 130, 150) -notcontains $z) { $z = 100 }
+    return $z
+}
+function Get-UiFont {
+    $f = [string]$Script:Cfg.UiFont
+    if (@('Segoe UI', 'Verdana', 'Tahoma', 'Arial') -notcontains $f) { $f = 'Segoe UI' }
+    return $f
+}
+function Set-ThemeResources($Win) {
+    if (-not $Win) { return }
+    foreach ($k in $Script:ThemeKeys) { $Win.Resources["T_$k"] = New-Brush "#$k" }
+    $stops = if ($Script:ThemeNow -eq 'Light') { @('#E4ECFA', '#EDE7FA') } else { @('#16213A', '#1B1733') }
+    $c0 = [Windows.Media.Color][Windows.Media.ColorConverter]::ConvertFromString($stops[0])
+    $c1 = [Windows.Media.Color][Windows.Media.ColorConverter]::ConvertFromString($stops[1])
+    $g = New-Object Windows.Media.LinearGradientBrush $c0, $c1, (New-Object Windows.Point 0, 0), (New-Object Windows.Point 1, 0)
+    $g.Freeze()
+    $Win.Resources['HeaderBg'] = $g
+}
+# Font for every text that has none of its own (the log keeps Consolas, icons their symbol font) and
+# the text size as a zoom of the whole window content.
+function Set-WindowLook($Win) {
+    if (-not $Win) { return }
+    $Win.FontFamily = New-Object Windows.Media.FontFamily (Get-UiFont)
+    $z = (Get-UiZoom) / 100.0
+    if ($Win.Content -is [Windows.FrameworkElement]) { $Win.Content.LayoutTransform = New-Object Windows.Media.ScaleTransform $z, $z }
+}
+function Set-BusyDot([string]$Hex) {
+    $Script:BusyHex = $Hex
+    $Script:U.BusyDot.Fill = New-Brush $Hex
+}
+function Update-A11yUi {
+    $U = $Script:U
+    $t = [string]$Script:Cfg.UiTheme
+    $U.ThemeDark.IsChecked = ($t -ne 'Light' -and $t -ne 'System'); $U.ThemeLight.IsChecked = ($t -eq 'Light'); $U.ThemeSystem.IsChecked = ($t -eq 'System')
+    $z = Get-UiZoom
+    foreach ($n in 100, 115, 130, 150) { $U["Zoom$n"].IsChecked = ($z -eq $n) }
+    $f = Get-UiFont
+    $U.FontSegoe.IsChecked = ($f -eq 'Segoe UI'); $U.FontVerdana.IsChecked = ($f -eq 'Verdana'); $U.FontTahoma.IsChecked = ($f -eq 'Tahoma'); $U.FontArial.IsChecked = ($f -eq 'Arial')
+    $light = $Script:ThemeNow -eq 'Light'
+    $U.ThemeBtn.Content = if ($light) { [string][char]0xE708 } else { [string][char]0xE706 }      # moon / sun
+    $U.ThemeBtn.ToolTip = if ($light) { 'Dark theme' } else { 'Light theme' }
+    try { [Windows.Automation.AutomationProperties]::SetName($U.ThemeBtn, $(if ($light) { 'Switch to the dark theme' } else { 'Switch to the light theme' })) } catch { }
+}
+function Set-Theme {
+    $Script:ThemeNow = Get-ThemeName
+    $Script:LogBrushes = $null
+    Set-ThemeResources $Script:W
+    # brushes made in code: the log lines (their colour name is in Tag), the busy dot; Update-Ui redraws the rest
+    try { foreach ($b in @($Script:U.LogBox.Document.Blocks)) { foreach ($i in @($b.Inlines)) { if ($i.Tag) { $i.Foreground = Get-LogBrush ([string]$i.Tag) } } } } catch { }
+    if ($Script:BusyHex) { Set-BusyDot $Script:BusyHex }
+    Update-A11yUi
+}
+function Set-UiLook {
+    Set-WindowLook $Script:W
+    $z = (Get-UiZoom) / 100.0
+    $Script:U.A11yPanel.LayoutTransform = New-Object Windows.Media.ScaleTransform $z, $z
+    Update-A11yUi
+}
+# Ctrl + plus / minus: next / previous text size, Ctrl + 0: 100 %
+function Step-UiZoom([int]$Dir) {
+    $all = @(100, 115, 130, 150)
+    $i = [array]::IndexOf($all, (Get-UiZoom))
+    $z = if ($Dir -eq 0) { 100 } else { $all[[math]::Max(0, [math]::Min($all.Count - 1, $i + $Dir))] }
+    if ($z -eq (Get-UiZoom)) { return }
+    $Script:Cfg.UiZoom = $z; Save-Settings; Set-UiLook
 }
 #endregion
 
@@ -142,11 +256,11 @@ function Complete-Work {
     Set-Busy $false
     if ($ok) {
         $Script:U.BusyText.Text = ('{0} finished in {1:mm\:ss}' -f $Script:JobLabel, $took)
-        $Script:U.BusyDot.Fill = New-Brush '#3DDC97'
+        Set-BusyDot '#3DDC97'
         Set-TaskbarState 'None'
     } else {
         $Script:U.BusyText.Text = "$($Script:JobLabel) stopped with an error - see the log"
-        $Script:U.BusyDot.Fill = New-Brush '#FF5C7A'
+        Set-BusyDot '#FF5C7A'
         Set-TaskbarState 'Error' 1      # red until the window is in front again
     }
     Request-Attention
@@ -167,7 +281,7 @@ function Set-Busy([bool]$On) {
     $Script:U.Prog.IsIndeterminate = $On
     $Script:U.StatusText.Text = ''
     if ($On) {
-        $Script:U.BusyDot.Fill = New-Brush '#FFC857'
+        Set-BusyDot '#FFC857'
         $Script:U.BusyText.Text = "$($Script:JobLabel)..."
         Set-TaskbarState 'Indeterminate'
     }

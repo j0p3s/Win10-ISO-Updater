@@ -28,6 +28,7 @@ $suites = @(
     @{ File = 'install-check.tests.ps1';         Args = @() }                   # install check findings + fixes
     @{ File = 'generator-answer-file.tests.ps1'; Args = @() }                   # a real autounattend-generator file
     @{ File = 'ui-refresh.tests.ps1';            Args = @() }                   # page refresh, check list, PS 5.1 JSON
+    @{ File = 'theme.tests.ps1';                 Args = @() }                   # dark / light theme (XAML, palette, contrast), text size, font
     @{ File = 'service.tests.ps1';               Args = @() }                   # boot.wim in the background, driver set, Defender option
     @{ File = 'output-path.tests.ps1';           Args = @() }                   # output ISO path from the Build page
     @{ File = 'build.tests.ps1';                 Args = @() }                   # ISO build: .part file, old ISO kept, ISO in use, free space

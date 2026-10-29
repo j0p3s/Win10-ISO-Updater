@@ -1,6 +1,6 @@
 @echo off
 :: ===========================================================================
-::  Windows-ISO-updater-GUI_v3.4.0.cmd  -  one file, graphical interface
+::  Windows-ISO-updater-GUI_v3.5.0.cmd  -  one file, graphical interface
 ::  Windows ISO Updater: the file name carries the version (vX.X.X).
 ::  - unpacks a Windows 10 or Windows 11 ISO and detects its build
 ::  - downloads its updates from the Microsoft Update Catalog
@@ -26,7 +26,7 @@ exit /b
 
 :admin_ok
 set "W10U_SELF=%~f0"
-echo Starting Windows ISO Updater v3.4.0 ...  (this window hides when the program opens)
+echo Starting Windows ISO Updater v3.5.0 ...  (this window hides when the program opens)
 "%PSEXE%" -NoProfile -STA -ExecutionPolicy Bypass -Command "$t=[IO.File]::ReadAllText($env:W10U_SELF);$i=$t.IndexOf('#'+'PS-BEGIN');Invoke-Expression $t.Substring($i)"
 if errorlevel 1 pause
 exit /b
@@ -42,7 +42,7 @@ $ProgressPreference    = 'SilentlyContinue'
 
 $Script:AppName      = 'Windows-ISO-Updater'
 $Script:AppTitle     = 'Windows ISO Updater'
-$Script:AppVersion   = '3.4.0'
+$Script:AppVersion   = '3.5.0'
 $Script:Root         = Split-Path -Parent $env:W10U_SELF
 $ToolsDir            = Join-Path $Script:Root 'tools'
 $IsoPath             = $null
@@ -139,6 +139,9 @@ function Get-DefaultSettings {
         InstallOemDrivers = $false
         SignOnlyThisPc   = $false
         WinVersion       = '10'
+        UiTheme          = 'Dark'
+        UiZoom           = 100
+        UiFont           = 'Segoe UI'
         SignIsolate      = $true
         SignJobs         = 0
         ParallelBoot     = $true
@@ -3745,11 +3748,12 @@ $Script:XRes = @'
     <Style x:Key="Seg" TargetType="RadioButton">
       <Setter Property="Foreground" Value="#E6EAF2"/>
       <Setter Property="Margin" Value="0,0,8,0"/>
+      <Setter Property="Padding" Value="22,8"/>
       <Setter Property="Cursor" Value="Hand"/>
       <Setter Property="Template">
         <Setter.Value>
           <ControlTemplate TargetType="RadioButton">
-            <Border x:Name="bd" Background="#222B3F" CornerRadius="8" Padding="22,8">
+            <Border x:Name="bd" Background="#222B3F" CornerRadius="8" Padding="{TemplateBinding Padding}">
               <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
             </Border>
             <ControlTemplate.Triggers>
@@ -3795,7 +3799,7 @@ $Script:XRes = @'
       <Setter Property="Background" Value="#0E131E"/>
       <Setter Property="Foreground" Value="#E6EAF2"/>
       <Setter Property="BorderBrush" Value="#2A3348"/>
-      <Setter Property="CaretBrush" Value="White"/>
+      <Setter Property="CaretBrush" Value="#F4F6FB"/>
       <Setter Property="SelectionBrush" Value="#2F9BFF"/>
       <Setter Property="Padding" Value="8,6"/>
       <Setter Property="VerticalContentAlignment" Value="Center"/>
@@ -3804,7 +3808,7 @@ $Script:XRes = @'
       <Setter Property="Background" Value="#0E131E"/>
       <Setter Property="Foreground" Value="#E6EAF2"/>
       <Setter Property="BorderBrush" Value="#2A3348"/>
-      <Setter Property="CaretBrush" Value="White"/>
+      <Setter Property="CaretBrush" Value="#F4F6FB"/>
       <Setter Property="Padding" Value="8,6"/>
     </Style>
     <Style TargetType="DataGrid">
@@ -3927,7 +3931,7 @@ __RES__
     </Style>
   </Window.Resources>
 
-  <Grid>
+  <Grid x:Name="Root">
     <Grid.RowDefinitions>
       <RowDefinition Height="54"/>
       <RowDefinition Height="*"/>
@@ -3942,15 +3946,46 @@ __RES__
           <TextBlock Text="W10" Foreground="White" FontWeight="Bold" FontSize="12" HorizontalAlignment="Center" VerticalAlignment="Center"/>
         </Border>
         <StackPanel Margin="12,0,0,0" VerticalAlignment="Center">
-          <TextBlock FontSize="15" FontWeight="SemiBold"><Run Text="Windows ISO Updater"/><Run x:Name="VerRun" Text="  v3.4.0" Foreground="#5B6478" FontWeight="Normal" FontSize="12"/></TextBlock>
+          <TextBlock FontSize="15" FontWeight="SemiBold"><Run Text="Windows ISO Updater"/><Run x:Name="VerRun" Text="  v3.5.0" Foreground="#5B6478" FontWeight="Normal" FontSize="12"/></TextBlock>
           <TextBlock Text="updates + drivers + signed NVIDIA mods + autounattend + $OEM$  ->  bootable ISO" Foreground="#8A94A8" FontSize="11"/>
         </StackPanel>
       </StackPanel>
       <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,8,10,0">
-        <Button x:Name="MinBtn" Style="{StaticResource Chrome}" Content="&#xE921;" ToolTip="Minimize"/>
-        <Button x:Name="MaxBtn" Style="{StaticResource Chrome}" Content="&#xE922;" ToolTip="Maximize"/>
-        <Button x:Name="CloseBtn" Style="{StaticResource Chrome}" Content="&#xE8BB;" ToolTip="Close"/>
+        <Button x:Name="ThemeBtn" Style="{StaticResource Chrome}" FontSize="14" Content="&#xE706;" ToolTip="Light theme" AutomationProperties.Name="Switch to the light theme"/>
+        <Button x:Name="A11yBtn" Style="{StaticResource Chrome}" FontSize="14" Content="&#xE776;" ToolTip="Display and accessibility: theme, text size, font" AutomationProperties.Name="Display and accessibility settings"/>
+        <Border Width="1" Height="18" Background="#232B3D" Margin="6,0,6,0" VerticalAlignment="Center"/>
+        <Button x:Name="MinBtn" Style="{StaticResource Chrome}" Content="&#xE921;" ToolTip="Minimize" AutomationProperties.Name="Minimize"/>
+        <Button x:Name="MaxBtn" Style="{StaticResource Chrome}" Content="&#xE922;" ToolTip="Maximize" AutomationProperties.Name="Maximize"/>
+        <Button x:Name="CloseBtn" Style="{StaticResource Chrome}" Content="&#xE8BB;" ToolTip="Close" AutomationProperties.Name="Close"/>
       </StackPanel>
+      <Popup x:Name="A11yPop" PlacementTarget="{Binding ElementName=A11yBtn}" Placement="Bottom" HorizontalOffset="-300" VerticalOffset="6" StaysOpen="False" AllowsTransparency="True">
+        <Border x:Name="A11yPanel" Background="#141A27" BorderBrush="#232B3D" BorderThickness="1" CornerRadius="12" Padding="18,16" Width="346">
+          <StackPanel>
+            <TextBlock Style="{StaticResource H2}" Text="Display and accessibility"/>
+            <TextBlock Text="Theme" FontWeight="SemiBold" Margin="0,0,0,6"/>
+            <WrapPanel>
+              <RadioButton x:Name="ThemeDark" Style="{StaticResource Seg}" Padding="12,7" GroupName="theme" Content="Dark" Margin="0,0,6,6"/>
+              <RadioButton x:Name="ThemeLight" Style="{StaticResource Seg}" Padding="12,7" GroupName="theme" Content="Light" Margin="0,0,6,6"/>
+              <RadioButton x:Name="ThemeSystem" Style="{StaticResource Seg}" Padding="12,7" GroupName="theme" Content="Like Windows" Margin="0,0,0,6"/>
+            </WrapPanel>
+            <TextBlock Text="Text size" FontWeight="SemiBold" Margin="0,8,0,6"/>
+            <WrapPanel>
+              <RadioButton x:Name="Zoom100" Style="{StaticResource Seg}" Padding="12,7" GroupName="zoom" Content="100%" Margin="0,0,6,6"/>
+              <RadioButton x:Name="Zoom115" Style="{StaticResource Seg}" Padding="12,7" GroupName="zoom" Content="115%" Margin="0,0,6,6"/>
+              <RadioButton x:Name="Zoom130" Style="{StaticResource Seg}" Padding="12,7" GroupName="zoom" Content="130%" Margin="0,0,6,6"/>
+              <RadioButton x:Name="Zoom150" Style="{StaticResource Seg}" Padding="12,7" GroupName="zoom" Content="150%" Margin="0,0,0,6"/>
+            </WrapPanel>
+            <TextBlock Text="Font" FontWeight="SemiBold" Margin="0,8,0,6"/>
+            <WrapPanel>
+              <RadioButton x:Name="FontSegoe" Style="{StaticResource Seg}" Padding="12,7" GroupName="font" Content="Segoe UI" FontFamily="Segoe UI" Margin="0,0,6,6"/>
+              <RadioButton x:Name="FontVerdana" Style="{StaticResource Seg}" Padding="12,7" GroupName="font" Content="Verdana" FontFamily="Verdana" Margin="0,0,6,6"/>
+              <RadioButton x:Name="FontTahoma" Style="{StaticResource Seg}" Padding="12,7" GroupName="font" Content="Tahoma" FontFamily="Tahoma" Margin="0,0,6,6"/>
+              <RadioButton x:Name="FontArial" Style="{StaticResource Seg}" Padding="12,7" GroupName="font" Content="Arial" FontFamily="Arial" Margin="0,0,0,6"/>
+            </WrapPanel>
+            <TextBlock Style="{StaticResource Sub}" FontSize="12" Margin="0,8,0,0" Text="Ctrl + plus / Ctrl + minus / Ctrl + 0 change the text size anywhere in the window. Verdana and Tahoma have wider, more distinct letters. Saved for the next start."/>
+          </StackPanel>
+        </Border>
+      </Popup>
     </Grid>
 
     <Grid Grid.Row="1">
@@ -3961,7 +3996,7 @@ __RES__
 
       <!-- sidebar -->
       <Border Grid.Column="0" Background="#0E121B" BorderBrush="#1A2133" BorderThickness="0,1,1,0">
-        <DockPanel LastChildFill="False">
+        <ScrollViewer VerticalScrollBarVisibility="Auto"><DockPanel LastChildFill="False">
           <StackPanel DockPanel.Dock="Top" Margin="0,14,0,0">
             <TextBlock Text="STEPS" Foreground="#5B6478" FontSize="11" FontWeight="SemiBold" Margin="26,0,0,6"/>
             <RadioButton x:Name="Nav1" Style="{StaticResource Nav}" IsChecked="True">
@@ -4018,16 +4053,13 @@ __RES__
             </Button>
             <TextBlock Text="unpack - updates - slipstream - ISO, using what you set on each page" Style="{StaticResource Sub}" FontSize="11" Margin="2,8,0,0"/>
           </StackPanel>
-        </DockPanel>
+        </DockPanel></ScrollViewer>
       </Border>
 
       <!-- main -->
       <Grid Grid.Column="1">
         <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
-        <Border Grid.Row="0" Margin="24,16,24,0" Padding="18,12" CornerRadius="12" BorderBrush="#232B3D" BorderThickness="1">
-          <Border.Background>
-            <LinearGradientBrush StartPoint="0,0" EndPoint="1,0"><GradientStop Color="#16213A" Offset="0"/><GradientStop Color="#1B1733" Offset="1"/></LinearGradientBrush>
-          </Border.Background>
+        <Border Grid.Row="0" Margin="24,16,24,0" Padding="18,12" CornerRadius="12" BorderBrush="#232B3D" BorderThickness="1" Background="{DynamicResource HeaderBg}">
           <Grid>
             <Grid.ColumnDefinitions><ColumnDefinition Width="1.1*"/><ColumnDefinition Width="1.6*"/><ColumnDefinition Width="1.2*"/></Grid.ColumnDefinitions>
             <StackPanel Grid.Column="0" Margin="0,0,14,0"><TextBlock Text="SOURCE" Foreground="#6F7A90" FontSize="10" FontWeight="SemiBold"/><TextBlock x:Name="HdrIso" Text="-" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/></StackPanel>
@@ -4436,8 +4468,11 @@ __RES__
 
 #region ---------------------------------------------------------------- GUI helpers
 function New-Xaml([string]$Text) {
-    $x = $Text.Replace('__PAGES__', $Script:XPages).Replace('__RES__', $Script:XRes)
+    $x = ConvertTo-ThemedXaml ($Text.Replace('__PAGES__', $Script:XPages).Replace('__RES__', $Script:XRes))
     $win = [Windows.Markup.XamlReader]::Parse($x)
+    foreach ($m in [regex]::Matches($x, 'DynamicResource T_([0-9A-F]{6})')) { if ($Script:ThemeKeys -notcontains $m.Groups[1].Value) { $Script:ThemeKeys += $m.Groups[1].Value } }
+    Set-ThemeResources $win
+    Set-WindowLook $win
     $names = @{}
     foreach ($m in [regex]::Matches($x, 'x:Name="([^"]+)"')) {
         $o = $win.FindName($m.Groups[1].Value)
@@ -4446,7 +4481,7 @@ function New-Xaml([string]$Text) {
     return @{ W = $win; U = $names }
 }
 function New-Brush([string]$Hex) {
-    $b = New-Object Windows.Media.SolidColorBrush ([Windows.Media.ColorConverter]::ConvertFromString($Hex))
+    $b = New-Object Windows.Media.SolidColorBrush ([Windows.Media.ColorConverter]::ConvertFromString((Get-ThemeHex $Hex)))
     $b.Freeze()
     return $b
 }
@@ -4516,6 +4551,7 @@ function Flush-Log {
         $p.Margin = New-Object Windows.Thickness 0
         $r = New-Object Windows.Documents.Run ([string]$item[1])
         $r.Foreground = Get-LogBrush ([string]$item[0])
+        $r.Tag = [string]$item[0]
         $p.Inlines.Add($r)
         $doc.Blocks.Add($p)
         $n++
@@ -4524,6 +4560,116 @@ function Flush-Log {
         while ($doc.Blocks.Count -gt 4000) { [void]$doc.Blocks.Remove($doc.Blocks.FirstBlock) }
         $Script:U.LogBox.ScrollToEnd()
     }
+}
+#endregion
+
+#region ---------------------------------------------------------------- theme, text size, font (title bar, top right)
+# The XAML is written with the dark colours. When a window is loaded, every colour of a brush property
+# becomes a resource (T_<hex>) that holds that colour in the current theme, so switching the theme swaps
+# the resources and the window follows at once. Brushes made in code go through New-Brush, which maps too.
+$Script:ThemeKeys = @()
+$Script:ThemeNow = 'Dark'
+$Script:ThemeProps = 'Foreground|Background|BorderBrush|Fill|Stroke|CaretBrush|SelectionBrush|RowBackground|AlternatingRowBackground'
+# dark colour -> light colour (text >= 4.5:1 on its background, see tests/theme.tests.ps1)
+$Script:LightColors = @{
+    '0B0E14' = 'F3F5F9'; '0E121B' = 'E8ECF3'; '0A0D13' = 'EEF1F6'; '0E131E' = 'FFFFFF'; '141A27' = 'FFFFFF'; '111726' = 'FFFFFF'
+    '141B2B' = 'F5F7FB'; '1A2133' = 'E1E6EF'; '1C2538' = 'D9E4F7'; '161D2C' = 'E3E9F3'; '222B3F' = 'E1E6EF'; '2A3348' = 'BCC5D3'
+    '2A3142' = 'D3DAE5'; '232B3D' = 'D0D7E2'; '24406E' = 'CADDFA'
+    'F4F6FB' = '0E1420'; 'E6EAF2' = '1B2230'; 'DCE3F0' = '222A38'; 'AEB7C8' = '404A5C'; 'A3ADC2' = '4B5568'; '8A94A8' = '505A6D'
+    '6F7A90' = '535D70'; '5B6478' = '5A6478'
+    '3DDC97' = '0B7A47'; 'FFC857' = '875600'; 'FF5C7A' = 'BA1F3A'; '2F9BFF' = '1A64C2'; '5CC8FF' = '0A5F8A'; '3A8FB7' = '245E7A'
+    'B48CFF' = '6B3FC4'; 'C9A043' = '7A5C0C'
+}
+function ConvertTo-ThemedXaml([string]$X) {
+    $p = $Script:ThemeProps
+    $X = [regex]::Replace($X, "\b($p)=`"#([0-9A-Fa-f]{6})`"", { param($m) '{0}="{{DynamicResource T_{1}}}"' -f $m.Groups[1].Value, $m.Groups[2].Value.ToUpperInvariant() })
+    $X = [regex]::Replace($X, "(Property=`"(?:$p)`"\s+Value=)`"#([0-9A-Fa-f]{6})`"", { param($m) '{0}"{{DynamicResource T_{1}}}"' -f $m.Groups[1].Value, $m.Groups[2].Value.ToUpperInvariant() })
+    return $X
+}
+function Get-ThemeHex([string]$Hex) {
+    $h = $Hex.TrimStart('#').ToUpperInvariant()
+    if ($Script:ThemeNow -eq 'Light' -and $Script:LightColors.ContainsKey($h)) { return '#' + $Script:LightColors[$h] }
+    return '#' + $h
+}
+function Test-WindowsLightTheme {
+    try { return ((Get-ItemProperty -LiteralPath 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize' -Name AppsUseLightTheme -ErrorAction Stop).AppsUseLightTheme -eq 1) }
+    catch { return $false }
+}
+# Dark | Light; "System" follows the app mode set in Windows (Settings > Personalization > Colors)
+function Get-ThemeName {
+    switch ([string]$Script:Cfg.UiTheme) {
+        'Light'  { return 'Light' }
+        'System' { if (Test-WindowsLightTheme) { return 'Light' } else { return 'Dark' } }
+        default  { return 'Dark' }
+    }
+}
+function Get-UiZoom {
+    $z = [int]$Script:Cfg.UiZoom
+    if (@(100, 115, 130, 150) -notcontains $z) { $z = 100 }
+    return $z
+}
+function Get-UiFont {
+    $f = [string]$Script:Cfg.UiFont
+    if (@('Segoe UI', 'Verdana', 'Tahoma', 'Arial') -notcontains $f) { $f = 'Segoe UI' }
+    return $f
+}
+function Set-ThemeResources($Win) {
+    if (-not $Win) { return }
+    foreach ($k in $Script:ThemeKeys) { $Win.Resources["T_$k"] = New-Brush "#$k" }
+    $stops = if ($Script:ThemeNow -eq 'Light') { @('#E4ECFA', '#EDE7FA') } else { @('#16213A', '#1B1733') }
+    $c0 = [Windows.Media.Color][Windows.Media.ColorConverter]::ConvertFromString($stops[0])
+    $c1 = [Windows.Media.Color][Windows.Media.ColorConverter]::ConvertFromString($stops[1])
+    $g = New-Object Windows.Media.LinearGradientBrush $c0, $c1, (New-Object Windows.Point 0, 0), (New-Object Windows.Point 1, 0)
+    $g.Freeze()
+    $Win.Resources['HeaderBg'] = $g
+}
+# Font for every text that has none of its own (the log keeps Consolas, icons their symbol font) and
+# the text size as a zoom of the whole window content.
+function Set-WindowLook($Win) {
+    if (-not $Win) { return }
+    $Win.FontFamily = New-Object Windows.Media.FontFamily (Get-UiFont)
+    $z = (Get-UiZoom) / 100.0
+    if ($Win.Content -is [Windows.FrameworkElement]) { $Win.Content.LayoutTransform = New-Object Windows.Media.ScaleTransform $z, $z }
+}
+function Set-BusyDot([string]$Hex) {
+    $Script:BusyHex = $Hex
+    $Script:U.BusyDot.Fill = New-Brush $Hex
+}
+function Update-A11yUi {
+    $U = $Script:U
+    $t = [string]$Script:Cfg.UiTheme
+    $U.ThemeDark.IsChecked = ($t -ne 'Light' -and $t -ne 'System'); $U.ThemeLight.IsChecked = ($t -eq 'Light'); $U.ThemeSystem.IsChecked = ($t -eq 'System')
+    $z = Get-UiZoom
+    foreach ($n in 100, 115, 130, 150) { $U["Zoom$n"].IsChecked = ($z -eq $n) }
+    $f = Get-UiFont
+    $U.FontSegoe.IsChecked = ($f -eq 'Segoe UI'); $U.FontVerdana.IsChecked = ($f -eq 'Verdana'); $U.FontTahoma.IsChecked = ($f -eq 'Tahoma'); $U.FontArial.IsChecked = ($f -eq 'Arial')
+    $light = $Script:ThemeNow -eq 'Light'
+    $U.ThemeBtn.Content = if ($light) { [string][char]0xE708 } else { [string][char]0xE706 }      # moon / sun
+    $U.ThemeBtn.ToolTip = if ($light) { 'Dark theme' } else { 'Light theme' }
+    try { [Windows.Automation.AutomationProperties]::SetName($U.ThemeBtn, $(if ($light) { 'Switch to the dark theme' } else { 'Switch to the light theme' })) } catch { }
+}
+function Set-Theme {
+    $Script:ThemeNow = Get-ThemeName
+    $Script:LogBrushes = $null
+    Set-ThemeResources $Script:W
+    # brushes made in code: the log lines (their colour name is in Tag), the busy dot; Update-Ui redraws the rest
+    try { foreach ($b in @($Script:U.LogBox.Document.Blocks)) { foreach ($i in @($b.Inlines)) { if ($i.Tag) { $i.Foreground = Get-LogBrush ([string]$i.Tag) } } } } catch { }
+    if ($Script:BusyHex) { Set-BusyDot $Script:BusyHex }
+    Update-A11yUi
+}
+function Set-UiLook {
+    Set-WindowLook $Script:W
+    $z = (Get-UiZoom) / 100.0
+    $Script:U.A11yPanel.LayoutTransform = New-Object Windows.Media.ScaleTransform $z, $z
+    Update-A11yUi
+}
+# Ctrl + plus / minus: next / previous text size, Ctrl + 0: 100 %
+function Step-UiZoom([int]$Dir) {
+    $all = @(100, 115, 130, 150)
+    $i = [array]::IndexOf($all, (Get-UiZoom))
+    $z = if ($Dir -eq 0) { 100 } else { $all[[math]::Max(0, [math]::Min($all.Count - 1, $i + $Dir))] }
+    if ($z -eq (Get-UiZoom)) { return }
+    $Script:Cfg.UiZoom = $z; Save-Settings; Set-UiLook
 }
 #endregion
 
@@ -4577,11 +4723,11 @@ function Complete-Work {
     Set-Busy $false
     if ($ok) {
         $Script:U.BusyText.Text = ('{0} finished in {1:mm\:ss}' -f $Script:JobLabel, $took)
-        $Script:U.BusyDot.Fill = New-Brush '#3DDC97'
+        Set-BusyDot '#3DDC97'
         Set-TaskbarState 'None'
     } else {
         $Script:U.BusyText.Text = "$($Script:JobLabel) stopped with an error - see the log"
-        $Script:U.BusyDot.Fill = New-Brush '#FF5C7A'
+        Set-BusyDot '#FF5C7A'
         Set-TaskbarState 'Error' 1      # red until the window is in front again
     }
     Request-Attention
@@ -4602,7 +4748,7 @@ function Set-Busy([bool]$On) {
     $Script:U.Prog.IsIndeterminate = $On
     $Script:U.StatusText.Text = ''
     if ($On) {
-        $Script:U.BusyDot.Fill = New-Brush '#FFC857'
+        Set-BusyDot '#FFC857'
         $Script:U.BusyText.Text = "$($Script:JobLabel)..."
         Set-TaskbarState 'Indeterminate'
     }
@@ -5019,10 +5165,12 @@ try {
     if ($init.HadErrors) { throw "Worker failed to start: $($init.Streams.Error[0])" }
     $init.Dispose()
 
+    $Script:ThemeNow = Get-ThemeName          # the window is built in the saved theme, font and text size
     $M = New-Xaml $Script:XMain
     $Script:W = $M.W; $Script:U = $M.U
     $W = $Script:W; $U = $Script:U
     $U.VerRun.Text = "  v$Script:AppVersion"
+    Set-UiLook
     try { $W.TaskbarItemInfo = New-Object System.Windows.Shell.TaskbarItemInfo } catch { }
     $W.Add_Activated({ if (-not $Script:Busy) { Set-TaskbarState 'None' } })
 
@@ -5030,6 +5178,42 @@ try {
     $U.MinBtn.Add_Click({ $Script:W.WindowState = 'Minimized' })
     $U.MaxBtn.Add_Click({ Set-WorkAreaMax (-not $Script:FakeMax) })
     $U.CloseBtn.Add_Click({ $Script:W.Close() })
+    # top right: theme switch, and the display / accessibility panel (theme, text size, font)
+    $U.ThemeBtn.Add_Click({
+        $Script:Cfg.UiTheme = if ($Script:ThemeNow -eq 'Light') { 'Dark' } else { 'Light' }
+        Save-Settings; Set-Theme; Update-Ui
+    })
+    $Script:A11yClosed = [datetime]::MinValue
+    $U.A11yPop.Add_Closed({ $Script:A11yClosed = Get-Date })
+    $U.A11yBtn.Add_Click({
+        if (((Get-Date) - $Script:A11yClosed).TotalMilliseconds -lt 300) { return }     # this click just closed it
+        $Script:U.A11yPop.IsOpen = $true
+        $first = @($Script:U.ThemeDark, $Script:U.ThemeLight, $Script:U.ThemeSystem) | Where-Object { $_.IsChecked } | Select-Object -First 1
+        if ($first) { [void]$first.Focus() }
+    })
+    $U.A11yPanel.Add_PreviewKeyDown({ param($s, $e) if ($e.Key -eq 'Escape') { $Script:U.A11yPop.IsOpen = $false; [void]$Script:U.A11yBtn.Focus(); $e.Handled = $true } })
+    foreach ($x in @(@('ThemeDark', 'Dark'), @('ThemeLight', 'Light'), @('ThemeSystem', 'System'))) {
+        $U[$x[0]].Tag = $x[1]
+        $U[$x[0]].Add_Click({ $Script:Cfg.UiTheme = [string]$this.Tag; Save-Settings; Set-Theme; Update-Ui })
+    }
+    foreach ($n in 100, 115, 130, 150) {
+        $U["Zoom$n"].Tag = $n
+        $U["Zoom$n"].Add_Click({ $Script:Cfg.UiZoom = [int]$this.Tag; Save-Settings; Set-UiLook })
+    }
+    foreach ($x in @(@('FontSegoe', 'Segoe UI'), @('FontVerdana', 'Verdana'), @('FontTahoma', 'Tahoma'), @('FontArial', 'Arial'))) {
+        $U[$x[0]].Tag = $x[1]
+        $U[$x[0]].Add_Click({ $Script:Cfg.UiFont = [string]$this.Tag; Save-Settings; Set-UiLook })
+    }
+    # Ctrl + plus / minus / 0 and Ctrl + mouse wheel change the text size anywhere in the window
+    $W.Add_PreviewKeyDown({ param($s, $e)
+        if (([Windows.Input.Keyboard]::Modifiers -band [Windows.Input.ModifierKeys]::Control) -eq 0) { return }
+        $dir = switch ([string]$e.Key) { 'OemPlus' { 1 } 'Add' { 1 } 'OemMinus' { -1 } 'Subtract' { -1 } 'D0' { 0 } 'NumPad0' { 0 } default { $null } }
+        if ($null -ne $dir) { Step-UiZoom $dir; $e.Handled = $true }
+    })
+    $W.Add_PreviewMouseWheel({ param($s, $e)
+        if (([Windows.Input.Keyboard]::Modifiers -band [Windows.Input.ModifierKeys]::Control) -eq 0) { return }
+        Step-UiZoom $(if ($e.Delta -gt 0) { 1 } else { -1 }); $e.Handled = $true
+    })
     # double-click on the title bar, Win+Up or Aero Snap ask Windows to maximize - redirect that to the work area
     $W.Add_StateChanged({
         if ($Script:W.WindowState -eq 'Maximized') { $Script:W.WindowState = 'Normal'; Set-WorkAreaMax (-not $Script:FakeMax) }

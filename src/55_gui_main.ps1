@@ -108,10 +108,12 @@ try {
     if ($init.HadErrors) { throw "Worker failed to start: $($init.Streams.Error[0])" }
     $init.Dispose()
 
+    $Script:ThemeNow = Get-ThemeName          # the window is built in the saved theme, font and text size
     $M = New-Xaml $Script:XMain
     $Script:W = $M.W; $Script:U = $M.U
     $W = $Script:W; $U = $Script:U
     $U.VerRun.Text = "  v$Script:AppVersion"
+    Set-UiLook
     try { $W.TaskbarItemInfo = New-Object System.Windows.Shell.TaskbarItemInfo } catch { }
     $W.Add_Activated({ if (-not $Script:Busy) { Set-TaskbarState 'None' } })
 
@@ -119,6 +121,42 @@ try {
     $U.MinBtn.Add_Click({ $Script:W.WindowState = 'Minimized' })
     $U.MaxBtn.Add_Click({ Set-WorkAreaMax (-not $Script:FakeMax) })
     $U.CloseBtn.Add_Click({ $Script:W.Close() })
+    # top right: theme switch, and the display / accessibility panel (theme, text size, font)
+    $U.ThemeBtn.Add_Click({
+        $Script:Cfg.UiTheme = if ($Script:ThemeNow -eq 'Light') { 'Dark' } else { 'Light' }
+        Save-Settings; Set-Theme; Update-Ui
+    })
+    $Script:A11yClosed = [datetime]::MinValue
+    $U.A11yPop.Add_Closed({ $Script:A11yClosed = Get-Date })
+    $U.A11yBtn.Add_Click({
+        if (((Get-Date) - $Script:A11yClosed).TotalMilliseconds -lt 300) { return }     # this click just closed it
+        $Script:U.A11yPop.IsOpen = $true
+        $first = @($Script:U.ThemeDark, $Script:U.ThemeLight, $Script:U.ThemeSystem) | Where-Object { $_.IsChecked } | Select-Object -First 1
+        if ($first) { [void]$first.Focus() }
+    })
+    $U.A11yPanel.Add_PreviewKeyDown({ param($s, $e) if ($e.Key -eq 'Escape') { $Script:U.A11yPop.IsOpen = $false; [void]$Script:U.A11yBtn.Focus(); $e.Handled = $true } })
+    foreach ($x in @(@('ThemeDark', 'Dark'), @('ThemeLight', 'Light'), @('ThemeSystem', 'System'))) {
+        $U[$x[0]].Tag = $x[1]
+        $U[$x[0]].Add_Click({ $Script:Cfg.UiTheme = [string]$this.Tag; Save-Settings; Set-Theme; Update-Ui })
+    }
+    foreach ($n in 100, 115, 130, 150) {
+        $U["Zoom$n"].Tag = $n
+        $U["Zoom$n"].Add_Click({ $Script:Cfg.UiZoom = [int]$this.Tag; Save-Settings; Set-UiLook })
+    }
+    foreach ($x in @(@('FontSegoe', 'Segoe UI'), @('FontVerdana', 'Verdana'), @('FontTahoma', 'Tahoma'), @('FontArial', 'Arial'))) {
+        $U[$x[0]].Tag = $x[1]
+        $U[$x[0]].Add_Click({ $Script:Cfg.UiFont = [string]$this.Tag; Save-Settings; Set-UiLook })
+    }
+    # Ctrl + plus / minus / 0 and Ctrl + mouse wheel change the text size anywhere in the window
+    $W.Add_PreviewKeyDown({ param($s, $e)
+        if (([Windows.Input.Keyboard]::Modifiers -band [Windows.Input.ModifierKeys]::Control) -eq 0) { return }
+        $dir = switch ([string]$e.Key) { 'OemPlus' { 1 } 'Add' { 1 } 'OemMinus' { -1 } 'Subtract' { -1 } 'D0' { 0 } 'NumPad0' { 0 } default { $null } }
+        if ($null -ne $dir) { Step-UiZoom $dir; $e.Handled = $true }
+    })
+    $W.Add_PreviewMouseWheel({ param($s, $e)
+        if (([Windows.Input.Keyboard]::Modifiers -band [Windows.Input.ModifierKeys]::Control) -eq 0) { return }
+        Step-UiZoom $(if ($e.Delta -gt 0) { 1 } else { -1 }); $e.Handled = $true
+    })
     # double-click on the title bar, Win+Up or Aero Snap ask Windows to maximize - redirect that to the work area
     $W.Add_StateChanged({
         if ($Script:W.WindowState -eq 'Maximized') { $Script:W.WindowState = 'Normal'; Set-WorkAreaMax (-not $Script:FakeMax) }

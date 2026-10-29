@@ -1,5 +1,35 @@
 # Changelog
 
+## v3.5.0 — 2026-10-29
+
+Display and accessibility options in the top right corner: a dark / light theme, the text size and the font.
+
+**Upgrading from 3.4:** download `Windows-ISO-updater-GUI_v3.5.0.cmd` and delete the old `.cmd`. Settings, the `signing` folder and the work folder are kept. The window starts dark at 100 %, as before.
+
+### Added
+- **Theme switch** (sun / moon, top right, next to minimize): dark or light, at once, no restart.
+- **Display and accessibility panel** (accessibility icon, top right) with:
+  - **Theme:** *Dark*, *Light*, or *Like Windows*, which follows the app mode in Windows' color settings.
+  - **Text size:** 100 %, 115 %, 130 % or 150 %. It zooms the whole window, so text, buttons and lists grow together. The sidebar scrolls when the larger size doesn't fit.
+  - **Font:** Segoe UI, Verdana, Tahoma or Arial. Verdana and Tahoma have wider, more distinct letters. The log keeps Consolas, so its columns stay aligned.
+- **Keyboard:** Ctrl + plus / Ctrl + minus / Ctrl + 0, or Ctrl + mouse wheel, change the text size anywhere in the window. Esc closes the panel.
+- The choices are saved in the settings file (`UiTheme`, `UiZoom`, `UiFont`) and used at the next start. The driver picker and the certificate password dialog follow them too.
+- The title bar buttons (theme, display, minimize, maximize, close) have names for screen readers.
+- **Light theme:**
+  - every text color has at least 4.5:1 contrast on its background (WCAG AA);
+  - the log keeps its colors (green OK, yellow warning, red error) in darker shades;
+  - the text cursor in input boxes is dark in the light theme (it was white).
+
+### Code and tests
+- The XAML stays written in the dark colors. When a window is loaded, every color of a brush becomes a theme resource (`T_<hex>`), and switching the theme swaps those resources. Brushes made in code go through `New-Brush`, which maps them too, and the log lines are recolored.
+- New suite `tests/theme.tests.ps1` checks:
+  - that the three windows are well-formed XAML after the conversion, with no fixed brush color left;
+  - that every color used, in the XAML and in code, has a light color;
+  - the 4.5:1 contrast of all text / background pairs in the light theme;
+  - the theme, text size and font settings;
+  - the panel state and the title bar buttons.
+- In total there are 12 suites with about 375 checks.
+
 ## v3.4.0 — 2026-10-28
 
 The program is now **Windows ISO Updater**: the file is called `Windows-ISO-updater-GUI_vX.X.X.cmd` and carries its version in the name. Plus a round of fixes found in a code review.

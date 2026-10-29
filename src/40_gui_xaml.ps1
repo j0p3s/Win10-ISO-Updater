@@ -61,11 +61,12 @@ $Script:XRes = @'
     <Style x:Key="Seg" TargetType="RadioButton">
       <Setter Property="Foreground" Value="#E6EAF2"/>
       <Setter Property="Margin" Value="0,0,8,0"/>
+      <Setter Property="Padding" Value="22,8"/>
       <Setter Property="Cursor" Value="Hand"/>
       <Setter Property="Template">
         <Setter.Value>
           <ControlTemplate TargetType="RadioButton">
-            <Border x:Name="bd" Background="#222B3F" CornerRadius="8" Padding="22,8">
+            <Border x:Name="bd" Background="#222B3F" CornerRadius="8" Padding="{TemplateBinding Padding}">
               <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
             </Border>
             <ControlTemplate.Triggers>
@@ -111,7 +112,7 @@ $Script:XRes = @'
       <Setter Property="Background" Value="#0E131E"/>
       <Setter Property="Foreground" Value="#E6EAF2"/>
       <Setter Property="BorderBrush" Value="#2A3348"/>
-      <Setter Property="CaretBrush" Value="White"/>
+      <Setter Property="CaretBrush" Value="#F4F6FB"/>
       <Setter Property="SelectionBrush" Value="#2F9BFF"/>
       <Setter Property="Padding" Value="8,6"/>
       <Setter Property="VerticalContentAlignment" Value="Center"/>
@@ -120,7 +121,7 @@ $Script:XRes = @'
       <Setter Property="Background" Value="#0E131E"/>
       <Setter Property="Foreground" Value="#E6EAF2"/>
       <Setter Property="BorderBrush" Value="#2A3348"/>
-      <Setter Property="CaretBrush" Value="White"/>
+      <Setter Property="CaretBrush" Value="#F4F6FB"/>
       <Setter Property="Padding" Value="8,6"/>
     </Style>
     <Style TargetType="DataGrid">
@@ -243,7 +244,7 @@ __RES__
     </Style>
   </Window.Resources>
 
-  <Grid>
+  <Grid x:Name="Root">
     <Grid.RowDefinitions>
       <RowDefinition Height="54"/>
       <RowDefinition Height="*"/>
@@ -263,10 +264,41 @@ __RES__
         </StackPanel>
       </StackPanel>
       <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,8,10,0">
-        <Button x:Name="MinBtn" Style="{StaticResource Chrome}" Content="&#xE921;" ToolTip="Minimize"/>
-        <Button x:Name="MaxBtn" Style="{StaticResource Chrome}" Content="&#xE922;" ToolTip="Maximize"/>
-        <Button x:Name="CloseBtn" Style="{StaticResource Chrome}" Content="&#xE8BB;" ToolTip="Close"/>
+        <Button x:Name="ThemeBtn" Style="{StaticResource Chrome}" FontSize="14" Content="&#xE706;" ToolTip="Light theme" AutomationProperties.Name="Switch to the light theme"/>
+        <Button x:Name="A11yBtn" Style="{StaticResource Chrome}" FontSize="14" Content="&#xE776;" ToolTip="Display and accessibility: theme, text size, font" AutomationProperties.Name="Display and accessibility settings"/>
+        <Border Width="1" Height="18" Background="#232B3D" Margin="6,0,6,0" VerticalAlignment="Center"/>
+        <Button x:Name="MinBtn" Style="{StaticResource Chrome}" Content="&#xE921;" ToolTip="Minimize" AutomationProperties.Name="Minimize"/>
+        <Button x:Name="MaxBtn" Style="{StaticResource Chrome}" Content="&#xE922;" ToolTip="Maximize" AutomationProperties.Name="Maximize"/>
+        <Button x:Name="CloseBtn" Style="{StaticResource Chrome}" Content="&#xE8BB;" ToolTip="Close" AutomationProperties.Name="Close"/>
       </StackPanel>
+      <Popup x:Name="A11yPop" PlacementTarget="{Binding ElementName=A11yBtn}" Placement="Bottom" HorizontalOffset="-300" VerticalOffset="6" StaysOpen="False" AllowsTransparency="True">
+        <Border x:Name="A11yPanel" Background="#141A27" BorderBrush="#232B3D" BorderThickness="1" CornerRadius="12" Padding="18,16" Width="346">
+          <StackPanel>
+            <TextBlock Style="{StaticResource H2}" Text="Display and accessibility"/>
+            <TextBlock Text="Theme" FontWeight="SemiBold" Margin="0,0,0,6"/>
+            <WrapPanel>
+              <RadioButton x:Name="ThemeDark" Style="{StaticResource Seg}" Padding="12,7" GroupName="theme" Content="Dark" Margin="0,0,6,6"/>
+              <RadioButton x:Name="ThemeLight" Style="{StaticResource Seg}" Padding="12,7" GroupName="theme" Content="Light" Margin="0,0,6,6"/>
+              <RadioButton x:Name="ThemeSystem" Style="{StaticResource Seg}" Padding="12,7" GroupName="theme" Content="Like Windows" Margin="0,0,0,6"/>
+            </WrapPanel>
+            <TextBlock Text="Text size" FontWeight="SemiBold" Margin="0,8,0,6"/>
+            <WrapPanel>
+              <RadioButton x:Name="Zoom100" Style="{StaticResource Seg}" Padding="12,7" GroupName="zoom" Content="100%" Margin="0,0,6,6"/>
+              <RadioButton x:Name="Zoom115" Style="{StaticResource Seg}" Padding="12,7" GroupName="zoom" Content="115%" Margin="0,0,6,6"/>
+              <RadioButton x:Name="Zoom130" Style="{StaticResource Seg}" Padding="12,7" GroupName="zoom" Content="130%" Margin="0,0,6,6"/>
+              <RadioButton x:Name="Zoom150" Style="{StaticResource Seg}" Padding="12,7" GroupName="zoom" Content="150%" Margin="0,0,0,6"/>
+            </WrapPanel>
+            <TextBlock Text="Font" FontWeight="SemiBold" Margin="0,8,0,6"/>
+            <WrapPanel>
+              <RadioButton x:Name="FontSegoe" Style="{StaticResource Seg}" Padding="12,7" GroupName="font" Content="Segoe UI" FontFamily="Segoe UI" Margin="0,0,6,6"/>
+              <RadioButton x:Name="FontVerdana" Style="{StaticResource Seg}" Padding="12,7" GroupName="font" Content="Verdana" FontFamily="Verdana" Margin="0,0,6,6"/>
+              <RadioButton x:Name="FontTahoma" Style="{StaticResource Seg}" Padding="12,7" GroupName="font" Content="Tahoma" FontFamily="Tahoma" Margin="0,0,6,6"/>
+              <RadioButton x:Name="FontArial" Style="{StaticResource Seg}" Padding="12,7" GroupName="font" Content="Arial" FontFamily="Arial" Margin="0,0,0,6"/>
+            </WrapPanel>
+            <TextBlock Style="{StaticResource Sub}" FontSize="12" Margin="0,8,0,0" Text="Ctrl + plus / Ctrl + minus / Ctrl + 0 change the text size anywhere in the window. Verdana and Tahoma have wider, more distinct letters. Saved for the next start."/>
+          </StackPanel>
+        </Border>
+      </Popup>
     </Grid>
 
     <Grid Grid.Row="1">
@@ -277,7 +309,7 @@ __RES__
 
       <!-- sidebar -->
       <Border Grid.Column="0" Background="#0E121B" BorderBrush="#1A2133" BorderThickness="0,1,1,0">
-        <DockPanel LastChildFill="False">
+        <ScrollViewer VerticalScrollBarVisibility="Auto"><DockPanel LastChildFill="False">
           <StackPanel DockPanel.Dock="Top" Margin="0,14,0,0">
             <TextBlock Text="STEPS" Foreground="#5B6478" FontSize="11" FontWeight="SemiBold" Margin="26,0,0,6"/>
             <RadioButton x:Name="Nav1" Style="{StaticResource Nav}" IsChecked="True">
@@ -334,16 +366,13 @@ __RES__
             </Button>
             <TextBlock Text="unpack - updates - slipstream - ISO, using what you set on each page" Style="{StaticResource Sub}" FontSize="11" Margin="2,8,0,0"/>
           </StackPanel>
-        </DockPanel>
+        </DockPanel></ScrollViewer>
       </Border>
 
       <!-- main -->
       <Grid Grid.Column="1">
         <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
-        <Border Grid.Row="0" Margin="24,16,24,0" Padding="18,12" CornerRadius="12" BorderBrush="#232B3D" BorderThickness="1">
-          <Border.Background>
-            <LinearGradientBrush StartPoint="0,0" EndPoint="1,0"><GradientStop Color="#16213A" Offset="0"/><GradientStop Color="#1B1733" Offset="1"/></LinearGradientBrush>
-          </Border.Background>
+        <Border Grid.Row="0" Margin="24,16,24,0" Padding="18,12" CornerRadius="12" BorderBrush="#232B3D" BorderThickness="1" Background="{DynamicResource HeaderBg}">
           <Grid>
             <Grid.ColumnDefinitions><ColumnDefinition Width="1.1*"/><ColumnDefinition Width="1.6*"/><ColumnDefinition Width="1.2*"/></Grid.ColumnDefinitions>
             <StackPanel Grid.Column="0" Margin="0,0,14,0"><TextBlock Text="SOURCE" Foreground="#6F7A90" FontSize="10" FontWeight="SemiBold"/><TextBlock x:Name="HdrIso" Text="-" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/></StackPanel>
