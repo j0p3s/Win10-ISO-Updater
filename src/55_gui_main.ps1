@@ -252,6 +252,15 @@ try {
         }
     })
     $U.SignName.Add_TextChanged({ Update-SignDest })
+    foreach ($x in @(@('SignEngMakeCat', 'makecat'), @('SignEngLibwdi', 'libwdi'), @('SignEngGenCat', 'gencat'), @('SignEngInf2Cat', 'inf2cat'))) {
+        $rb = $U[$x[0]]; $rb.Tag = $x[1]
+        $rb.Add_Click({
+            $Script:Cfg.SignEngine = [string]$this.Tag
+            Save-Settings
+            Update-SignEngine
+            Update-Tools
+        })
+    }
     $U.SignBtn.Add_Click({ Invoke-SignClick })
     $U.SignOpen.Add_Click({ New-Item -ItemType Directory -Force -Path $Script:SignDir | Out-Null; Open-Path $Script:SignDir })
     $U.SignRemove.Add_Click({

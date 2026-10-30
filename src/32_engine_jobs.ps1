@@ -290,7 +290,7 @@ function Invoke-Job([string]$Job, $A) {
                 Write-Ok "$(@($Script:Sync.Result).Count) driver(s) found."
             }
             'CommitImport' { Save-ImportDrivers $A.Dir $A.Pick }
-            'Sign'         { Invoke-SignPackage $A.Source $A.Name $A.Password ([bool]$A.All) ([bool]$Script:Cfg.SignOnlyThisPc) ([bool]$Script:Cfg.SignIsolate) (Get-SignJobs) }
+            'Sign'         { Invoke-SignPackage $A.Source $A.Name $A.Password ([bool]$A.All) ([bool]$Script:Cfg.SignOnlyThisPc) ([bool]$Script:Cfg.SignIsolate) (Get-SignJobs) (Get-SignEngine) }
             'Service'      { Invoke-Service -Auto }
             'Build'        { Invoke-Build -Auto -OutIso ([string]$A.Out) }
             'All'          { Invoke-RunAll $A }

@@ -1,6 +1,6 @@
 # Windows ISO Updater
 
-![version](https://img.shields.io/badge/version-3.5.1-2F9BFF) ![platform](https://img.shields.io/badge/Windows-10%20%7C%2011-8B5CF6) ![license](https://img.shields.io/badge/license-MIT-3DDC97) [![tests](https://github.com/j0p3s/Windows-ISO-Updater/actions/workflows/tests.yml/badge.svg)](https://github.com/j0p3s/Windows-ISO-Updater/actions/workflows/tests.yml)
+![version](https://img.shields.io/badge/version-3.6.0-2F9BFF) ![platform](https://img.shields.io/badge/Windows-10%20%7C%2011-8B5CF6) ![license](https://img.shields.io/badge/license-MIT-3DDC97) [![tests](https://github.com/j0p3s/Windows-ISO-Updater/actions/workflows/tests.yml/badge.svg)](https://github.com/j0p3s/Windows-ISO-Updater/actions/workflows/tests.yml)
 
 **One file. Double-click. Get a fully updated Windows 10 or Windows 11 ISO with your drivers, your signed NVIDIA mod, your answer file and your `$OEM$` folder baked in.**
 
@@ -14,7 +14,7 @@
 6. **Checks everything** before the build: answer file, `$OEM$` scripts and drivers, with one-click fixes
 7. **Builds a bootable BIOS + UEFI ISO**
 
-Missing tools (`oscdimg`, `Inf2Cat`, `signtool`) are downloaded automatically from Microsoft and verified.
+Missing tools (`oscdimg`, `makecat`, `Inf2Cat`, `signtool`) are downloaded automatically from Microsoft and verified.
 
 **Contents:** [Screenshots](#screenshots) · [Quick start](#quick-start) · [The pages](#the-pages) · [Speed](#speed) · [Modded drivers](#modded-drivers-nvidia--nvcleanstall) · [Install check](#install-check) · [Display and accessibility](#display-and-accessibility) · [Supported Windows versions](#supported-windows-versions) · [Privacy](#privacy-what-stays-on-your-pc) · [Files the tool creates](#files-the-tool-creates) · [Troubleshooting](#troubleshooting) · [Building from source](#building-from-source) · [Changelog](#changelog) · [Legal notice](#legal-notice)
 
@@ -63,12 +63,12 @@ The console line at start shows the version (`Starting Windows ISO Updater v3.5.
 | 2 | **Editions** | Tick the editions to update. Unticked ones can be left out, which makes the ISO smaller and the build faster |
 | 3 | **Windows updates** | Finds and downloads the newest LCU, SSU, Safe OS DU, Setup DU, .NET 4.8.1 and .NET CU (SHA-1 checked). Optional .NET 3.5 and `/ResetBase` |
 | 4 | **Drivers** | *Add drivers from this PC* (`Export-WindowsDriver`) or *Import a drivers folder* (for example `Drivers-Backup` made by `Drivers.cmd`). All subfolders are scanned, and drivers for the wrong architecture are left out |
-| 5 | **Signed NVIDIA / modded** | Re-signs edited driver packages so Windows accepts them (see below) |
+| 5 | **Signed NVIDIA / modded** | Re-signs edited driver packages so Windows accepts them, with the engine you pick: MakeCat, libwdi-style, generate-cat-file or Inf2Cat (see below) |
 | 6 | **Answer file + `$OEM$`** | Your `autounattend.xml` (from [autounattended-generator](https://github.com/j0p3s/autounattended-generator)) and your `$OEM$` folder |
 | ✓ | **Install check** | Finds what would break or stall a clean install, and fixes it |
 | 7 | **Slipstream + build ISO** | Services WinRE, `install.wim` and `boot.wim`, then writes the ISO. Options: no "press any key", Windows UEFI CA 2023 boot manager, split `install.wim` for FAT32, [speed options](#speed), output file name |
 | | **Options and clean up** | Work folder, **Clean up** (mounted images, temp files, and on request updates, media, ISOs, signed copies, copied drivers, answer file copy, logs — or **Everything**), defaults |
-| | **Tools** | Shows DISM, `oscdimg`, `Inf2Cat`, `signtool` and `curl`, and downloads what is missing |
+| | **Tools** | Shows DISM, `oscdimg`, `Inf2Cat`, `signtool`, `makecat` and `curl`, and downloads what is missing |
 
 The **Activity** panel at the bottom shows the live log, a progress bar and what the current job is doing. **Run everything** (left) runs unpack → updates → slipstream → ISO with what you set on each page.
 
@@ -123,11 +123,11 @@ On page **5**:
 1. Pick the folder NVCleanstall extracted. Every subfolder is scanned.
 2. Press **Sign and add to the ISO**. The tool then:
    - copies the package into the work folder (your original is not touched)
-   - extracts only `Inf2Cat` + `signtool` from Microsoft's NuGet packages (Windows SDK build tools / Windows Driver Kit) — nothing is installed
+   - extracts only the tools it needs (`makecat` or `Inf2Cat`, and `signtool`) from Microsoft's NuGet packages (Windows SDK build tools / Windows Driver Kit) — nothing is installed
    - creates a **self-signed code-signing certificate** the first time (you choose the password for its backup `DriverSigning.pfx`)
-   - builds a new catalog **only for the INF files that need one** and signs and verifies it. That covers an edited INF and a catalog signed with a certificate Windows doesn't trust (NVCleanstall signs its packages with its own). The other INF files keep NVIDIA's / Microsoft's catalog.
-   - runs several `Inf2Cat` at the same time and signs all new catalogs together
-   - shows what `Inf2Cat` is doing, for how long and about how long is left in the status line (the progress bar fills too), and logs how long each folder took
+   - builds a new catalog **only for the INF files that need one** with the [engine you pick](#signing-engines) (MakeCat by default), then signs it and verifies it with `signtool`. That covers an edited INF and a catalog signed with a certificate Windows doesn't trust (NVCleanstall signs its packages with its own). The other INF files keep NVIDIA's / Microsoft's catalog.
+   - signs all new catalogs together
+   - shows what the engine is doing, for how long and (Inf2Cat) about how long is left in the status line, and logs which engine signed each folder and how long it took
 3. When the ISO is built, the package goes to `$OEM$\$1\Drivers\NVIDIA` together with the public `DriverSigning.cer`, and `SetupComplete-drivers.cmd` is generated. During Windows setup that script:
    - trusts the certificate (`Trusted Root` + `Trusted Publishers`)
    - runs `pnputil /add-driver ... /subdirs /install`
@@ -136,16 +136,35 @@ On page **5**:
 
 If your `$OEM$` already has a `SetupComplete.cmd`, a `call "%~dp0SetupComplete-drivers.cmd"` line is added to the copy that goes into the ISO. Your own file is not changed.
 
-### Why signing NVIDIA takes so long, and what makes it faster
+### Signing engines
 
-NVIDIA's `Display.Driver` folder has one INF file per laptop and desktop maker (about 40), all pointing at the same ~1 GB of files. `Inf2Cat` checks every INF it is given against the whole package, so cataloguing a full NVIDIA folder can take **up to an hour**. The status line keeps counting while it works; `engine.log` gets a "still running" line every 5 minutes.
+Page 5 has the four catalog engines of [NVIDIA Modded Drivers Signer](https://github.com/j0p3s/nvidia-modded-drivers-signer) 2.3.0. Pick one with the buttons next to **Engine**; the choice is saved (`SignEngine` in the settings file).
+
+| Engine | How it builds the catalog | Needs |
+|---|---|---|
+| **MakeCat** (default) | `makecat.exe` from the Windows SDK and a generated `.cdf`. **One catalog per driver folder** (`<folder>_w10u.cat`, e.g. `display.driver_w10u.cat`) with the SHA-256 hash of the INF files that need a new signature and of **every file of the folder**, also the ones an INF copies as a whole directory (`ngx-builtins`, `NvCamera`). Each file is hashed once: about 20 s for NVIDIA's 3 GB `Display.Driver` instead of minutes. Windows accepted it in the signer's engine test (`pnputil`, read from `setupapi.dev.log`). | `makecat.exe`: an installed Windows Kit, or extracted from `Microsoft.Windows.SDK.BuildTools` / `Microsoft.Windows.WDK.x64` |
+| **libwdi-style** (experimental) | The same folder catalog, built with Windows' own CryptCAT API (`wintrust.dll`) from a small C# class compiled when needed: SHA-1 member hashes, PE files with `SPC_PE_IMAGE_DATA`, the rest with `SPC_LINK`, `HWID1` and `OS` attributes. It follows the approach of the [libwdi](https://github.com/pbatard/libwdi) project (`pki.c`); no libwdi code is included. | Nothing to download |
+| **generate-cat-file (WSL)** (experimental) | The same folder catalog, built by [LINBIT/generate-cat-file](https://github.com/LINBIT/generate-cat-file) inside WSL. Its source is downloaded from GitHub at a pinned commit, checked with SHA-256, and built in `~/.w10u-gencat` in your WSL distribution. | WSL with a Linux distribution that has `gcc`, `make`, `bash` and `sha1sum` (`sudo apt install build-essential`) |
+| **Inf2Cat** | Microsoft's standard tool. It parses every INF and checks it against every file of the package: the proven way, but slow on big packages ([below](#why-signing-nvidia-with-inf2cat-takes-so-long-and-what-makes-it-faster)). | `Inf2Cat.exe` from `Microsoft.Windows.WDK.x64` (about 110 MB) |
+
+What MakeCat, libwdi-style and generate-cat-file have in common:
+- They don't parse the INF. Every new catalog is checked afterwards with `signtool verify /pa /c` against each INF that points at it. A failure is reported, with the hint to sign again with Inf2Cat.
+- **Inf2Cat is the fallback.** A folder the engine can't do (`makecat.exe` not found or downloadable, no WSL, the catalog not built) is catalogued by Inf2Cat in the same run, and the log says so.
+- A file stored compressed (`ngx-builtins\nvngx_dlssd.dl_`, while the INF names `nvngx_dlssd.dll`) is expanded with Windows' `expand.exe` into a temporary folder and hashed under the name the INF uses, because Windows checks the expanded file. The compressed file is hashed too.
+- Only the INF files that need a new signature point at the folder catalog; only their `CatalogFile=` line changes in the work copy. The others keep NVIDIA's / Microsoft's catalog. With *new catalogs only for the INF files that need one* off, every INF of the folder points at it.
+- The log lists what went into each catalog. It also counts the files left out: names MakeCat or generate-cat-file can't take (spaces, other special characters), and files an INF copies that are not in the folder. No catalog can hold the hash of a missing file, so Windows will refuse that driver.
+- The list of packages on page 5 shows which engine signed each one.
+
+### Why signing NVIDIA with Inf2Cat takes so long, and what makes it faster
+
+NVIDIA's `Display.Driver` folder has one INF file per laptop and desktop maker (about 40), all pointing at the same ~1 GB of files. `Inf2Cat` checks every INF it is given against the whole package, so cataloguing a full NVIDIA folder can take **up to an hour**. The status line keeps counting while it works; `engine.log` gets a "still running" line every 5 minutes. **MakeCat** (the default engine) hashes every file once instead and takes seconds; the options below matter mostly for Inf2Cat.
 
 The speed-ups come from [NVIDIA Modded Drivers Signer](https://github.com/j0p3s/nvidia-modded-drivers-signer) 1.1–1.5 (page 5):
 
 | Option | Default | Effect |
 |---|---|---|
 | **Faster: new catalogs only for the INF files that need one** | on | Usually NVCleanstall edits one or a few INF files. `Inf2Cat` gets a copy of the folder with only those INF files, so it checks a few INF files instead of 40. The driver files in that copy are hard links (no time, no extra space; copied on drives without hard links). The other INF files keep their NVIDIA / Microsoft catalog and signature, and every INF stays in the package, so the driver still installs on any hardware. NVIDIA's INF files share one catalog (`nv_dispi.cat`): an edited INF then gets a catalog file of its own (`nv_dispi_w10u.cat`, only its `CatalogFile=` line changes in the work copy), so the shared catalog stays valid for the others. If `Inf2Cat` fails on the copy, the whole folder is catalogued as before. Off: every INF in a folder that needs signing gets a new catalog. |
-| **Inf2Cat runs at the same time** | processor cores, up to 8 | One `Inf2Cat` uses one core. Folders (and the INF files within a folder that need a new catalog) are catalogued side by side, 1–8 at a time. |
+| **Catalog runs at the same time** | processor cores, up to 8 | One `Inf2Cat` uses one core. Folders (and the INF files within a folder that need a new catalog) are catalogued side by side, 1–8 at a time. MakeCat does up to 4 folders at once (it is limited by the disk, not the processor). |
 | **Only keep the INF files for this PC's hardware** | off | Removes the INF files for other hardware from the work copy (details below). Use it when every INF needs a new catalog and the ISO is for this PC. |
 
 Always on: all new catalogs are signed together (up to 16 per `signtool` call), and the time estimate learns how fast `Inf2Cat` is on this PC (`tools\inf2cat-speed.json`).
@@ -226,7 +245,7 @@ Any other image can still get drivers, signed packages, an answer file and `$OEM
 
 ## Privacy: what stays on your PC
 
-The tool talks only to Microsoft (Update Catalog, download servers, symbol server, nuget.org for the signing tools). It sends nothing about you or your PC anywhere.
+The tool talks only to Microsoft (Update Catalog, download servers, symbol server, nuget.org for the signing tools). Only if you choose the generate-cat-file signing engine, it also downloads that tool's source code from github.com. It sends nothing about you or your PC anywhere.
 
 What is private — **never share or upload it:**
 
@@ -244,7 +263,8 @@ The repository's [`.gitignore`](.gitignore) excludes all of that, so a fork or p
 
 | Path | Contents |
 |------|----------|
-| `tools\` (next to the .cmd) | Downloaded `oscdimg`, `Inf2Cat`, `signtool` — safe to delete |
+| `tools\` (next to the .cmd) | Downloaded `oscdimg`, `makecat`, `Inf2Cat`, `signtool` (and the generate-cat-file source in `tools\gencat\src`, only with that engine) — safe to delete |
+| `~/.w10u-gencat` in your WSL distribution | generate-cat-file built there, only with that engine — remove it with `rm -rf ~/.w10u-gencat` |
 | `signing\` (next to the .cmd) | `DriverSigning.pfx` (**private**) + `DriverSigning.cer` |
 | `Windows-ISO-Updater.settings.json` | Your options (the same file for every version; `Win10-ISO-Updater.settings.json` from 3.3 and older is read once) |
 | `C:\W10U\` (work folder) | Unpacked media, updates, drivers, signed copies, logs, `state.json`, output ISO — all removed by *Clean up → Everything* |
@@ -263,7 +283,10 @@ Logs: `C:\W10U\logs\engine.log` and `dism.log` (`dism-boot.log` for boot.wim whe
 | Drivers didn't install after setup | Read `C:\Windows\Temp\SetupComplete-drivers.log`, and run the **Install check** (OEM-key fallback) |
 | `Inf2Cat` "Signability test failed" | Delete `inf2cat.exe.manifest` next to `Inf2Cat.exe` and sign again |
 | Windows 11 slipstream fails on a Windows 10 PC | Answer **Yes** when the tool offers the Windows ADK Deployment Tools (this PC's DISM is too old for Windows 11), or install them yourself and run the slipstream again |
-| *Re-sign drivers* runs for a very long time on `Display.Driver` | Normal when every INF of a full NVIDIA package needs a new catalog (up to an hour) — the log says how many INF files get one and how long it should take. Check that `Inf2Cat.exe` uses CPU in Task Manager → Details. Faster: keep *New catalogs only for the INF files that need one* on, raise *Inf2Cat runs at the same time*, or turn on *Only keep the INF files for this PC's hardware* |
+| *Re-sign drivers* runs for a very long time on `Display.Driver` | With Inf2Cat that is normal when every INF of a full NVIDIA package needs a new catalog (up to an hour) — the log says how many INF files get one and how long it should take. Check that `Inf2Cat.exe` uses CPU in Task Manager → Details. Faster: choose the **MakeCat** engine (seconds), or keep *New catalogs only for the INF files that need one* on, raise *Catalog runs at the same time*, or turn on *Only keep the INF files for this PC's hardware* |
+| Signing: "MakeCat could not build the catalog - Inf2Cat builds it instead" (or libwdi-style / generate-cat-file) | Inf2Cat signed that folder in the same run, nothing to do. The engine's last lines are in the log above; please open an issue with `logs\engine.log` |
+| Signing: "Verification failed" with MakeCat, libwdi-style or generate-cat-file | `signtool` found an INF that doesn't match the new catalog. Choose **Inf2Cat** on page 5 and sign again — the other engines don't parse the INF |
+| Signing: "generate-cat-file is not available: WSL is not available ..." | Inf2Cat signed instead. For that engine, run `wsl --install` as administrator, then `sudo apt install build-essential` in the Linux distribution — or pick another engine |
 | Signing: "Inf2Cat failed on the isolated INF file(s) - the whole folder is catalogued instead" | Inf2Cat rejected the copy with only the edited INF files; the tool then signs the whole folder, as before. Nothing to do, but please open an issue with `logs\engine.log` |
 | "Could not start: The property 'ItemsSource' cannot be found" / "SignTool Error: ... terminated in a root" / check list shows `System.Object[]` | Bugs of v2.0.0 – v2.0.3. Make sure the copy you start is the newest: the first console line shows the version |
 | A line starting with `Interface error:` in the Activity log | Something in the window failed but the program kept running — please open an issue with that line and `C:\W10U\logs\engine.log` |
@@ -290,12 +313,13 @@ python src/build.py
 |------|------|
 | `00_header.cmd` | batch launcher: elevation, starts the PowerShell part of the same file |
 | `10_engine_head.ps1` | constants, log sink (every `Write-Host` goes to the Activity panel), Yes/No questions from the worker |
-| `30_engine_tools.ps1` | console tools with live output and progress, several Inf2Cat runs at the same time, oscdimg / Inf2Cat / signtool download |
+| `30_engine_tools.ps1` | console tools with live output and progress, several Inf2Cat / MakeCat runs at the same time, oscdimg / Inf2Cat / signtool download |
 | `35_engine_service.ps1` | slipstream: WinRE, install.wim, boot.wim (optionally in a background runspace), media update |
 | `36_engine_build.ps1` | ISO build: free space and "in use" checks, oscdimg into a `.part` file, SHA-256 |
 | `37_engine_download.ps1` | finds and downloads the updates (servicing stack lookup in a background job) |
 | `38_engine_windows.ps1` | Windows 10 / 11 detection, catalog title patterns, update order (24H2 checkpoints), the DISM for the image (ADK on a Windows 10 PC), Analyze |
 | `31_engine_sign.ps1` | certificate, catalogs, re-signing (isolated copies with only the INF files that need a new catalog), `$OEM$` assembly, `SetupComplete-drivers.cmd` |
+| `39_engine_catalogs.ps1` | the signing engines: MakeCat (`.cdf`), libwdi-style (CryptCAT from C#), generate-cat-file (WSL); one catalog per folder with every file of it, compressed files expanded, Inf2Cat as fallback |
 | `33_engine_check.ps1`, `34_engine_check2.ps1` | install check and its fixes |
 | `32_engine_jobs.ps1` | driver scan / import, answer file, run everything, job entry point for the background worker |
 | `40_gui_xaml.ps1`, `45_gui_dialogs.ps1` | window, pages and dialogs (WPF XAML) |
@@ -307,7 +331,7 @@ python src/build.py
 pwsh tests/run-tests.ps1
 ```
 
-Twelve suites (about 375 checks) run the PowerShell part on Linux / macOS with PowerShell 7: catalog parsing (Windows 10 and Windows 11 titles, the 24H2 checkpoint order, the DISM choice), signing with stand-ins for `signtool` / `Inf2Cat` (an NVCleanstall-style untrusted catalog, live Inf2Cat status from a worker runspace, keeping only this PC's INF files, isolated copies with only the edited INF files, an own catalog for an INF whose catalog is shared (NVIDIA's `nv_dispi.cat`) with its encoding kept, several Inf2Cat runs at the same time, the fallback to the whole folder, batched signing, the time estimate), `$OEM$` assembly, every install check finding and fix, an answer file made by the autounattend generator (`tests/fixtures`, personal data removed), the page refresh with Windows PowerShell 5.1's JSON behaviour simulated (and the taskbar progress), the dark / light theme (XAML conversion, a light color for every color, text contrast) with the text size and font settings, a whole slipstream against a stand-in `dism` (boot.wim and WinRE in the background vs. sequential, a failed WinRE update, the driver set, the Defender option), the ISO build against a stand-in `oscdimg` (failed build, ISO in use, free space), and the download step with a stand-in catalog (the servicing stack lookup running while the other updates download). DISM, WPF and real driver installs still need a Windows test run.
+Thirteen suites (about 430 checks) run the PowerShell part on Linux / macOS with PowerShell 7: catalog parsing (Windows 10 and Windows 11 titles, the 24H2 checkpoint order, the DISM choice), signing with stand-ins for `signtool` / `Inf2Cat` (an NVCleanstall-style untrusted catalog, live Inf2Cat status from a worker runspace, keeping only this PC's INF files, isolated copies with only the edited INF files, an own catalog for an INF whose catalog is shared (NVIDIA's `nv_dispi.cat`) with its encoding kept, several Inf2Cat runs at the same time, the fallback to the whole folder, batched signing, the time estimate), the signing engines with stand-ins for `makecat`, `expand` and WSL (one catalog per folder with every file in it, compressed files expanded, the `.cdf`, the CryptCAT source compiled, the fallback to Inf2Cat, the engine buttons), `$OEM$` assembly, every install check finding and fix, an answer file made by the autounattend generator (`tests/fixtures`, personal data removed), the page refresh with Windows PowerShell 5.1's JSON behaviour simulated (and the taskbar progress), the dark / light theme (XAML conversion, a light color for every color, text contrast) with the text size and font settings, a whole slipstream against a stand-in `dism` (boot.wim and WinRE in the background vs. sequential, a failed WinRE update, the driver set, the Defender option), the ISO build against a stand-in `oscdimg` (failed build, ISO in use, free space), and the download step with a stand-in catalog (the servicing stack lookup running while the other updates download). DISM, WPF and real driver installs still need a Windows test run.
 
 ---
 
@@ -317,7 +341,8 @@ The full list of changes is in **[CHANGELOG.md](CHANGELOG.md)**; every release o
 
 | Version | Date | Highlights |
 |---|---|---|
-| **3.5.1** | 2026-10-30 | Fix: 3.5.0 didn't open on Windows (*"'#FF0B0E14' is not a valid value for property 'Background'"*) |
+| **3.6.0** | 2026-10-30 | Choice of signing engine on page 5: **MakeCat** (default, seconds instead of minutes for NVIDIA), libwdi-style, generate-cat-file (WSL), Inf2Cat — from NVIDIA Modded Drivers Signer 2.3.0 |
+| 3.5.1 | 2026-10-30 | Fix: 3.5.0 didn't open on Windows (*"'#FF0B0E14' is not a valid value for property 'Background'"*) |
 | 3.5.0 | 2026-10-29 | Dark / light theme, text size and font (top right corner), keyboard zoom, screen-reader names |
 | 3.4.0 | 2026-10-28 | Renamed to **Windows ISO Updater**; the file carries its version: `Windows-ISO-updater-GUI_vX.X.X.cmd`; code-review fixes |
 | 3.3.0 | 2026-10-28 | Windows 11 support and a Windows 10 / 11 switch on page 1 |
@@ -362,10 +387,16 @@ Microsoft, Windows, Windows PE, DISM, Microsoft Defender (Windows Defender) and 
 
 ### Microsoft updates and tools
 
-- Updates come from the Microsoft Update Catalog. `oscdimg.exe` comes from the Microsoft symbol server. If that fails, the tool installs the Windows ADK *Deployment Tools* from Microsoft. It also offers those tools when a Windows 11 image is serviced on a Windows 10 PC, to use their DISM. `signtool` and `Inf2Cat` come from Microsoft's NuGet packages (`Microsoft.Windows.SDK.BuildTools`, `Microsoft.Windows.WDK.x64`).
+- Updates come from the Microsoft Update Catalog. `oscdimg.exe` comes from the Microsoft symbol server. If that fails, the tool installs the Windows ADK *Deployment Tools* from Microsoft. It also offers those tools when a Windows 11 image is serviced on a Windows 10 PC, to use their DISM. `signtool`, `makecat` and `Inf2Cat` come from Microsoft's NuGet packages (`Microsoft.Windows.SDK.BuildTools`, `Microsoft.Windows.WDK.x64`).
 - The tool downloads them **straight from Microsoft to your PC** when a step needs them (or uses copies already on the PC). **This repository does not contain or redistribute any of them.**
-- They stay Microsoft's software under Microsoft's license terms: the Windows license terms for updates, the Windows ADK terms for `oscdimg` and the ADK's DISM, and the Windows SDK / Windows Driver Kit terms for `signtool` and `Inf2Cat`. You are responsible for following them.
+- They stay Microsoft's software under Microsoft's license terms: the Windows license terms for updates, the Windows ADK terms for `oscdimg` and the ADK's DISM, and the Windows SDK / Windows Driver Kit terms for `signtool`, `makecat` and `Inf2Cat`. You are responsible for following them.
 - The SDK and WDK packages are meant for developing and testing software. Check that your use is allowed under their terms.
+
+### Other tools
+
+- **generate-cat-file** (signing engine, only if you choose it): the source code of [LINBIT/generate-cat-file](https://github.com/LINBIT/generate-cat-file) (GPL-2.0) is downloaded from GitHub at a pinned commit and compiled on your own PC inside WSL. It is not included in or redistributed by this repository and keeps its own license.
+- **libwdi-style** (signing engine): this project's own implementation of the catalog-building approach of the LGPL-licensed [libwdi](https://github.com/pbatard/libwdi) project. It contains no libwdi code.
+- The signing engines come from [NVIDIA Modded Drivers Signer](https://github.com/j0p3s/nvidia-modded-drivers-signer), a project by the same author.
 
 ### The ISO you build: for your own use
 
@@ -378,7 +409,7 @@ Microsoft, Windows, Windows PE, DISM, Microsoft Defender (Windows Defender) and 
 - The tool doesn't change any driver binary (`.sys`, `.dll`). In its own work copy of the package, it does three things:
   - writes new catalog files;
   - signs them with your certificate;
-  - for an INF whose catalog is shared with other INF files, changes the `CatalogFile=` line.
+  - changes the `CatalogFile=` line of an INF that gets a new catalog of its own, or the folder's new catalog (MakeCat and the other folder engines).
 
   Your original folder is not touched.
 - Re-signed packages carry **your self-signed certificate, not a signature from Microsoft (WHQL) or the vendor**.
@@ -399,7 +430,7 @@ Read the Install check findings before booting an ISO on a PC with data you care
 
 ### Privacy
 
-The tool sends no telemetry and nothing about you or your PC. Its only network requests go to Microsoft's servers (Update Catalog and download servers, symbol server) and to nuget.org, to download the files above. Those services' own privacy policies apply to those requests. Two buttons, *Download Windows 10 from Microsoft* and *Open the generator*, open a web page in your browser. Details: [Privacy](#privacy-what-stays-on-your-pc).
+The tool sends no telemetry and nothing about you or your PC. Its only network requests go to Microsoft's servers (Update Catalog and download servers, symbol server) and to nuget.org, to download the files above, and, only with the generate-cat-file signing engine, to github.com for that tool's source code. Those services' own privacy policies apply to those requests. Two buttons, *Download Windows 10 from Microsoft* and *Open the generator*, open a web page in your browser. Details: [Privacy](#privacy-what-stays-on-your-pc).
 
 ## License
 

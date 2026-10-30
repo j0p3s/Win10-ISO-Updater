@@ -1,6 +1,6 @@
 @echo off
 :: ===========================================================================
-::  Windows-ISO-updater-GUI_v3.5.1.cmd  -  one file, graphical interface
+::  Windows-ISO-updater-GUI_v3.6.0.cmd  -  one file, graphical interface
 ::  Windows ISO Updater: the file name carries the version (vX.X.X).
 ::  - unpacks a Windows 10 or Windows 11 ISO and detects its build
 ::  - downloads its updates from the Microsoft Update Catalog
@@ -26,7 +26,7 @@ exit /b
 
 :admin_ok
 set "W10U_SELF=%~f0"
-echo Starting Windows ISO Updater v3.5.1 ...  (this window hides when the program opens)
+echo Starting Windows ISO Updater v3.6.0 ...  (this window hides when the program opens)
 "%PSEXE%" -NoProfile -STA -ExecutionPolicy Bypass -Command "$t=[IO.File]::ReadAllText($env:W10U_SELF);$i=$t.IndexOf('#'+'PS-BEGIN');Invoke-Expression $t.Substring($i)"
 if errorlevel 1 pause
 exit /b
@@ -42,7 +42,7 @@ $ProgressPreference    = 'SilentlyContinue'
 
 $Script:AppName      = 'Windows-ISO-Updater'
 $Script:AppTitle     = 'Windows ISO Updater'
-$Script:AppVersion   = '3.5.1'
+$Script:AppVersion   = '3.6.0'
 $Script:Root         = Split-Path -Parent $env:W10U_SELF
 $ToolsDir            = Join-Path $Script:Root 'tools'
 $IsoPath             = $null
@@ -144,6 +144,7 @@ function Get-DefaultSettings {
         UiFont           = 'Segoe UI'
         SignIsolate      = $true
         SignJobs         = 0
+        SignEngine       = 'makecat'
         ParallelBoot     = $true
         BootSkipPE       = $false
         DefenderExclude  = $false
@@ -1636,10 +1637,15 @@ function Format-Span([TimeSpan]$T) { return ('{0}:{1:mm\:ss}' -f [int][math]::Fl
 # Inf2Cat can run for a long time on big packages (NVIDIA Display.Driver has dozens of INF files
 # that all point at the same ~1 GB of files). One run uses one processor core, so several folders
 # are catalogued at the same time (up to $Jobs runs). The output of every run is read live: the
-# status line shows what is running and for how long, even while Inf2Cat prints nothing. With an
+# status line shows what is running and for how long, even while the tool prints nothing. With an
 # estimate for every item (Est, seconds) it also shows the time left and drives the progress bar.
-# Items: Dir, Label, Est. Returns one result per item, in the same order.
+# Items: Dir, Label, Est, Args (the tool's arguments), WorkDir (optional). $Tool names it in the status
+# line. Returns one result per item, in the same order.
 function Invoke-Inf2CatQueue([string]$Exe, $Items, [string]$Os, [int]$Jobs = 1) {
+    $runs = @(foreach ($it in @($Items)) { [pscustomobject]@{ Dir = $it.Dir; Label = $it.Label; Est = $it.Est; Args = @("/driver:$($it.Dir)", "/os:$Os", '/uselocaltime', '/verbose') } })
+    return (Invoke-ToolQueue $Exe $runs $Jobs 'Inf2Cat')
+}
+function Invoke-ToolQueue([string]$Exe, $Items, [int]$Jobs = 1, [string]$Tool = 'Inf2Cat') {
     $Items = @($Items)
     $Jobs = [math]::Max(1, $Jobs)
     $res = New-Object 'object[]' $Items.Count
@@ -1654,11 +1660,12 @@ function Invoke-Inf2CatQueue([string]$Exe, $Items, [string]$Os, [int]$Jobs = 1) 
     while ($next -lt $Items.Count -or $run.Count -gt 0) {
         while ($next -lt $Items.Count -and $run.Count -lt $Jobs) {
             $it = $Items[$next]
-            $argText = (@("/driver:$($it.Dir)", "/os:$Os", '/uselocaltime', '/verbose') | ForEach-Object { ConvertTo-ArgText $_ }) -join ' '
+            $argText = (@($it.Args) | ForEach-Object { ConvertTo-ArgText $_ }) -join ' '
             Add-Log "EXEC $Exe $argText"
             $psi = New-Object Diagnostics.ProcessStartInfo
             $psi.FileName = $Exe
             $psi.Arguments = $argText
+            if ($it.WorkDir) { $psi.WorkingDirectory = [string]$it.WorkDir }
             $psi.UseShellExecute = $false
             $psi.RedirectStandardOutput = $true
             $psi.RedirectStandardError = $true
@@ -1697,7 +1704,7 @@ function Invoke-Inf2CatQueue([string]$Exe, $Items, [string]$Os, [int]$Jobs = 1) 
                 continue
             }
             # engine.log gets a "still running" line every 5 minutes
-            if (($now - $j.Start).TotalMinutes -ge $j.Beat) { Add-Log ('Inf2Cat {0} still running ({1}) - {2}' -f $j.It.Label, (Format-Span ($now - $j.Start)), $j.What); $j.Beat += 5 }
+            if (($now - $j.Start).TotalMinutes -ge $j.Beat) { Add-Log ('{0} {1} still running ({2}) - {3}' -f $Tool, $j.It.Label, (Format-Span ($now - $j.Start)), $j.What); $j.Beat += 5 }
         }
         if ($Script:Sync -and $run.Count -gt 0 -and ($now - $shown).TotalMilliseconds -ge 400) {
             $eta = ''
@@ -1716,9 +1723,9 @@ function Invoke-Inf2CatQueue([string]$Exe, $Items, [string]$Os, [int]$Jobs = 1) 
             }
             $j = if ($last) { $last } else { $run[0] }
             if ($run.Count -eq 1) {
-                $Script:Sync.Status = ('Inf2Cat {0}  {1}{2}  - {3}' -f $j.It.Label, (Format-Span ($now - $j.Start)), $eta, $j.What)
+                $Script:Sync.Status = ('{0} {1}  {2}{3}  - {4}' -f $Tool, $j.It.Label, (Format-Span ($now - $j.Start)), $eta, $j.What)
             } else {
-                $Script:Sync.Status = ('Inf2Cat {0} runs at the same time, {1} of {2} done  {3}{4}  - {5}: {6}' -f $run.Count, $done, $Items.Count, (Format-Span ($now - $t0)), $eta, $j.It.Label, $j.What)
+                $Script:Sync.Status = ('{0} {1} runs at the same time, {2} of {3} done  {4}{5}  - {6}: {7}' -f $Tool, $run.Count, $done, $Items.Count, (Format-Span ($now - $t0)), $eta, $j.It.Label, $j.What)
             }
             $shown = $now
         }
@@ -1867,26 +1874,35 @@ function Get-FromNuGet([string]$Exe, [string[]]$Packages, [string]$Prefer) {
     }
     return $null
 }
-function Get-SignTools {
+# signtool always; Inf2Cat when it builds the catalogs (for the other engines it is the fallback,
+# fetched with Get-Inf2CatTool when first needed).
+function Get-SignTools([string]$Engine = 'inf2cat') {
     $t = @{ Inf2Cat = (Find-Tool 'Inf2Cat.exe'); SignTool = (Find-Tool 'signtool.exe') }
     if (-not $t.SignTool) {
         Write-Step 'Getting signtool.exe (Windows SDK build tools)'
         $t.SignTool = Get-FromNuGet 'signtool.exe' @('Microsoft.Windows.SDK.BuildTools', 'Microsoft.Windows.WDK.x64') '(?i)/x64/'
     }
-    if (-not $t.Inf2Cat) {
-        Write-Step 'Getting Inf2Cat.exe (Windows Driver Kit, about 110 MB)'
-        $t.Inf2Cat = Get-FromNuGet 'Inf2Cat.exe' @('Microsoft.Windows.WDK.x64') '(?i)/x86/'
-    }
-    if (-not $t.Inf2Cat) { throw 'Inf2Cat.exe could not be downloaded from nuget.org (see the lines above). Check the internet connection and try again - only the Inf2Cat folder of the package is kept, nothing is installed.' }
-    Write-Info "Inf2Cat : $($t.Inf2Cat)"
+    if ($Engine -eq 'inf2cat') { $t.Inf2Cat = Get-Inf2CatTool }
+    elseif ($t.Inf2Cat) { Write-Info "Inf2Cat : $($t.Inf2Cat) (fallback)" }
     if ($t.SignTool) { Write-Info "signtool: $($t.SignTool)" } else { Write-Warn 'signtool.exe not available - PowerShell signing is used and every package is re-signed.' }
     return $t
+}
+function Get-Inf2CatTool {
+    $i = Find-Tool 'Inf2Cat.exe'
+    if (-not $i) {
+        Write-Step 'Getting Inf2Cat.exe (Windows Driver Kit, about 110 MB)'
+        $i = Get-FromNuGet 'Inf2Cat.exe' @('Microsoft.Windows.WDK.x64') '(?i)/x86/'
+    }
+    if (-not $i) { throw 'Inf2Cat.exe could not be downloaded from nuget.org (see the lines above). Check the internet connection and try again - only the Inf2Cat folder of the package is kept, nothing is installed.' }
+    Write-Info "Inf2Cat : $i"
+    return $i
 }
 function Get-AllTools {
     Write-Title 'Tools'
     $o = Get-Oscdimg
     Write-Ok "oscdimg.exe : $o"
     [void](Get-SignTools)
+    if ((Get-SignEngine) -eq 'makecat') { $m = Get-MakeCat; if ($m) { Write-Info "MakeCat : $m" } else { Write-Warn 'makecat.exe could not be downloaded - Inf2Cat signs instead.' } }
     Write-Ok 'All tools are ready.'
 }
 #endregion
@@ -2146,11 +2162,7 @@ function Get-OwnCatalogName([string]$Inf) {
 # UTF-8 by their byte order mark, anything else byte for byte (Latin-1 maps every byte to itself).
 function Set-InfCatalog([string]$Src, [string]$Dst, [string]$Cat) {
     $bytes = [IO.File]::ReadAllBytes($Src)
-    $off = 0
-    if ($bytes.Length -ge 2 -and $bytes[0] -eq 0xFF -and $bytes[1] -eq 0xFE) { $enc = New-Object Text.UnicodeEncoding -ArgumentList $false, $true; $off = 2 }
-    elseif ($bytes.Length -ge 2 -and $bytes[0] -eq 0xFE -and $bytes[1] -eq 0xFF) { $enc = New-Object Text.UnicodeEncoding -ArgumentList $true, $true; $off = 2 }
-    elseif ($bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF) { $enc = New-Object Text.UTF8Encoding -ArgumentList $true; $off = 3 }
-    else { $enc = [Text.Encoding]::GetEncoding(28591) }
+    $enc, $off = Get-InfEncoding $bytes
     $text = $enc.GetString($bytes, $off, $bytes.Length - $off)
     $text = [regex]::Replace($text, '(?im)^(\s*CatalogFile(?:\.\w+)?\s*=\s*)"?[^";\s]+"?', ('${1}' + $Cat))
     [IO.File]::WriteAllBytes($Dst, [byte[]](@($enc.GetPreamble()) + @($enc.GetBytes($text))))
@@ -2184,8 +2196,11 @@ function New-InfStage([string]$Dir, [string]$Stage, [string[]]$Infs) {
 # every other INF keeps its catalog and signature. One whose catalog is shared with other INF files
 # gets a catalog of its own (Get-OwnCatalogName), so the shared one stays valid for the others.
 # $Jobs: Inf2Cat runs at the same time. A folder whose isolated run fails is catalogued whole, as before.
-function Invoke-SignFolder([string]$Root, $Cert, [string]$Inf2Cat, [bool]$All, [bool]$OnlyThisPc = $false, [bool]$Isolate = $true, [int]$Jobs = 1) {
-    $os = if ($Script:S.Family -and $Script:S.Family.Arch -eq 'x86') { '10_X86' } else { '10_X64' }
+# $Engine: makecat / libwdi / gencat build one catalog per folder (Invoke-CatalogEngine, $EngineTool is
+# what Initialize-SignEngine returned); a folder they cannot do goes to Inf2Cat ($Inf2Cat, or fetched then).
+function Invoke-SignFolder([string]$Root, $Cert, [string]$Inf2Cat, [bool]$All, [bool]$OnlyThisPc = $false, [bool]$Isolate = $true, [int]$Jobs = 1, [string]$Engine = 'inf2cat', [string]$EngineTool = '') {
+    $arch = if ($Script:S.Family -and $Script:S.Family.Arch) { [string]$Script:S.Family.Arch } else { 'x64' }
+    $os = if ($arch -eq 'x86') { '10_X86' } else { '10_X64' }
     $Jobs = [math]::Max(1, [math]::Min(8, $Jobs))
     $pkgs = @(Get-InfFolders $Root)
     $trim = [pscustomobject]@{ Removed = 0; Kept = @() }
@@ -2198,7 +2213,7 @@ function Invoke-SignFolder([string]$Root, $Cert, [string]$Inf2Cat, [bool]$All, [
     $bad = @($states.Keys | Where-Object { $states[$_] -in 'mismatch', 'untrusted', 'catalog-missing', 'unknown' })
     $untrusted = @($states.Keys | Where-Object { $states[$_] -eq 'untrusted' }).Count
     Write-Info ("{0} INF file(s) in {1} folder(s) - {2} need a new signature ({3} signed with a certificate Windows does not trust)" -f @($states.Keys).Count, $pkgs.Count, $bad.Count, $untrusted)
-    $res = [ordered]@{ Signed = 0; Failed = 0; Untouched = 0; Skipped = 0; Removed = [int]$trim.Removed; Kept = @($trim.Kept) }
+    $res = [ordered]@{ Signed = 0; Failed = 0; Untouched = 0; Skipped = 0; Removed = [int]$trim.Removed; Kept = @($trim.Kept); Engine = '' }
     $todo = @()
     foreach ($p in $pkgs) {
         $rel = $p.Dir.Substring($Root.TrimEnd('\', '/').Length).TrimStart('\', '/'); if (-not $rel) { $rel = '.' }
@@ -2206,19 +2221,26 @@ function Invoke-SignFolder([string]$Root, $Cert, [string]$Inf2Cat, [bool]$All, [
         $need = @($p.Infs | Where-Object { $states[$_] -in 'mismatch', 'untrusted', 'catalog-missing', 'unknown' })
         if ($withCat.Count -eq 0) { Write-Info "$rel : no CatalogFile= line in the INF - left as is"; $res.Skipped++; continue }
         if (-not $All -and $need.Count -eq 0) { $res.Untouched++; continue }
-        $todo += [pscustomobject]@{ Pkg = $p; Rel = $rel; WithCat = $withCat; Need = $(if ($All) { $withCat } else { $need }); Staged = $false; Runs = @(); Check = $withCat; Cats = @(); Ok = $true; Start = $null; Mb = 1.0; Own = @{} }
+        $todo += [pscustomobject]@{ Pkg = $p; Rel = $rel; WithCat = $withCat; Need = $(if ($All) { $withCat } else { $need }); Staged = $false; Runs = @(); Check = $withCat; Cats = @(); Ok = $true; Start = $null; Mb = 1.0; Own = @{}; Engine = 'inf2cat' }
     }
     $stageBase = $Root.TrimEnd('\', '/') + '~stage'
     if (Test-Path -LiteralPath $stageBase) { Remove-Item -LiteralPath $stageBase -Recurse -Force -ErrorAction SilentlyContinue }
     $rate = Get-Inf2CatRate
     try {
+        # ---- MakeCat / libwdi-style / generate-cat-file; what they cannot do goes to Inf2Cat
+        $i2c = @($todo)
+        if ($Engine -ne 'inf2cat' -and $todo.Count) { $i2c = @(Invoke-CatalogEngine $Engine $EngineTool $todo $Isolate $Jobs $stageBase $arch) }
+        if ($i2c.Count -and -not $Inf2Cat) {
+            try { $Inf2Cat = Get-Inf2CatTool }
+            catch { Write-Err $_.Exception.Message; foreach ($t in $i2c) { $t.Ok = $false }; $i2c = @() }
+        }
         # ---- what every Inf2Cat run gets
         $i = 0; $ns = 0
-        foreach ($t in $todo) {
+        foreach ($t in $i2c) {
             $i++
             $p = $t.Pkg
             $cnt = @($p.Infs).Count
-            Write-Sub ('{0}  ({1} INF file(s), folder {2} of {3})' -f $t.Rel, $cnt, $i, $todo.Count)
+            Write-Sub ('{0}  ({1} INF file(s), folder {2} of {3})' -f $t.Rel, $cnt, $i, $i2c.Count)
             $mb = [math]::Max(1.0, [double](@(Get-ChildItem -LiteralPath $p.Dir -Recurse -File -Force -ErrorAction SilentlyContinue | Measure-Object -Property Length -Sum)[0].Sum) / 1MB)
             $t.Mb = $mb
             $parts = @()
@@ -2266,17 +2288,17 @@ function Invoke-SignFolder([string]$Root, $Cert, [string]$Inf2Cat, [bool]$All, [
             }
         }
         # ---- Inf2Cat, up to $Jobs runs at the same time; then the folders whose isolated run failed, whole
-        $pending = @($todo | ForEach-Object { $_.Runs })
+        $pending = @($i2c | ForEach-Object { $_.Runs })
         while ($pending.Count) {
             $start = Get-Date
-            foreach ($t in $todo) { if (@($t.Runs | Where-Object { $pending -contains $_ }).Count) { $t.Start = $start } }
+            foreach ($t in $i2c) { if (@($t.Runs | Where-Object { $pending -contains $_ }).Count) { $t.Start = $start } }
             $est = Get-LaneTime @() @($pending | ForEach-Object { [double]$_.Est }) $Jobs
             $how = if ($pending.Count -eq 1) { '1 run' } else { '{0} runs, up to {1} at the same time' -f $pending.Count, [math]::Min($Jobs, $pending.Count) }
             Write-Info ('Inf2Cat: {0} - estimated time {1}' -f $how, (Format-Span ([timespan]::FromSeconds([math]::Ceiling($est)))))
             $out = @(Invoke-Inf2CatQueue $Inf2Cat $pending $os $Jobs)
             for ($k = 0; $k -lt $pending.Count; $k++) { $pending[$k].R = $out[$k] }
             $retry = @()
-            foreach ($t in $todo) {
+            foreach ($t in $i2c) {
                 $mine = @($t.Runs | Where-Object { $pending -contains $_ })
                 foreach ($r in $mine) { Add-Log ("[$($r.Label)] Inf2Cat exit $($r.R.Code) after $(Format-Span $r.R.Time)`r`n" + ($r.R.Output | Out-String)) }
                 if ($t.Staged -and @($mine | Where-Object { $_.R.Code -ne 0 }).Count) {
@@ -2293,12 +2315,14 @@ function Invoke-SignFolder([string]$Root, $Cert, [string]$Inf2Cat, [bool]$All, [
         }
         # learned speed for the next estimate (runs shorter than a few seconds say little)
         $work = 0.0; $secs = 0.0
-        foreach ($t in $todo) { foreach ($r in $t.Runs) { if ($r.R -and $r.R.Code -eq 0 -and $r.R.Time.TotalSeconds -gt 8) { $work += $r.Infs * $t.Mb; $secs += $r.R.Time.TotalSeconds - 3 } } }
+        foreach ($t in $i2c) { foreach ($r in $t.Runs) { if ($r.R -and $r.R.Code -eq 0 -and $r.R.Time.TotalSeconds -gt 8) { $work += $r.Infs * $t.Mb; $secs += $r.R.Time.TotalSeconds - 3 } } }
         if ($secs -gt 0) { Save-Inf2CatRate ($work / $secs) }
 
         # ---- the new catalogs, signed together
         $newCats = @()
         foreach ($t in $todo) {
+            if (-not $t.Ok) { continue }
+            if ($t.Engine -ne 'inf2cat') { $newCats += $t.Cats; continue }
             if (@($t.Runs | Where-Object { $_.R.Code -ne 0 }).Count) {
                 $f = @($t.Runs | Where-Object { $_.R.Code -ne 0 })[0]
                 Write-Err "Inf2Cat failed for $($t.Rel)"
@@ -2336,9 +2360,14 @@ function Invoke-SignFolder([string]$Root, $Cert, [string]$Inf2Cat, [bool]$All, [
             }
             $runs = @($t.Runs)
             $longest = ($runs | ForEach-Object { $_.R.Time } | Sort-Object -Descending | Select-Object -First 1)
-            $took = if ($runs.Count -eq 1) { "Inf2Cat took $(Format-Span $longest)" } else { "$($runs.Count) Inf2Cat runs, the longest took $(Format-Span $longest)" }
-            if ($ok) { $res.Signed++; Write-Ok "$($t.Rel) signed and verified ($took)" } else { $res.Failed++ }
+            $took = if ($runs.Count -eq 1) { "$(Get-SignEngineName $t.Engine) took $(Format-Span $longest)" } else { "$($runs.Count) Inf2Cat runs, the longest took $(Format-Span $longest)" }
+            if ($ok) { $res.Signed++; Write-Ok "$($t.Rel) signed and verified ($took)" }
+            else {
+                $res.Failed++
+                if ($t.Engine -ne 'inf2cat') { Write-Info "Hint: choose the Inf2Cat engine on this page and sign again - $(Get-SignEngineName $t.Engine) does not parse the INF." }
+            }
         }
+        $res.Engine = (@($todo | Where-Object { $_.Ok } | ForEach-Object { Get-SignEngineName $_.Engine } | Sort-Object -Unique) -join ' + ')
     } finally {
         if (Test-Path -LiteralPath $stageBase) { Remove-Item -LiteralPath $stageBase -Recurse -Force -ErrorAction SilentlyContinue }
     }
@@ -2355,12 +2384,21 @@ function ConvertTo-PackageName([string]$Text) {
     if (-not $n) { $n = 'Driver' }
     return $n
 }
-function Invoke-SignPackage([string]$Source, [string]$Name, $Password, [bool]$All, [bool]$OnlyThisPc = $false, [bool]$Isolate = $true, [int]$Jobs = 1) {
+function Invoke-SignPackage([string]$Source, [string]$Name, $Password, [bool]$All, [bool]$OnlyThisPc = $false, [bool]$Isolate = $true, [int]$Jobs = 1, [string]$Engine = 'inf2cat') {
     if (-not (Test-Path -LiteralPath $Source -PathType Container)) { throw "Folder not found: $Source" }
     $Name = ConvertTo-PackageName $Name
     Write-Title "Re-sign modded drivers - $Name"
-    $tools = Get-SignTools
+    $tools = Get-SignTools $Engine
     $Script:SignTool = $tools.SignTool
+    $engTool = ''
+    if ($Engine -ne 'inf2cat') {
+        try { $engTool = Initialize-SignEngine $Engine }
+        catch {
+            Write-Warn "$(Get-SignEngineName $Engine) is not available: $($_.Exception.Message)"
+            Write-Info 'Inf2Cat builds the catalogs instead.'
+            $Engine = 'inf2cat'
+        }
+    }
     $cert = Get-SigningCert $Password
     Write-Info ("Certificate: {0}  {1}  valid until {2:yyyy-MM-dd}" -f $cert.Subject, $cert.Thumbprint, $cert.NotAfter)
     $dest = Join-Path $Script:P.Signed $Name
@@ -2371,13 +2409,15 @@ function Invoke-SignPackage([string]$Source, [string]$Name, $Password, [bool]$Al
     Write-Step 'Building new catalogs and signing them'
     $added = @(Add-TempTrust $cer)   # only while verifying - the ISO trusts it during setup
     if ($OnlyThisPc) { Write-Info 'Only the INF files for this PC''s hardware are kept - the ISO installs this driver on this PC only.' }
-    Write-Info ('Inf2Cat: up to {0} run(s) at the same time{1}' -f $Jobs, $(if ($Isolate) { ', only the INF files that need a new catalog get one' } else { ', every folder that needs a new catalog is catalogued whole' }))
-    try { $res = Invoke-SignFolder $dest $cert $tools.Inf2Cat $All $OnlyThisPc $Isolate $Jobs }
+    $scope = if ($Isolate) { 'only the INF files that need a new catalog get one' } else { 'every INF file of a folder that needs a new catalog gets one' }
+    if ($Engine -eq 'inf2cat') { Write-Info ('Engine: Inf2Cat, up to {0} run(s) at the same time - {1}' -f $Jobs, $scope) }
+    else { Write-Info ('Engine: {0} - one catalog per driver folder with the hash of every file in it, {1}; Inf2Cat for a folder it cannot do' -f (Get-SignEngineName $Engine), $scope) }
+    try { $res = Invoke-SignFolder $dest $cert $tools.Inf2Cat $All $OnlyThisPc $Isolate $Jobs $Engine $engTool }
     finally { if ($added.Count) { Remove-TempTrust $cer $added } }
     $rec = [ordered]@{
         Name = $Name; Source = $Source; Path = $dest; InstallDir = "C:\Drivers\$Name"; When = (Get-Date).ToString('yyyy-MM-dd HH:mm')
         Signed = [int]$res.Signed; Failed = [int]$res.Failed; Untouched = [int]$res.Untouched; Thumbprint = $cert.Thumbprint
-        OnlyThisPc = [bool]($OnlyThisPc -and $res.Removed -gt 0); Removed = [int]$res.Removed; Kept = @($res.Kept)
+        OnlyThisPc = [bool]($OnlyThisPc -and $res.Removed -gt 0); Removed = [int]$res.Removed; Kept = @($res.Kept); Engine = [string]$res.Engine
     }
     $Script:S.Signed = @(@($Script:S.Signed | Where-Object { $_ -and $_.Name -ne $Name }) + @($rec))
     Save-State
@@ -2501,6 +2541,733 @@ function Set-OemFolder([string]$Dir) {
         Write-Ok "`$OEM`$ folder removed (taken out of the media at the next build)."
     }
     Save-State
+}
+#endregion
+
+#region ---------------------------------------------------------------- catalog engines (NVIDIA Modded Drivers Signer 2.3.0)
+# Inf2Cat parses every INF and checks it against every file of the package, once per INF. The other
+# engines do not parse the INF: they build ONE catalog per driver folder (<folder>_w10u.cat) that every
+# INF needing a new signature in that folder points at. It holds the hash of those INF files and of every
+# file of the folder, so the driver files are hashed once - about 20 s for NVIDIA's 3 GB Display.Driver
+# instead of minutes. Windows checks every file it copies against the catalog, also the ones an INF
+# copies as whole directories (ngx-builtins, NvCamera, ...), so all files of the folder go in.
+#   makecat - makecat.exe from the Windows SDK / WDK and a generated .cdf (the default)
+#   libwdi  - the CryptCAT API of wintrust.dll, the way libwdi (Zadig) builds its catalogs
+#   gencat  - LINBIT generate-cat-file, built and run inside WSL
+#   inf2cat - Microsoft's Inf2Cat, the standard tool, and the fallback for the others
+function Get-SignEngine {
+    $e = ''
+    if ($Script:Cfg) { $e = ([string]$Script:Cfg.SignEngine).ToLowerInvariant() }
+    if ($e -in 'makecat', 'libwdi', 'gencat', 'inf2cat') { return $e }
+    return 'makecat'
+}
+function Get-SignEngineName([string]$Engine) {
+    switch ($Engine) { 'makecat' { return 'MakeCat' } 'libwdi' { return 'libwdi-style' } 'gencat' { return 'generate-cat-file' } }
+    return 'Inf2Cat'
+}
+# Encoding of an INF file: UTF-16 and UTF-8 by their byte order mark, anything else byte for byte
+# (Latin-1 maps every byte to itself). Returns the encoding and the length of the byte order mark.
+function Get-InfEncoding([byte[]]$Bytes) {
+    if ($Bytes.Length -ge 2 -and $Bytes[0] -eq 0xFF -and $Bytes[1] -eq 0xFE) { return @((New-Object Text.UnicodeEncoding -ArgumentList $false, $true), 2) }
+    if ($Bytes.Length -ge 2 -and $Bytes[0] -eq 0xFE -and $Bytes[1] -eq 0xFF) { return @((New-Object Text.UnicodeEncoding -ArgumentList $true, $true), 2) }
+    if ($Bytes.Length -ge 3 -and $Bytes[0] -eq 0xEF -and $Bytes[1] -eq 0xBB -and $Bytes[2] -eq 0xBF) { return @((New-Object Text.UTF8Encoding -ArgumentList $true), 3) }
+    return @([Text.Encoding]::GetEncoding(28591), 0)
+}
+function Read-InfText([string]$Path) {
+    $bytes = [IO.File]::ReadAllBytes($Path)
+    $enc, $off = Get-InfEncoding $bytes
+    return $enc.GetString($bytes, $off, $bytes.Length - $off)
+}
+# Name Windows looks for when a file is stored compressed: the last character of the extension becomes
+# "_" (nvngx_dlssd.dll -> nvngx_dlssd.dl_), a shorter extension gets "_" appended, no extension -> "._".
+function Get-PackedName([string]$Leaf) {
+    if (-not $Leaf) { return '' }
+    $dot = $Leaf.LastIndexOf('.')
+    if ($dot -lt 0) { return ($Leaf + '._') }
+    if (($Leaf.Length - $dot - 1) -ge 3) { return ($Leaf.Substring(0, $Leaf.Length - 1) + '_') }
+    return ($Leaf + '_')
+}
+# Files an INF names in [SourceDisksFiles] (plain, .nt and the image's architecture) that are in its folder.
+# A file that is only there compressed (name.dl_) counts: Packed, Path is the compressed file and Name the
+# name the INF uses (the one Windows checks against the catalog). Missing: named but not there; MissingUsed:
+# of those, the ones a copy section names too - no catalog can hold the hash of a file that is not there.
+function Get-InfSourceFiles([string]$Inf, [string]$Arch = 'amd64') {
+    $dir = Split-Path -Parent $Inf
+    $self = Split-Path -Leaf $Inf
+    $text = Read-InfText $Inf
+    $secs = [regex]::Matches($text, '(?m)^[ \t]*\[([^\]\r\n]+)\]')
+    $split = New-Object Text.RegularExpressions.Regex -ArgumentList ',(?=(?:[^"]*"[^"]*")*[^"]*$)'
+    $want = '^SourceDisks(Names|Files)(\.nt|\.(nt)?' + [regex]::Escape($Arch) + ')?$'
+    $disks = @{}
+    $entries = New-Object System.Collections.Generic.List[object]
+    for ($i = 0; $i -lt $secs.Count; $i++) {
+        $sname = $secs[$i].Groups[1].Value.Trim()
+        if ($sname -notmatch $want) { continue }
+        $isNames = $sname -match '^SourceDisksNames'
+        $start = $secs[$i].Index + $secs[$i].Length
+        $end = if (($i + 1) -lt $secs.Count) { $secs[$i + 1].Index } else { $text.Length }
+        foreach ($line in ($text.Substring($start, $end - $start) -split "`r?`n")) {
+            $l = $line.Trim()
+            if ($l.Length -eq 0 -or $l[0] -eq ';') { continue }
+            $eq = $l.IndexOf('=')
+            if ($eq -lt 1) { continue }
+            $key = $l.Substring(0, $eq).Trim().Trim('"')
+            $parts = @($split.Split($l.Substring($eq + 1)) | ForEach-Object { $p = $_.Trim(); if ($p -notmatch '"') { $p = ($p -replace '\s*;.*$', '').Trim() }; $p })
+            if ($isNames) { if ($parts.Count -ge 4) { $disks[$key] = $parts[3].Trim('"').Trim('\') } }
+            else { $entries.Add([pscustomobject]@{ File = $key; Disk = $(if ($parts.Count -ge 1) { $parts[0] } else { '' }); Sub = $(if ($parts.Count -ge 2) { $parts[1].Trim('"').Trim('\') } else { '' }) }) }
+        }
+    }
+    $seen = @{}
+    $files = New-Object System.Collections.Generic.List[object]
+    $missing = New-Object System.Collections.Generic.List[string]
+    foreach ($e in $entries) {
+        if ($e.File -match '[%"*?<>|]') { continue }
+        $pre = @()
+        if ($disks.ContainsKey($e.Disk) -and $disks[$e.Disk]) { $pre += $disks[$e.Disk] }
+        if ($e.Sub) { $pre += $e.Sub }
+        $rel = ((@($pre) + $e.File) -join '\').TrimStart('\')
+        if ($rel -match '\.\.') { continue }
+        $leaf = Split-Path -Leaf $rel
+        if ($leaf -ieq $self -or $leaf -match '(?i)\.cat$') { continue }
+        $full = Join-Path $dir $rel
+        $packed = $false
+        if (-not (Test-Path -LiteralPath $full -PathType Leaf)) {
+            $pfull = Join-Path (Split-Path -Parent $full) (Get-PackedName $leaf)
+            if (Test-Path -LiteralPath $pfull -PathType Leaf) { $packed = $true; $full = $pfull }
+            else { if (-not $missing.Contains($rel)) { $missing.Add($rel) }; continue }
+        }
+        $full = (Get-Item -LiteralPath $full -Force).FullName
+        $lk = $leaf.ToLowerInvariant()
+        if ($seen.ContainsKey($lk)) { continue }
+        $seen[$lk] = $true
+        $files.Add([pscustomobject]@{ Name = $leaf; Path = $full; Packed = $packed })
+    }
+    # a file only named in [SourceDisksFiles] is harmless when absent; one a copy section names is not
+    $used = @()
+    if ($missing.Count) {
+        $other = New-Object Text.StringBuilder
+        for ($i = 0; $i -lt $secs.Count; $i++) {
+            if ($secs[$i].Groups[1].Value.Trim() -match '^SourceDisks(Names|Files)') { continue }
+            $bs = $secs[$i].Index + $secs[$i].Length
+            $be = if (($i + 1) -lt $secs.Count) { $secs[$i + 1].Index } else { $text.Length }
+            [void]$other.Append($text.Substring($bs, $be - $bs)).Append("`n")
+        }
+        $ot = $other.ToString()
+        foreach ($m in $missing) {
+            $ml = $m.Substring($m.LastIndexOfAny([char[]]@([char]92, [char]47)) + 1)
+            if ([regex]::IsMatch($ot, '(?im)^[^;\r\n]*(?<![A-Za-z0-9_.\-])' + [regex]::Escape($ml) + '(?![A-Za-z0-9_.\-])')) { $used += $m }
+        }
+    }
+    return [pscustomobject]@{ Files = $files.ToArray(); Missing = $missing.ToArray(); MissingUsed = @($used) }
+}
+# Every file under the driver folder except .inf / .cat, sorted.
+function Get-FolderFiles([string]$Dir) {
+    return @(Get-ChildItem -LiteralPath $Dir -Recurse -File -Force -ErrorAction SilentlyContinue |
+             Where-Object { $_.Extension -ine '.inf' -and $_.Extension -ine '.cat' } | Sort-Object FullName |
+             ForEach-Object { [pscustomobject]@{ Name = $_.Name; Path = $_.FullName } })
+}
+# Windows checks a compressed file (name.dl_) as the expanded file, so that is what goes into the catalog:
+# expand.exe writes it to <stage>\_expanded\<name the INF uses>. Returns '' when that fails.
+function Expand-PackedFile([string]$Src, [string]$Name, [string]$Stage) {
+    $exe = if ($Script:ExpandExe) { $Script:ExpandExe } else { Join-Path $env:SystemRoot 'System32\expand.exe' }
+    try {
+        $xd = Join-Path $Stage '_expanded'
+        New-Item -ItemType Directory -Force -Path $xd | Out-Null
+        $dst = Join-Path $xd $Name
+        if ((Test-Path -LiteralPath $dst -PathType Leaf) -and (Get-Item -LiteralPath $dst).Length -gt 0) { return $dst }
+        $r = Invoke-Native $exe @($Src, $dst)
+        Add-Log $r.Text
+        if ((Test-Path -LiteralPath $dst -PathType Leaf) -and (Get-Item -LiteralPath $dst).Length -gt 0) { return $dst }
+        # a cabinet with one file under another name: expand all of it, take that file
+        $td = Join-Path $xd ('x_' + [guid]::NewGuid().ToString('N'))
+        New-Item -ItemType Directory -Force -Path $td | Out-Null
+        $r = Invoke-Native $exe @($Src, '-F:*', $td)
+        Add-Log $r.Text
+        $one = Get-ChildItem -LiteralPath $td -File -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($one -and $one.Length -gt 0) { Move-Item -LiteralPath $one.FullName -Destination $dst -Force; return $dst }
+    } catch { Add-Log "expand $Src : $($_.Exception.Message)" }
+    return ''
+}
+# What goes into one folder's catalog: the staged INF files, the files they list (compressed ones expanded,
+# under the name the INF uses) and every other file of the folder, each name once.
+# $NameRx: file names the engine cannot take are skipped; $Lower: member names in lower case.
+function Get-CatMembers([string]$Stage, [string]$Dir, [string[]]$Infs, [string[]]$Staged, [string]$NameRx, [bool]$Lower, [string]$Arch = 'amd64') {
+    $mem = New-Object System.Collections.Generic.List[object]
+    $seen = @{}
+    $r = [pscustomobject]@{ Members = @(); InfCount = 0; FileCount = 0; ExtraCount = 0; PackedCount = 0; ExpandFailed = 0; Skipped = 0; Clashes = 0; Missing = 0; MissingUsed = @(); MB = 0.0 }
+    $add = {
+        param($Name, $Path, $Kind)
+        $nm = if ($Lower) { $Name.ToLowerInvariant() } else { $Name }
+        if ($NameRx -and $nm -notmatch $NameRx) { $r.Skipped++; return $false }
+        $lk = $nm.ToLowerInvariant()
+        if ($seen.ContainsKey($lk)) { if ($seen[$lk] -ne $Path) { $r.Clashes++ }; return $false }
+        $seen[$lk] = $Path
+        $mem.Add([pscustomobject]@{ Name = $nm; Path = $Path; Kind = $Kind })
+        return $true
+    }
+    foreach ($s in @($Staged)) { if (& $add (Split-Path $s -Leaf) $s 'inf') { $r.InfCount++ } }
+    $miss = @{}
+    foreach ($inf in @($Infs)) {
+        $l = Get-InfSourceFiles $inf $Arch
+        foreach ($m in $l.Missing) { $miss[$m] = $true }
+        $r.MissingUsed += @($l.MissingUsed)
+        foreach ($f in $l.Files) {
+            $p = $f.Path
+            if ($f.Packed) {
+                $nm = if ($Lower) { $f.Name.ToLowerInvariant() } else { $f.Name }
+                if ($seen.ContainsKey($nm.ToLowerInvariant()) -or ($NameRx -and $nm -notmatch $NameRx)) { [void](& $add $f.Name $p 'file'); continue }
+                $r.PackedCount++
+                $x = Expand-PackedFile $p $f.Name $Stage
+                if ($x) { $p = $x } else { $r.ExpandFailed++ }
+            }
+            [void](& $add $f.Name $p 'file')
+        }
+    }
+    $listed = $mem.Count - $r.InfCount
+    foreach ($f in (Get-FolderFiles $Dir)) { if (& $add $f.Name $f.Path 'file') { $r.ExtraCount++ } }
+    $r.Members = $mem.ToArray()
+    $r.FileCount = $listed + $r.ExtraCount
+    $r.Missing = $miss.Count
+    $r.MissingUsed = @($r.MissingUsed | Sort-Object -Unique)
+    $sum = 0.0; foreach ($m in $r.Members) { try { $sum += (Get-Item -LiteralPath $m.Path).Length } catch { } }
+    $r.MB = $sum / 1MB
+    return $r
+}
+function Get-MemberNote($Info) {
+    $s = '{0} member(s), {1:N0} MB: {2} INF + {3} file(s) the INF files list + {4} other file(s) of the folder' -f $Info.Members.Count, $Info.MB, $Info.InfCount, ($Info.FileCount - $Info.ExtraCount), $Info.ExtraCount
+    if ($Info.PackedCount) {
+        $s += '; {0} stored compressed (name.dl_): the expanded file is hashed under the name the INF uses' -f $Info.PackedCount
+        if ($Info.ExpandFailed) { $s += ' ({0} could not be expanded - the compressed file is hashed instead)' -f $Info.ExpandFailed }
+    }
+    if ($Info.Skipped) { $s += '; {0} skipped (file name the engine cannot take)' -f $Info.Skipped }
+    if ($Info.Clashes) { $s += '; {0} name clash(es), the first file kept' -f $Info.Clashes }
+    if ($Info.Missing) { $s += '; {0} file(s) named in [SourceDisksFiles] are not in the folder' -f $Info.Missing }
+    return $s
+}
+# One catalog per driver folder, named after it.
+function Get-SharedCatName([string]$Dir) {
+    $leaf = ((Split-Path -Leaf $Dir).ToLowerInvariant()) -replace '[^a-z0-9._\-]', '_'
+    if (-not $leaf) { $leaf = 'driver' }
+    return ($leaf + '_w10u.cat')
+}
+# The .cdf that makecat.exe reads: SHA-256, every member with its name and the Windows versions.
+# INF files are named relative to the stage folder, where makecat runs and writes the catalog.
+function New-MakeCatCdf([string]$Cat, $Members) {
+    $os = @('6.0', '6.1', '6.2', '6.3', '6.4', '10.0')
+    $l = New-Object System.Collections.Generic.List[string]
+    foreach ($x in @('[CatalogHeader]', "Name=$Cat", 'ResultDir=.', 'CatalogVersion=2', 'HashAlgorithms=SHA256', 'PageHashes=false', 'EncodingType=0x00010001')) { $l.Add($x) }
+    for ($i = 0; $i -lt $os.Count; $i++) { $l.Add(('CATATTR{0}=0x10010001:OSAttr:2:{1}' -f ($i + 1), $os[$i])) }
+    $l.Add('[CatalogFiles]')
+    foreach ($m in @($Members)) {
+        $tag = '<HASH>' + $m.Name
+        $l.Add($tag + '=' + $(if ($m.Kind -eq 'inf') { $m.Name } else { $m.Path }))
+        $l.Add($tag + 'ATTR1=0x10010001:File:' + $m.Name)
+        for ($i = 0; $i -lt $os.Count; $i++) { $l.Add(('{0}ATTR{1}=0x10010001:OSAttr:2:{2}' -f $tag, ($i + 2), $os[$i])) }
+    }
+    return (($l -join "`r`n") + "`r`n")
+}
+# makecat.exe: installed Windows Kit or tools folder, else from Microsoft's NuGet packages.
+function Get-MakeCat {
+    $m = Find-Tool 'makecat.exe'
+    if (-not $m) {
+        Write-Step 'Getting makecat.exe (Windows SDK build tools / Windows Driver Kit)'
+        $m = Get-FromNuGet 'makecat.exe' @('Microsoft.Windows.SDK.BuildTools', 'Microsoft.Windows.WDK.x64') '(?i)/x64/'
+    }
+    return $m
+}
+function Invoke-MakeCatGroups([string]$MakeCat, $Groups, [int]$Jobs) {
+    $items = @()
+    foreach ($g in @($Groups)) {
+        $cdf = [IO.Path]::GetFileNameWithoutExtension($g.Cat) + '.cdf'
+        # Windows PowerShell's default encoding is the ANSI code page, the one makecat reads a .cdf in
+        [IO.File]::WriteAllText((Join-Path $g.Dir $cdf), (New-MakeCatCdf $g.Cat $g.Info.Members), [Text.Encoding]::Default)
+        $items += [pscustomobject]@{ Dir = $g.Dir; WorkDir = $g.Dir; Label = $g.Label; Est = (2 + $g.Info.MB / 120.0); Args = @('-v', $cdf) }
+    }
+    $out = @(Invoke-ToolQueue $MakeCat $items ([math]::Max(1, [math]::Min(4, $Jobs))) 'MakeCat')
+    for ($k = 0; $k -lt $items.Count; $k++) {
+        $r = $out[$k]
+        # makecat's exit code is not reliable: the catalog file tells (as in the signer)
+        if (Test-Path -LiteralPath (Join-Path $Groups[$k].Dir $Groups[$k].Cat)) { $r.Code = 0 } elseif ($r.Code -eq 0) { $r.Code = 1 }
+        # success: drop the line per member ("processing", "attribute", "opened")
+        if ($r.Code -eq 0) { $r.Output = @($r.Output | Where-Object { $_.Trim() -and $_ -notmatch '^\s*(attribute|processing|opened):' }); $r.Text = $r.Output -join "`r`n" }
+        $Groups[$k].R = $r
+    }
+}
+# ---- libwdi-style: the catalog is built with the CryptCAT API of wintrust.dll, following libwdi (pki.c):
+# SHA-1 member hashes, PE files with SPC_PE_IMAGE_DATA, INF and other files with SPC_LINK.
+function Get-NativeCatSource {
+    return @'
+using System;
+using System.IO;
+using System.Runtime.InteropServices;
+using System.Text;
+using System.Threading;
+
+namespace W10U
+{
+    public static class NativeCat
+    {
+        [StructLayout(LayoutKind.Sequential)]
+        struct BLOB { public uint cbData; public IntPtr pbData; }
+
+        [StructLayout(LayoutKind.Sequential)]
+        struct SIP_INDIRECT_DATA
+        {
+            public IntPtr DataObjId;
+            public BLOB DataValue;
+            public IntPtr AlgObjId;
+            public BLOB AlgParams;
+            public BLOB Digest;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        struct PE_IMAGE_DATA
+        {
+            public uint FlagsCb;
+            public IntPtr FlagsPb;
+            public uint FlagsUnused;
+            public IntPtr pFile;
+        }
+
+        [DllImport("advapi32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        static extern bool CryptAcquireContextW(out IntPtr phProv, string pszContainer, string pszProvider, uint dwProvType, uint dwFlags);
+        [DllImport("advapi32.dll", SetLastError = true)]
+        static extern bool CryptReleaseContext(IntPtr hProv, uint dwFlags);
+        [DllImport("wintrust.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        static extern IntPtr CryptCATOpen(string pwszFileName, uint fdwOpenFlags, IntPtr hProv, uint dwPublicVersion, uint dwEncodingType);
+        [DllImport("wintrust.dll", SetLastError = true)]
+        static extern bool CryptCATClose(IntPtr hCatalog);
+        [DllImport("wintrust.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        static extern IntPtr CryptCATPutCatAttrInfo(IntPtr hCatalog, string pwszReferenceTag, uint dwAttrTypeAndAction, uint cbData, byte[] pbData);
+        [DllImport("wintrust.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        static extern IntPtr CryptCATPutMemberInfo(IntPtr hCatalog, string pwszFileName, string pwszReferenceTag, ref Guid pgSubjectType, uint dwCertVersion, uint cbSIPIndirectData, IntPtr pbSIPIndirectData);
+        [DllImport("wintrust.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        static extern IntPtr CryptCATPutAttrInfo(IntPtr hCatalog, IntPtr pCatMember, string pwszReferenceTag, uint dwAttrTypeAndAction, uint cbData, byte[] pbData);
+        [DllImport("wintrust.dll", SetLastError = true)]
+        static extern bool CryptCATPersistStore(IntPtr hCatalog);
+        [DllImport("wintrust.dll", SetLastError = true)]
+        static extern bool CryptCATAdminCalcHashFromFileHandle(IntPtr hFile, ref uint pcbHash, byte[] pbHash, uint dwFlags);
+        [DllImport("crypt32.dll", SetLastError = true)]
+        static extern bool CryptEncodeObject(uint dwCertEncodingType, [MarshalAs(UnmanagedType.LPStr)] string lpszStructType, IntPtr pvStructInfo, byte[] pbEncoded, ref uint pcbEncoded);
+
+        const uint X509_ASN_ENCODING = 1;
+        const uint CRYPTCAT_OPEN_CREATENEW = 1;
+        const uint CATATTR = 0x10000000 | 0x1 | 0x10000;   // AUTHENTICATED | NAMEASCII | DATAASCII
+        const uint PROV_RSA_FULL = 1;
+        const uint CRYPT_VERIFYCONTEXT = 0xF0000000;
+        const string OID_PE = "1.3.6.1.4.1.311.2.1.15";
+        const string OID_CAB = "1.3.6.1.4.1.311.2.1.25";
+        const string OID_SHA1 = "1.3.14.3.2.26";
+        static readonly Guid FLAT_GUID = new Guid("DE351A42-8E59-11D0-8C47-00C04FC295EE");
+        static readonly Guid PE_GUID = new Guid("C689AAB8-8E78-11D0-8C47-00C04FC295EE");
+
+        public static bool IsPE(string path)
+        {
+            try
+            {
+                using (FileStream f = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+                {
+                    byte[] b = new byte[64];
+                    if (f.Read(b, 0, 64) < 64) return false;
+                    if (b[0] != 0x4D || b[1] != 0x5A) return false;
+                    int off = BitConverter.ToInt32(b, 60);
+                    if (off < 0 || off > f.Length - 4) return false;
+                    f.Seek(off, SeekOrigin.Begin);
+                    byte[] s = new byte[4];
+                    if (f.Read(s, 0, 4) < 4) return false;
+                    return s[0] == 0x50 && s[1] == 0x45 && s[2] == 0 && s[3] == 0;
+                }
+            }
+            catch (Exception) { return false; }
+        }
+
+        static byte[] UniZ(string s) { return Encoding.Unicode.GetBytes(s + "\0"); }
+
+        public static string Create(string catPath, string hwid, string osString, string osAttr, string[] names, string[] paths, CatJob job)
+        {
+            IntPtr hProv = IntPtr.Zero;
+            IntPtr hCat = IntPtr.Zero;
+            try
+            {
+                if (File.Exists(catPath)) File.Delete(catPath);
+                if (!CryptAcquireContextW(out hProv, null, null, PROV_RSA_FULL, CRYPT_VERIFYCONTEXT))
+                    return "CryptAcquireContext failed, Win32 error " + Marshal.GetLastWin32Error();
+                hCat = CryptCATOpen(catPath, CRYPTCAT_OPEN_CREATENEW, hProv, 0, 0);
+                if (hCat == IntPtr.Zero || hCat == new IntPtr(-1))
+                {
+                    int e = Marshal.GetLastWin32Error();
+                    hCat = IntPtr.Zero;
+                    return "CryptCATOpen failed, Win32 error " + e;
+                }
+                byte[] b;
+                if (!String.IsNullOrEmpty(hwid))
+                {
+                    b = UniZ(hwid);
+                    if (CryptCATPutCatAttrInfo(hCat, "HWID1", CATATTR, (uint)b.Length, b) == IntPtr.Zero)
+                        return "Setting HWID1 failed, Win32 error " + Marshal.GetLastWin32Error();
+                }
+                if (!String.IsNullOrEmpty(osString))
+                {
+                    b = UniZ(osString);
+                    if (CryptCATPutCatAttrInfo(hCat, "OS", CATATTR, (uint)b.Length, b) == IntPtr.Zero)
+                        return "Setting OS failed, Win32 error " + Marshal.GetLastWin32Error();
+                }
+                for (int i = 0; i < names.Length; i++)
+                {
+                    string err = AddMember(hCat, names[i], paths[i], osAttr);
+                    if (err != null) return names[i] + ": " + err;
+                    if (job != null) job.Processed = i + 1;
+                }
+                if (!CryptCATPersistStore(hCat))
+                    return "CryptCATPersistStore failed, Win32 error " + Marshal.GetLastWin32Error();
+                return "";
+            }
+            finally
+            {
+                if (hCat != IntPtr.Zero) CryptCATClose(hCat);
+                if (hProv != IntPtr.Zero) CryptReleaseContext(hProv, 0);
+            }
+        }
+
+        static string AddMember(IntPtr hCat, string name, string path, string osAttr)
+        {
+            byte[] hash = new byte[20];
+            uint cb = 20;
+            bool pe = IsPE(path);
+            using (FileStream fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+            {
+                if (!CryptCATAdminCalcHashFromFileHandle(fs.SafeFileHandle.DangerousGetHandle(), ref cb, hash, 0))
+                    return "hashing failed, Win32 error " + Marshal.GetLastWin32Error();
+            }
+            string hex = BitConverter.ToString(hash).Replace("-", "");
+
+            IntPtr pLinkStr = IntPtr.Zero, pLink = IntPtr.Zero, pFlags = IntPtr.Zero, pImg = IntPtr.Zero;
+            IntPtr pEnc = IntPtr.Zero, pOidData = IntPtr.Zero, pOidAlg = IntPtr.Zero, pDigest = IntPtr.Zero, pSip = IntPtr.Zero;
+            try
+            {
+                // SPC_LINK { DWORD dwLinkChoice; union { LPWSTR pwszFile; ... } } - the union starts at pointer alignment
+                pLinkStr = Marshal.StringToHGlobalUni("<<<Obsolete>>>");
+                pLink = Marshal.AllocHGlobal(64);
+                for (int i = 0; i < 64; i += 4) Marshal.WriteInt32(pLink, i, 0);
+                Marshal.WriteInt32(pLink, 0, 3);                    // SPC_FILE_LINK_CHOICE
+                Marshal.WriteIntPtr(pLink, IntPtr.Size, pLinkStr);  // pwszFile
+
+                byte[] enc = new byte[256];
+                uint cbEnc = (uint)enc.Length;
+                if (pe)
+                {
+                    pFlags = Marshal.AllocHGlobal(1);
+                    Marshal.WriteByte(pFlags, 0xA0);
+                    PE_IMAGE_DATA img = new PE_IMAGE_DATA();
+                    img.FlagsCb = 1;
+                    img.FlagsPb = pFlags;
+                    img.FlagsUnused = 0;
+                    img.pFile = pLink;
+                    pImg = Marshal.AllocHGlobal(Marshal.SizeOf(typeof(PE_IMAGE_DATA)));
+                    Marshal.StructureToPtr(img, pImg, false);
+                    if (!CryptEncodeObject(X509_ASN_ENCODING, OID_PE, pImg, enc, ref cbEnc))
+                        return "encoding SPC_PE_IMAGE_DATA failed, Win32 error " + Marshal.GetLastWin32Error();
+                }
+                else
+                {
+                    if (!CryptEncodeObject(X509_ASN_ENCODING, OID_CAB, pLink, enc, ref cbEnc))
+                        return "encoding SPC_LINK failed, Win32 error " + Marshal.GetLastWin32Error();
+                }
+
+                pEnc = Marshal.AllocHGlobal((int)cbEnc);
+                Marshal.Copy(enc, 0, pEnc, (int)cbEnc);
+                pOidData = Marshal.StringToHGlobalAnsi(pe ? OID_PE : OID_CAB);
+                pOidAlg = Marshal.StringToHGlobalAnsi(OID_SHA1);
+                pDigest = Marshal.AllocHGlobal(20);
+                Marshal.Copy(hash, 0, pDigest, 20);
+
+                SIP_INDIRECT_DATA sip = new SIP_INDIRECT_DATA();
+                sip.DataObjId = pOidData;
+                sip.DataValue.cbData = cbEnc;
+                sip.DataValue.pbData = pEnc;
+                sip.AlgObjId = pOidAlg;
+                sip.AlgParams.cbData = 0;
+                sip.AlgParams.pbData = IntPtr.Zero;
+                sip.Digest.cbData = 20;
+                sip.Digest.pbData = pDigest;
+                int sipSize = Marshal.SizeOf(typeof(SIP_INDIRECT_DATA));
+                pSip = Marshal.AllocHGlobal(sipSize);
+                Marshal.StructureToPtr(sip, pSip, false);
+
+                Guid g = pe ? PE_GUID : FLAT_GUID;
+                IntPtr member = CryptCATPutMemberInfo(hCat, null, hex, ref g, 0x200, (uint)sipSize, pSip);
+                if (member == IntPtr.Zero)
+                    return "CryptCATPutMemberInfo failed, Win32 error " + Marshal.GetLastWin32Error();
+
+                byte[] b1 = UniZ(name.ToLowerInvariant());
+                if (CryptCATPutAttrInfo(hCat, member, "File", CATATTR, (uint)b1.Length, b1) == IntPtr.Zero)
+                    return "Setting File attribute failed, Win32 error " + Marshal.GetLastWin32Error();
+                byte[] b2 = UniZ(osAttr);
+                if (CryptCATPutAttrInfo(hCat, member, "OSAttr", CATATTR, (uint)b2.Length, b2) == IntPtr.Zero)
+                    return "Setting OSAttr attribute failed, Win32 error " + Marshal.GetLastWin32Error();
+                return null;
+            }
+            finally
+            {
+                if (pSip != IntPtr.Zero) Marshal.FreeHGlobal(pSip);
+                if (pDigest != IntPtr.Zero) Marshal.FreeHGlobal(pDigest);
+                if (pOidAlg != IntPtr.Zero) Marshal.FreeHGlobal(pOidAlg);
+                if (pOidData != IntPtr.Zero) Marshal.FreeHGlobal(pOidData);
+                if (pEnc != IntPtr.Zero) Marshal.FreeHGlobal(pEnc);
+                if (pImg != IntPtr.Zero) Marshal.FreeHGlobal(pImg);
+                if (pFlags != IntPtr.Zero) Marshal.FreeHGlobal(pFlags);
+                if (pLink != IntPtr.Zero) Marshal.FreeHGlobal(pLink);
+                if (pLinkStr != IntPtr.Zero) Marshal.FreeHGlobal(pLinkStr);
+            }
+        }
+    }
+
+    // NativeCat.Create on a thread of its own, so the job can show how many files are hashed.
+    public class CatJob
+    {
+        public volatile bool Done;
+        public string Error = "";
+        public volatile int Processed;
+        public int Total;
+        string cat, hwid, os, osAttr;
+        string[] names, paths;
+
+        public CatJob(string cat, string hwid, string os, string osAttr, string[] names, string[] paths)
+        {
+            this.cat = cat; this.hwid = hwid; this.os = os; this.osAttr = osAttr;
+            this.names = names; this.paths = paths; this.Total = names.Length;
+        }
+
+        public void Start()
+        {
+            Thread th = new Thread(new ThreadStart(Run));
+            th.IsBackground = true;
+            th.Start();
+        }
+
+        void Run()
+        {
+            try { Error = NativeCat.Create(cat, hwid, os, osAttr, names, paths, this); }
+            catch (Exception ex) { Error = ex.GetType().Name + ": " + ex.Message; }
+            Done = true;
+        }
+    }
+}
+'@
+}
+function Initialize-NativeCat {
+    if (-not ('W10U.CatJob' -as [type])) { Add-Type -TypeDefinition (Get-NativeCatSource) -Language CSharp }
+}
+# Catalog attributes the native and WSL engines write (Windows 7 to 11, the image's architecture).
+function Get-CatOs([string]$Engine, [string]$Arch) {
+    $tok = switch ($Arch) { 'x86' { 'X86' } 'arm64' { 'ARM64' } default { 'X64' } }
+    if ($Engine -eq 'gencat') {
+        return [pscustomobject]@{ Os = ('7X64,8X64,_v100_X64,_v100_X64_RS5,_v100_X64_19H1,_v100_X64_Vb,_v100_X64_21H2,_v100_X64_22H2,_v100_X64_24H2' -replace 'X64', $tok); Attr = '2:6.1,2:6.2,2:6.3,2:6.4,2:10.0' }
+    }
+    return [pscustomobject]@{ Os = ('7_X64,8_X64,10_X64,10_RS5_X64,10_19H1_X64,10_VB_X64,10_CO_X64,10_NI_X64,10_GE_X64' -replace 'X64', $tok); Attr = '2:6.0,2:6.1,2:6.2,2:6.3,2:6.4,2:10.0' }
+}
+function Invoke-NativeCatGroups($Groups, [string]$Arch) {
+    Initialize-NativeCat
+    $os = Get-CatOs 'libwdi' $Arch
+    foreach ($g in @($Groups)) {
+        $t0 = Get-Date
+        $catPath = Join-Path $g.Dir $g.Cat
+        $job = [W10U.CatJob]::new($catPath, $g.Hwid, $os.Os, $os.Attr, [string[]]@($g.Info.Members | ForEach-Object { $_.Name }), [string[]]@($g.Info.Members | ForEach-Object { $_.Path }))
+        $job.Start()
+        $beat = 5
+        while (-not $job.Done) {
+            Start-Sleep -Milliseconds 200
+            $e = (Get-Date) - $t0
+            if ($Script:Sync) {
+                $Script:Sync.Status = 'libwdi-style {0}  {1}  - {2} of {3} file(s) hashed' -f $g.Label, (Format-Span $e), $job.Processed, $job.Total
+                if ($job.Total) { $Script:Sync.Pct = [math]::Min(99.0, 100.0 * $job.Processed / $job.Total) }
+            }
+            if ($e.TotalMinutes -ge $beat) { Add-Log ('libwdi-style {0} still running ({1}) - {2} of {3} file(s)' -f $g.Label, (Format-Span $e), $job.Processed, $job.Total); $beat += 5 }
+        }
+        $err = [string]$job.Error
+        if (-not $err -and -not (Test-Path -LiteralPath $catPath)) { $err = 'the catalog file was not created' }
+        if ($err) { Remove-Item -LiteralPath $catPath -Force -ErrorAction SilentlyContinue }
+        $out = @($(if ($err) { $err } else { 'catalog written: {0} member(s)' -f $job.Total }))
+        $g.R = [pscustomobject]@{ Code = $(if ($err) { 1 } else { 0 }); Output = $out; Text = ($out -join "`r`n"); Time = ((Get-Date) - $t0); Dir = $g.Dir }
+    }
+    if ($Script:Sync) { $Script:Sync.Status = ''; $Script:Sync.Pct = -1 }
+}
+# ---- generate-cat-file (LINBIT, GPL-2.0): its source, pinned to one commit and checked by SHA-256, is
+# downloaded into the tools folder and built inside WSL (needs a Linux distribution with gcc and make).
+function Get-GenCatPin {
+    return [pscustomobject]@{
+        Commit = '65ebf4de79a42b0a1104fbef37b1c207ff13e1e9'
+        Sha256 = @{
+            'generate-cat-file.c' = '45afc2c933849e5cb4dfd7eadd2300bac993e721dc8f4ac902eed5808845d607'
+            'strip-pe-image.c'    = 'b5fe83eecea5d6ef4b6fb185a79069db9a468bda7e92d34f09e70df9ffccb8da'
+            'gencat.sh'           = 'b922bd15f7be71ab07e9329ac593176cb37ee2dddefd0e0050e6eae2296882d1'
+            'Makefile'            = '198357b8b2c4ecfd5b463fc2266621a9036c8663071c15819903425f182d7ae3'
+        }
+    }
+}
+function ConvertTo-ShQuoted([string]$S) { return ("'" + $S.Replace("'", "'\''") + "'") }
+# Runs a shell script in WSL (stdin, UTF-8). Returns Code, Output, Text.
+function Invoke-WslScript([string]$Text, [int]$TimeoutSec = 600) {
+    $psi = New-Object Diagnostics.ProcessStartInfo
+    $psi.FileName = if ($Script:WslExe) { $Script:WslExe } else { 'wsl.exe' }
+    $psi.Arguments = '-e sh'
+    $psi.UseShellExecute = $false
+    $psi.RedirectStandardInput = $true; $psi.RedirectStandardOutput = $true; $psi.RedirectStandardError = $true
+    $psi.CreateNoWindow = $true
+    Add-Log "EXEC $($psi.FileName) -e sh"
+    $p = [Diagnostics.Process]::Start($psi)
+    $o = $p.StandardOutput.ReadToEndAsync(); $e = $p.StandardError.ReadToEndAsync()
+    $b = (New-Object Text.UTF8Encoding -ArgumentList $false).GetBytes(($Text -replace "`r`n", "`n"))
+    $p.StandardInput.BaseStream.Write($b, 0, $b.Length); $p.StandardInput.Close()
+    $late = $false
+    if (-not $p.WaitForExit($TimeoutSec * 1000)) { $late = $true; try { $p.Kill() } catch { }; [void]$p.WaitForExit(5000) }
+    $lines = @((($o.Result + "`n" + $e.Result) -replace "`0", '') -split "`r?`n" | Where-Object { $_.Trim() })
+    if ($late) { $lines += "(stopped after $TimeoutSec s)" }
+    $code = if ($late) { -1 } else { [int]$p.ExitCode }
+    return [pscustomobject]@{ Code = $code; Output = $lines; Text = ($lines -join "`r`n") }
+}
+function Initialize-GenCat {
+    $pin = Get-GenCatPin
+    try { $chk = Invoke-WslScript "echo W10U_WSL_OK`nuname -sr`n" 120 } catch { $chk = [pscustomobject]@{ Text = $_.Exception.Message; Output = @() } }
+    if ($chk.Text -notmatch 'W10U_WSL_OK') { throw ('WSL is not available or has no Linux distribution (run "wsl --install" as administrator). ' + $chk.Text).Trim() }
+    Write-Info ('WSL: ' + @($chk.Output | Where-Object { $_ -notmatch 'W10U_WSL_OK' })[0])
+    $src = Join-Path $ToolsDir 'gencat\src'
+    $ok = { foreach ($k in $pin.Sha256.Keys) { $f = Join-Path $src $k; if (-not (Test-Path -LiteralPath $f) -or (Get-FileHash -LiteralPath $f -Algorithm SHA256).Hash.ToLowerInvariant() -ne $pin.Sha256[$k]) { return $false } }; return $true }
+    if (-not (& $ok)) {
+        Write-Step 'Getting generate-cat-file (LINBIT, GPL-2.0) - source, pinned commit'
+        New-Item -ItemType Directory -Force -Path $src, (Join-Path $ToolsDir 'download') | Out-Null
+        $zip = Join-Path $ToolsDir 'download\generate-cat-file.zip'
+        Invoke-WebRequest -Uri "https://github.com/LINBIT/generate-cat-file/archive/$($pin.Commit).zip" -OutFile $zip -UseBasicParsing
+        Add-Type -AssemblyName System.IO.Compression.FileSystem
+        $z = [IO.Compression.ZipFile]::OpenRead($zip)
+        try {
+            foreach ($x in $z.Entries) {
+                if (@($x.FullName.Split('/')).Count -eq 2 -and ($pin.Sha256.ContainsKey($x.Name) -or $x.Name -eq 'COPYING')) {
+                    [IO.Compression.ZipFileExtensions]::ExtractToFile($x, (Join-Path $src $x.Name), $true)
+                }
+            }
+        } finally { $z.Dispose() }
+        Remove-Item -LiteralPath $zip -Force -ErrorAction SilentlyContinue
+        if (-not (& $ok)) { throw 'The generate-cat-file source failed the SHA-256 check (not the pinned commit) - nothing was built.' }
+        Write-Ok 'generate-cat-file source verified (SHA-256)'
+    }
+    $build = @'
+set -e
+SRC="$(wslpath -a @SRC@)"
+DST="$HOME/.w10u-gencat"
+if [ -x "$DST/generate-cat-file" ] && [ -x "$DST/strip-pe-image" ] && [ -f "$DST/gencat.sh" ] && [ "$(cat "$DST/COMMIT" 2>/dev/null)" = "@COMMIT@" ]; then echo W10U_BUILD_OK; exit 0; fi
+for t in gcc make sha1sum getopt bash sort cut tr basename dirname sed; do
+  command -v "$t" >/dev/null 2>&1 || { echo "missing inside WSL: $t (sudo apt install build-essential)"; exit 90; }
+done
+rm -rf "$DST"; mkdir -p "$DST"
+cp "$SRC/generate-cat-file.c" "$SRC/strip-pe-image.c" "$SRC/gencat.sh" "$SRC/Makefile" "$DST/"
+cd "$DST"
+sed -i 's/\r$//' gencat.sh Makefile generate-cat-file.c strip-pe-image.c
+make >build.log 2>&1 || { echo "build failed"; tail -n 20 build.log; exit 94; }
+chmod +x gencat.sh generate-cat-file strip-pe-image
+echo "@COMMIT@" > COMMIT
+echo W10U_BUILD_OK
+'@
+    $r = Invoke-WslScript ($build.Replace('@SRC@', (ConvertTo-ShQuoted $src)).Replace('@COMMIT@', $pin.Commit)) 900
+    Add-Log $r.Text
+    if ($r.Text -notmatch 'W10U_BUILD_OK') { throw ('Building generate-cat-file inside WSL failed: ' + $r.Text).Trim() }
+    Write-Info 'generate-cat-file: built inside WSL'
+}
+function Invoke-GenCatGroups($Groups, [string]$Arch) {
+    $os = Get-CatOs 'gencat' $Arch
+    $tpl = @'
+set -e
+D="$HOME/.w10u-gencat"
+W="$(mktemp -d)"
+trap 'rm -rf "$W"' EXIT
+@LINKS@cd "$W"
+bash "$D/gencat.sh" -o "$W/out.cat" -h @HWID@ -O @OS@ -A @OSATTR@ @NAMES@ </dev/null
+cp "$W/out.cat" "$(wslpath -a @OUTCAT@)"
+echo W10U_RUN_OK
+'@
+    foreach ($g in @($Groups)) {
+        $t0 = Get-Date
+        $links = New-Object Text.StringBuilder
+        foreach ($m in $g.Info.Members) { [void]$links.Append(('ln -s "$(wslpath -a {0})" "$W/{1}"' -f (ConvertTo-ShQuoted $m.Path), $m.Name)).Append("`n") }
+        $sh = $tpl.Replace('@LINKS@', $links.ToString()).Replace('@HWID@', (ConvertTo-ShQuoted $(if ($g.Hwid) { $g.Hwid } else { 'w10u' }))).Replace('@OS@', (ConvertTo-ShQuoted $os.Os)).Replace('@OSATTR@', (ConvertTo-ShQuoted $os.Attr))
+        $sh = $sh.Replace('@NAMES@', (@($g.Info.Members | ForEach-Object { $_.Name }) -join ' ')).Replace('@OUTCAT@', (ConvertTo-ShQuoted (Join-Path $g.Dir $g.Cat)))
+        if ($Script:Sync) { $Script:Sync.Status = 'generate-cat-file (WSL) {0} - {1} member(s), {2:N0} MB' -f $g.Label, $g.Info.Members.Count, $g.Info.MB }
+        $r = Invoke-WslScript $sh 1800
+        if ($r.Text -match 'W10U_RUN_OK' -and (Test-Path -LiteralPath (Join-Path $g.Dir $g.Cat))) { $r.Code = 0 } elseif ($r.Code -eq 0) { $r.Code = 1 }
+        $g.R = [pscustomobject]@{ Code = $r.Code; Output = $r.Output; Text = $r.Text; Time = ((Get-Date) - $t0); Dir = $g.Dir }
+    }
+    if ($Script:Sync) { $Script:Sync.Status = '' }
+}
+# Finds / downloads / builds what an engine needs: the makecat.exe path, or a marker.
+function Initialize-SignEngine([string]$Engine) {
+    switch ($Engine) {
+        'makecat' { $m = Get-MakeCat; if (-not $m) { throw 'makecat.exe could not be found or downloaded (see the lines above).' }; Write-Info "MakeCat : $m"; return $m }
+        'libwdi'  { Initialize-NativeCat; return 'native' }
+        'gencat'  { Initialize-GenCat; return 'wsl' }
+    }
+    return ''
+}
+# MakeCat / libwdi-style / generate-cat-file for the folders in $Todo (the work items of Invoke-SignFolder).
+# Each folder is prepared in <Root>~stage\gN: its INF files pointing at <folder>_w10u.cat (+ expanded
+# copies of compressed files). The package changes only once its catalog is built: then the INF files and
+# the catalog are copied in, and the item gets Cats / Check / Runs / Engine. Returns the items it could
+# not build a catalog for - Inf2Cat builds theirs.
+function Invoke-CatalogEngine([string]$Engine, [string]$Tool, $Todo, [bool]$Isolate, [int]$Jobs, [string]$StageBase, [string]$Arch) {
+    $name = Get-SignEngineName $Engine
+    $infArch = switch ($Arch) { 'x86' { 'x86' } 'arm64' { 'arm64' } default { 'amd64' } }
+    $rx = switch ($Engine) { 'makecat' { '^[A-Za-z0-9._\-]+$' } 'gencat' { '^[a-z0-9._\-]+$' } default { '' } }
+    $groups = @(); $back = @()
+    $n = 0
+    foreach ($t in @($Todo)) {
+        $n++
+        Write-Sub ('{0}  ({1}, folder {2} of {3})' -f $t.Rel, $name, $n, @($Todo).Count)
+        $cat = Get-SharedCatName $t.Pkg.Dir
+        $infs = @(if ($Isolate) { $t.Need } else { $t.WithCat })
+        # an INF already pointing at that catalog name (signed by this tool before) has to stay in it
+        $infs = @($infs + @($t.WithCat | Where-Object { $infs -notcontains $_ -and @(Get-InfCatalogs $_) -contains $cat }))
+        try {
+            $sd = Join-Path $StageBase ('g{0}' -f $n)
+            New-Item -ItemType Directory -Force -Path $sd | Out-Null
+            $staged = @()
+            foreach ($inf in $infs) { $s = Join-Path $sd (Split-Path $inf -Leaf); Set-InfCatalog $inf $s $cat; $staged += $s }
+            $info = Get-CatMembers $sd $t.Pkg.Dir $infs $staged $rx ($Engine -eq 'gencat') $infArch
+            $hw = ''
+            foreach ($inf in $infs) { foreach ($id in (Get-InfDeviceIds $inf)) { $hw = $id.ToLowerInvariant(); break }; if ($hw) { break } }
+            $groups += [pscustomobject]@{ T = $t; Dir = $sd; Cat = $cat; Infs = $infs; Staged = $staged; Info = $info; Label = $t.Rel; Hwid = $hw; R = $null }
+            $what = if ($infs.Count -lt $t.WithCat.Count) { '{0} of {1} INF file(s) point at it - the others keep their signature' -f $infs.Count, $t.WithCat.Count } else { 'all {0} INF file(s) point at it' -f $infs.Count }
+            Write-Info ('one catalog for the folder, {0}: {1}' -f $cat, $what)
+            Write-Info (Get-MemberNote $info)
+            if (@($info.MissingUsed).Count) { Write-Warn ('{0} file(s) the INF files copy are not in the folder ({1}) - no catalog can hold their hash, Windows will refuse the driver' -f @($info.MissingUsed).Count, ((@($info.MissingUsed) | Select-Object -First 3) -join ', ')) }
+        } catch {
+            Write-Warn "$($t.Rel): $name could not be prepared ($($_.Exception.Message)) - Inf2Cat builds its catalog"
+            $back += $t
+        }
+    }
+    if ($groups.Count) {
+        $mb = 0.0; foreach ($g in $groups) { $mb += $g.Info.MB }
+        Write-Info ('{0}: {1} catalog(s), {2:N0} MB to hash' -f $name, $groups.Count, $mb)
+        switch ($Engine) {
+            'makecat' { Invoke-MakeCatGroups $Tool $groups $Jobs }
+            'libwdi'  { Invoke-NativeCatGroups $groups $Arch }
+            'gencat'  { Invoke-GenCatGroups $groups $Arch }
+        }
+    }
+    foreach ($g in $groups) {
+        $t = $g.T
+        $built = Join-Path $g.Dir $g.Cat
+        Add-Log ("[$($g.Label)] $name exit $($g.R.Code) after $(Format-Span $g.R.Time)`r`n" + $g.R.Text)
+        if ($g.R.Code -ne 0 -or -not (Test-Path -LiteralPath $built)) {
+            Write-Warn "$($t.Rel): $name could not build the catalog - Inf2Cat builds it instead"
+            @($g.R.Output | Where-Object { $_.Trim() } | Select-Object -Last 3) | ForEach-Object { Write-Host "       $_" -ForegroundColor DarkYellow }
+            $back += $t; continue
+        }
+        for ($k = 0; $k -lt $g.Infs.Count; $k++) { Copy-Item -LiteralPath $g.Staged[$k] -Destination $g.Infs[$k] -Force }
+        $dst = Join-Path $t.Pkg.Dir $g.Cat
+        Copy-Item -LiteralPath $built -Destination $dst -Force
+        $t.Cats = @($dst); $t.Check = $g.Infs; $t.Engine = $Engine; $t.Staged = $true
+        $t.Runs = @([pscustomobject]@{ Dir = $g.Dir; Label = $g.Label; Infs = $g.Infs.Count; Est = 0; R = $g.R })
+    }
+    return $back
 }
 #endregion
 
@@ -3664,7 +4431,7 @@ function Invoke-Job([string]$Job, $A) {
                 Write-Ok "$(@($Script:Sync.Result).Count) driver(s) found."
             }
             'CommitImport' { Save-ImportDrivers $A.Dir $A.Pick }
-            'Sign'         { Invoke-SignPackage $A.Source $A.Name $A.Password ([bool]$A.All) ([bool]$Script:Cfg.SignOnlyThisPc) ([bool]$Script:Cfg.SignIsolate) (Get-SignJobs) }
+            'Sign'         { Invoke-SignPackage $A.Source $A.Name $A.Password ([bool]$A.All) ([bool]$Script:Cfg.SignOnlyThisPc) ([bool]$Script:Cfg.SignIsolate) (Get-SignJobs) (Get-SignEngine) }
             'Service'      { Invoke-Service -Auto }
             'Build'        { Invoke-Build -Auto -OutIso ([string]$A.Out) }
             'All'          { Invoke-RunAll $A }
@@ -3946,7 +4713,7 @@ __RES__
           <TextBlock Text="W10" Foreground="White" FontWeight="Bold" FontSize="12" HorizontalAlignment="Center" VerticalAlignment="Center"/>
         </Border>
         <StackPanel Margin="12,0,0,0" VerticalAlignment="Center">
-          <TextBlock FontSize="15" FontWeight="SemiBold"><Run Text="Windows ISO Updater"/><Run x:Name="VerRun" Text="  v3.5.1" Foreground="#5B6478" FontWeight="Normal" FontSize="12"/></TextBlock>
+          <TextBlock FontSize="15" FontWeight="SemiBold"><Run Text="Windows ISO Updater"/><Run x:Name="VerRun" Text="  v3.6.0" Foreground="#5B6478" FontWeight="Normal" FontSize="12"/></TextBlock>
           <TextBlock Text="updates + drivers + signed NVIDIA mods + autounattend + $OEM$  ->  bootable ISO" Foreground="#8A94A8" FontSize="11"/>
         </StackPanel>
       </StackPanel>
@@ -4204,7 +4971,7 @@ $Script:XPages = @'
           <!-- 5 signed / modded -->
           <TabItem Visibility="Collapsed" Foreground="#E6EAF2"><ScrollViewer VerticalScrollBarVisibility="Auto"><StackPanel Margin="24,18,24,18">
             <TextBlock Style="{StaticResource H1}" Text="Signed NVIDIA / modded drivers"/>
-            <TextBlock Style="{StaticResource Sub}" Margin="0,0,0,14" Text="For driver packages whose INF was edited - NVCleanstall hardware-ID mods for an unsupported GPU, custom INF files. The edit breaks the catalog signature, so Windows refuses them. Every subfolder is scanned; each modified package gets a new catalog (Inf2Cat) signed with your own certificate. The package is added to the ISO through $OEM$ and installed by SetupComplete.cmd at the end of Windows setup, right after the certificate is trusted."/>
+            <TextBlock Style="{StaticResource Sub}" Margin="0,0,0,14" Text="For driver packages whose INF was edited - NVCleanstall hardware-ID mods for an unsupported GPU, custom INF files. The edit breaks the catalog signature, so Windows refuses them. Every subfolder is scanned; each modified package gets a new catalog (MakeCat by default, or the engine you pick below) signed with your own certificate. The package is added to the ISO through $OEM$ and installed by SetupComplete.cmd at the end of Windows setup, right after the certificate is trusted."/>
             <Border Style="{StaticResource Card}"><StackPanel>
               <TextBlock Style="{StaticResource H2}" Text="Driver package"/>
               <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="110"/><ColumnDefinition/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
@@ -4217,16 +4984,26 @@ $Script:XPages = @'
                 <TextBox x:Name="SignName" Grid.Column="1" Text="NVIDIA"/>
                 <TextBlock x:Name="SignDest" Grid.Column="2" Style="{StaticResource Sub}" VerticalAlignment="Center" Margin="12,0,0,0" Text="installs from C:\Drivers\NVIDIA during setup"/>
               </Grid>
+              <Grid Margin="0,12,0,0"><Grid.ColumnDefinitions><ColumnDefinition Width="110"/><ColumnDefinition/></Grid.ColumnDefinitions>
+                <TextBlock Text="Engine" VerticalAlignment="Top" Margin="0,7,0,0"/>
+                <WrapPanel Grid.Column="1">
+                  <RadioButton x:Name="SignEngMakeCat" Style="{StaticResource Seg}" Padding="14,7" Margin="0,0,6,6" GroupName="signeng" Content="MakeCat" AutomationProperties.Name="Signing engine: MakeCat"/>
+                  <RadioButton x:Name="SignEngLibwdi" Style="{StaticResource Seg}" Padding="14,7" Margin="0,0,6,6" GroupName="signeng" Content="libwdi-style" AutomationProperties.Name="Signing engine: libwdi-style"/>
+                  <RadioButton x:Name="SignEngGenCat" Style="{StaticResource Seg}" Padding="14,7" Margin="0,0,6,6" GroupName="signeng" Content="generate-cat-file (WSL)" AutomationProperties.Name="Signing engine: generate-cat-file in WSL"/>
+                  <RadioButton x:Name="SignEngInf2Cat" Style="{StaticResource Seg}" Padding="14,7" Margin="0,0,0,6" GroupName="signeng" Content="Inf2Cat" AutomationProperties.Name="Signing engine: Inf2Cat"/>
+                </WrapPanel>
+              </Grid>
+              <TextBlock x:Name="SignEngNote" Style="{StaticResource Sub}" Margin="110,2,0,0"/>
               <CheckBox x:Name="SignAll" Style="{StaticResource Toggle}" Margin="0,12,0,0" Content="Re-sign every package, not only the modified ones"/>
               <CheckBox x:Name="cfg_SignCleanup" Style="{StaticResource Toggle}" Content="Delete the driver copy from C:\Drivers once it is installed"/>
               <CheckBox x:Name="cfg_SignIsolate" Style="{StaticResource Toggle}" Content="Faster: new catalogs only for the INF files that need one"/>
-              <TextBlock Style="{StaticResource Sub}" Margin="48,-2,0,4" Text="Inf2Cat gets a copy of the folder with only the edited INF files (the driver files are hard links - no extra space), so it checks a few INF files instead of all of them, several at the same time. Every INF stays in the package, and the ones you did not edit keep their NVIDIA / Microsoft signature: an edited INF whose catalog is shared with them (nv_dispi.cat) gets a catalog file of its own. If Inf2Cat fails on that copy, the whole folder is catalogued as before."/>
+              <TextBlock Style="{StaticResource Sub}" Margin="48,-2,0,4" Text="Every INF stays in the package, and the ones you did not edit keep their NVIDIA / Microsoft signature. MakeCat and the other folder engines point only the edited INF files at the folder's new catalog (off: every INF of the folder). Inf2Cat gets a copy of the folder with only the edited INF files (the driver files are hard links - no extra space), several at the same time; an edited INF whose catalog is shared with the others (nv_dispi.cat) gets a catalog file of its own. If Inf2Cat fails on that copy, the whole folder is catalogued as before."/>
               <CheckBox x:Name="cfg_SignOnlyThisPc" Style="{StaticResource Toggle}" Content="Faster: only keep the INF files for this PC's hardware (when the ISO is for this PC)"/>
-              <TextBlock Style="{StaticResource Sub}" Margin="48,-2,0,4" Text="NVIDIA's Display.Driver has one INF file per laptop and desktop maker, and Inf2Cat checks every one of them against the whole package - that can take up to an hour. With this on, only the INF files that list a device of this PC are signed (minutes instead), the others are removed from the copy. The original folder is not touched."/>
+              <TextBlock Style="{StaticResource Sub}" Margin="48,-2,0,4" Text="Mostly for Inf2Cat: NVIDIA's Display.Driver has one INF file per laptop and desktop maker, and Inf2Cat checks every one of them against the whole package - that can take up to an hour. With this on, only the INF files that list a device of this PC are signed (minutes instead), the others are removed from the copy. The original folder is not touched."/>
               <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
-                <TextBlock Text="Inf2Cat runs at the same time" VerticalAlignment="Center" Margin="0,0,12,0"/>
+                <TextBlock Text="Catalog runs at the same time" VerticalAlignment="Center" Margin="0,0,12,0"/>
                 <TextBox x:Name="SignJobsBox" Width="50"/>
-                <TextBlock Style="{StaticResource Sub}" VerticalAlignment="Center" Margin="12,0,0,0" Text="1-8, empty = processor cores up to 8. Each Inf2Cat run uses one core."/>
+                <TextBlock Style="{StaticResource Sub}" VerticalAlignment="Center" Margin="12,0,0,0" Text="1-8, empty = processor cores up to 8. Each Inf2Cat run uses one core; MakeCat does up to 4 folders at once."/>
               </StackPanel>
               <WrapPanel Margin="0,14,0,0">
                 <Button x:Name="SignBtn" Style="{StaticResource Primary}" Content="Sign and add to the ISO"/>
@@ -4236,7 +5013,7 @@ $Script:XPages = @'
             <Border Style="{StaticResource Card}"><StackPanel>
               <TextBlock Style="{StaticResource H2}" Text="Signing certificate"/>
               <TextBlock x:Name="CertInfo" TextWrapping="Wrap" FontWeight="SemiBold"/>
-              <TextBlock Style="{StaticResource Sub}" Margin="0,6,0,0" Text="DriverSigning.pfx (private key) stays in the signing folder next to this tool - back it up and never share or upload it. Only the public DriverSigning.cer goes into the ISO. Tools (Inf2Cat, signtool) are downloaded automatically."/>
+              <TextBlock Style="{StaticResource Sub}" Margin="0,6,0,0" Text="DriverSigning.pfx (private key) stays in the signing folder next to this tool - back it up and never share or upload it. Only the public DriverSigning.cer goes into the ISO. Tools (makecat, Inf2Cat, signtool) are downloaded automatically."/>
             </StackPanel></Border>
             <Border Style="{StaticResource Card}"><StackPanel>
               <TextBlock Style="{StaticResource H2}" Text="Packages added to the ISO"/>
@@ -4343,16 +5120,17 @@ $Script:XPages = @'
           <!-- 9 tools -->
           <TabItem Visibility="Collapsed" Foreground="#E6EAF2"><ScrollViewer VerticalScrollBarVisibility="Auto"><StackPanel Margin="24,18,24,18">
             <TextBlock Style="{StaticResource H1}" Text="Tools"/>
-            <TextBlock Style="{StaticResource Sub}" Margin="0,0,0,14" Text="Everything missing is downloaded automatically when a step needs it, into the tools folder next to this file. oscdimg.exe comes from the Microsoft symbol server (SHA-256 checked) or the Windows ADK; Inf2Cat and signtool are extracted from Microsoft's NuGet packages (Windows SDK build tools / Windows Driver Kit) - only those tools are kept, nothing is installed."/>
+            <TextBlock Style="{StaticResource Sub}" Margin="0,0,0,14" Text="Everything missing is downloaded automatically when a step needs it, into the tools folder next to this file. oscdimg.exe comes from the Microsoft symbol server (SHA-256 checked) or the Windows ADK; makecat, Inf2Cat and signtool are extracted from Microsoft's NuGet packages (Windows SDK build tools / Windows Driver Kit) - only those tools are kept, nothing is installed."/>
             <Border Style="{StaticResource Card}"><StackPanel>
               <Grid>
                 <Grid.ColumnDefinitions><ColumnDefinition Width="150"/><ColumnDefinition/></Grid.ColumnDefinitions>
-                <Grid.RowDefinitions><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/></Grid.RowDefinitions>
+                <Grid.RowDefinitions><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/></Grid.RowDefinitions>
                 <TextBlock Grid.Row="0" Text="DISM" Margin="0,4"/><TextBlock x:Name="T_Dism" Grid.Row="0" Grid.Column="1" Margin="0,4" TextTrimming="CharacterEllipsis"/>
                 <TextBlock Grid.Row="1" Text="oscdimg.exe" Margin="0,4"/><TextBlock x:Name="T_Osc" Grid.Row="1" Grid.Column="1" Margin="0,4" TextTrimming="CharacterEllipsis"/>
                 <TextBlock Grid.Row="2" Text="Inf2Cat.exe" Margin="0,4"/><TextBlock x:Name="T_Inf" Grid.Row="2" Grid.Column="1" Margin="0,4" TextTrimming="CharacterEllipsis"/>
                 <TextBlock Grid.Row="3" Text="signtool.exe" Margin="0,4"/><TextBlock x:Name="T_Sign" Grid.Row="3" Grid.Column="1" Margin="0,4" TextTrimming="CharacterEllipsis"/>
-                <TextBlock Grid.Row="4" Text="curl.exe" Margin="0,4"/><TextBlock x:Name="T_Curl" Grid.Row="4" Grid.Column="1" Margin="0,4"/>
+                <TextBlock Grid.Row="4" Text="makecat.exe" Margin="0,4"/><TextBlock x:Name="T_Mkc" Grid.Row="4" Grid.Column="1" Margin="0,4" TextTrimming="CharacterEllipsis"/>
+                <TextBlock Grid.Row="5" Text="curl.exe" Margin="0,4"/><TextBlock x:Name="T_Curl" Grid.Row="5" Grid.Column="1" Margin="0,4"/>
               </Grid>
               <WrapPanel Margin="0,14,0,0"><Button x:Name="ToolsBtn" Style="{StaticResource Primary}" Content="Download missing tools now"/><Button x:Name="ToolsOpen" Style="{StaticResource Btn}" Content="Open tools folder"/></WrapPanel>
             </StackPanel></Border>
@@ -4897,8 +5675,9 @@ function Update-Ui {
         } else { $U.DrvSum.Text = 'No drivers selected.' }
 
         # 5 signed
-        $U.SignGrid.ItemsSource = (New-Table @('Name', 'InstallsFrom', 'Signed:int', 'Failed:int', 'INFs', 'When', 'Source') @(foreach ($x in @($S.Signed | Where-Object { $_ })) { , @($x.Name, $x.InstallDir, [int]$x.Signed, [int]$x.Failed, $(if ($x.OnlyThisPc) { "this PC only ($(@($x.Kept).Count) kept)" } else { 'all' }), $x.When, $x.Source) })).DefaultView
+        $U.SignGrid.ItemsSource = (New-Table @('Name', 'InstallsFrom', 'Signed:int', 'Failed:int', 'INFs', 'Engine', 'When', 'Source') @(foreach ($x in @($S.Signed | Where-Object { $_ })) { , @($x.Name, $x.InstallDir, [int]$x.Signed, [int]$x.Failed, $(if ($x.OnlyThisPc) { "this PC only ($(@($x.Kept).Count) kept)" } else { 'all' }), $(if ($x.Engine) { [string]$x.Engine } else { 'Inf2Cat' }), $x.When, $x.Source) })).DefaultView
         Update-SignDest
+        Update-SignEngine
         $cs = 'create'; $c = $null
         try { $cs = Get-CertStatus; $c = Get-StoreCert } catch { }
         $U.CertInfo.Text = switch ($cs) {
@@ -4992,19 +5771,35 @@ function Update-Tools {
         param($tb, $path, $missing)
         if ($path) { $tb.Text = $path; $tb.Foreground = $ok } else { $tb.Text = $missing; $tb.Foreground = $no }
     }
-    $osc = Find-Oscdimg; $inf = Find-Tool 'Inf2Cat.exe'; $sig = Find-Tool 'signtool.exe'
+    $osc = Find-Oscdimg; $inf = Find-Tool 'Inf2Cat.exe'; $sig = Find-Tool 'signtool.exe'; $mkc = Find-Tool 'makecat.exe'
+    $eng = Get-SignEngine
     & $set $U.T_Osc $osc 'missing - downloaded automatically when you build the ISO'
-    & $set $U.T_Inf $inf 'missing - downloaded automatically when you sign drivers'
+    & $set $U.T_Inf $inf $(if ($eng -eq 'inf2cat') { 'missing - downloaded automatically when you sign drivers' } else { 'missing - downloaded only if the signing engine needs Inf2Cat as fallback' })
     & $set $U.T_Sign $sig 'missing - downloaded automatically when you sign drivers'
+    & $set $U.T_Mkc $mkc $(if ($eng -eq 'makecat') { 'missing - downloaded automatically when you sign drivers' } else { 'missing - only needed for the MakeCat signing engine' })
     $curl = Join-Path $env:SystemRoot 'System32\curl.exe'
     & $set $U.T_Curl $(if (Test-Path -LiteralPath $curl) { $curl }) 'missing - PowerShell / BITS downloads are used'
-    $U.ToolsDot.Text = if ($osc -and $inf -and $sig) { '' } else { [string][char]0x25CF }
+    $cat = switch ($eng) { 'inf2cat' { $inf } 'makecat' { $mkc } default { $true } }
+    $U.ToolsDot.Text = if ($osc -and $cat -and $sig) { '' } else { [string][char]0x25CF }
 }
 function Save-EditionPick {
     $sel = @(foreach ($r in $Script:EdTable.Rows) { if ($r['Use'] -eq $true) { [int]$r['Index'] } })
     $Script:S.Selected = $sel
     Save-State
     Update-Status
+}
+# Page 5: the signing engine buttons and what the chosen engine does.
+function Update-SignEngine {
+    $U = $Script:U
+    $e = Get-SignEngine
+    $U.SignEngMakeCat.IsChecked = ($e -eq 'makecat'); $U.SignEngLibwdi.IsChecked = ($e -eq 'libwdi')
+    $U.SignEngGenCat.IsChecked = ($e -eq 'gencat'); $U.SignEngInf2Cat.IsChecked = ($e -eq 'inf2cat')
+    $U.SignEngNote.Text = switch ($e) {
+        'makecat' { 'Default. makecat.exe (Windows SDK) builds one catalog per driver folder with the hash of every file in it, so each file is hashed once - about 20 s for NVIDIA''s 3 GB Display.Driver instead of minutes. Compressed files (name.dl_) are hashed expanded, the way Windows checks them. MakeCat does not parse the INF: every catalog is checked with signtool afterwards, and a folder MakeCat cannot do goes to Inf2Cat.' }
+        'libwdi'  { 'Experimental. The catalog is built with the CryptCAT API of Windows itself, the way libwdi (Zadig) does it - nothing to download. One catalog per driver folder with the hash of every file in it (SHA-1). Checked with signtool afterwards; a folder it cannot do goes to Inf2Cat.' }
+        'gencat'  { 'Experimental. LINBIT generate-cat-file (GPL-2.0): its source is downloaded from GitHub (one pinned commit, SHA-256 checked) and built inside WSL - needs WSL with a Linux distribution that has gcc and make. One catalog per driver folder; Inf2Cat signs when WSL or the build is missing.' }
+        default   { 'Microsoft''s standard tool from the Windows Driver Kit: it parses every INF and checks it against every file of the package. The proven choice, but slow on big packages - the options below make it faster.' }
+    }
 }
 function Update-SignDest {
     $n = ConvertTo-PackageName $Script:U.SignName.Text
@@ -5318,6 +6113,15 @@ try {
         }
     })
     $U.SignName.Add_TextChanged({ Update-SignDest })
+    foreach ($x in @(@('SignEngMakeCat', 'makecat'), @('SignEngLibwdi', 'libwdi'), @('SignEngGenCat', 'gencat'), @('SignEngInf2Cat', 'inf2cat'))) {
+        $rb = $U[$x[0]]; $rb.Tag = $x[1]
+        $rb.Add_Click({
+            $Script:Cfg.SignEngine = [string]$this.Tag
+            Save-Settings
+            Update-SignEngine
+            Update-Tools
+        })
+    }
     $U.SignBtn.Add_Click({ Invoke-SignClick })
     $U.SignOpen.Add_Click({ New-Item -ItemType Directory -Force -Path $Script:SignDir | Out-Null; Open-Path $Script:SignDir })
     $U.SignRemove.Add_Click({

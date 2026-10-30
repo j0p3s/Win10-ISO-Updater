@@ -253,11 +253,7 @@ function Get-OwnCatalogName([string]$Inf) {
 # UTF-8 by their byte order mark, anything else byte for byte (Latin-1 maps every byte to itself).
 function Set-InfCatalog([string]$Src, [string]$Dst, [string]$Cat) {
     $bytes = [IO.File]::ReadAllBytes($Src)
-    $off = 0
-    if ($bytes.Length -ge 2 -and $bytes[0] -eq 0xFF -and $bytes[1] -eq 0xFE) { $enc = New-Object Text.UnicodeEncoding -ArgumentList $false, $true; $off = 2 }
-    elseif ($bytes.Length -ge 2 -and $bytes[0] -eq 0xFE -and $bytes[1] -eq 0xFF) { $enc = New-Object Text.UnicodeEncoding -ArgumentList $true, $true; $off = 2 }
-    elseif ($bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF) { $enc = New-Object Text.UTF8Encoding -ArgumentList $true; $off = 3 }
-    else { $enc = [Text.Encoding]::GetEncoding(28591) }
+    $enc, $off = Get-InfEncoding $bytes
     $text = $enc.GetString($bytes, $off, $bytes.Length - $off)
     $text = [regex]::Replace($text, '(?im)^(\s*CatalogFile(?:\.\w+)?\s*=\s*)"?[^";\s]+"?', ('${1}' + $Cat))
     [IO.File]::WriteAllBytes($Dst, [byte[]](@($enc.GetPreamble()) + @($enc.GetBytes($text))))
@@ -291,8 +287,11 @@ function New-InfStage([string]$Dir, [string]$Stage, [string[]]$Infs) {
 # every other INF keeps its catalog and signature. One whose catalog is shared with other INF files
 # gets a catalog of its own (Get-OwnCatalogName), so the shared one stays valid for the others.
 # $Jobs: Inf2Cat runs at the same time. A folder whose isolated run fails is catalogued whole, as before.
-function Invoke-SignFolder([string]$Root, $Cert, [string]$Inf2Cat, [bool]$All, [bool]$OnlyThisPc = $false, [bool]$Isolate = $true, [int]$Jobs = 1) {
-    $os = if ($Script:S.Family -and $Script:S.Family.Arch -eq 'x86') { '10_X86' } else { '10_X64' }
+# $Engine: makecat / libwdi / gencat build one catalog per folder (Invoke-CatalogEngine, $EngineTool is
+# what Initialize-SignEngine returned); a folder they cannot do goes to Inf2Cat ($Inf2Cat, or fetched then).
+function Invoke-SignFolder([string]$Root, $Cert, [string]$Inf2Cat, [bool]$All, [bool]$OnlyThisPc = $false, [bool]$Isolate = $true, [int]$Jobs = 1, [string]$Engine = 'inf2cat', [string]$EngineTool = '') {
+    $arch = if ($Script:S.Family -and $Script:S.Family.Arch) { [string]$Script:S.Family.Arch } else { 'x64' }
+    $os = if ($arch -eq 'x86') { '10_X86' } else { '10_X64' }
     $Jobs = [math]::Max(1, [math]::Min(8, $Jobs))
     $pkgs = @(Get-InfFolders $Root)
     $trim = [pscustomobject]@{ Removed = 0; Kept = @() }
@@ -305,7 +304,7 @@ function Invoke-SignFolder([string]$Root, $Cert, [string]$Inf2Cat, [bool]$All, [
     $bad = @($states.Keys | Where-Object { $states[$_] -in 'mismatch', 'untrusted', 'catalog-missing', 'unknown' })
     $untrusted = @($states.Keys | Where-Object { $states[$_] -eq 'untrusted' }).Count
     Write-Info ("{0} INF file(s) in {1} folder(s) - {2} need a new signature ({3} signed with a certificate Windows does not trust)" -f @($states.Keys).Count, $pkgs.Count, $bad.Count, $untrusted)
-    $res = [ordered]@{ Signed = 0; Failed = 0; Untouched = 0; Skipped = 0; Removed = [int]$trim.Removed; Kept = @($trim.Kept) }
+    $res = [ordered]@{ Signed = 0; Failed = 0; Untouched = 0; Skipped = 0; Removed = [int]$trim.Removed; Kept = @($trim.Kept); Engine = '' }
     $todo = @()
     foreach ($p in $pkgs) {
         $rel = $p.Dir.Substring($Root.TrimEnd('\', '/').Length).TrimStart('\', '/'); if (-not $rel) { $rel = '.' }
@@ -313,19 +312,26 @@ function Invoke-SignFolder([string]$Root, $Cert, [string]$Inf2Cat, [bool]$All, [
         $need = @($p.Infs | Where-Object { $states[$_] -in 'mismatch', 'untrusted', 'catalog-missing', 'unknown' })
         if ($withCat.Count -eq 0) { Write-Info "$rel : no CatalogFile= line in the INF - left as is"; $res.Skipped++; continue }
         if (-not $All -and $need.Count -eq 0) { $res.Untouched++; continue }
-        $todo += [pscustomobject]@{ Pkg = $p; Rel = $rel; WithCat = $withCat; Need = $(if ($All) { $withCat } else { $need }); Staged = $false; Runs = @(); Check = $withCat; Cats = @(); Ok = $true; Start = $null; Mb = 1.0; Own = @{} }
+        $todo += [pscustomobject]@{ Pkg = $p; Rel = $rel; WithCat = $withCat; Need = $(if ($All) { $withCat } else { $need }); Staged = $false; Runs = @(); Check = $withCat; Cats = @(); Ok = $true; Start = $null; Mb = 1.0; Own = @{}; Engine = 'inf2cat' }
     }
     $stageBase = $Root.TrimEnd('\', '/') + '~stage'
     if (Test-Path -LiteralPath $stageBase) { Remove-Item -LiteralPath $stageBase -Recurse -Force -ErrorAction SilentlyContinue }
     $rate = Get-Inf2CatRate
     try {
+        # ---- MakeCat / libwdi-style / generate-cat-file; what they cannot do goes to Inf2Cat
+        $i2c = @($todo)
+        if ($Engine -ne 'inf2cat' -and $todo.Count) { $i2c = @(Invoke-CatalogEngine $Engine $EngineTool $todo $Isolate $Jobs $stageBase $arch) }
+        if ($i2c.Count -and -not $Inf2Cat) {
+            try { $Inf2Cat = Get-Inf2CatTool }
+            catch { Write-Err $_.Exception.Message; foreach ($t in $i2c) { $t.Ok = $false }; $i2c = @() }
+        }
         # ---- what every Inf2Cat run gets
         $i = 0; $ns = 0
-        foreach ($t in $todo) {
+        foreach ($t in $i2c) {
             $i++
             $p = $t.Pkg
             $cnt = @($p.Infs).Count
-            Write-Sub ('{0}  ({1} INF file(s), folder {2} of {3})' -f $t.Rel, $cnt, $i, $todo.Count)
+            Write-Sub ('{0}  ({1} INF file(s), folder {2} of {3})' -f $t.Rel, $cnt, $i, $i2c.Count)
             $mb = [math]::Max(1.0, [double](@(Get-ChildItem -LiteralPath $p.Dir -Recurse -File -Force -ErrorAction SilentlyContinue | Measure-Object -Property Length -Sum)[0].Sum) / 1MB)
             $t.Mb = $mb
             $parts = @()
@@ -373,17 +379,17 @@ function Invoke-SignFolder([string]$Root, $Cert, [string]$Inf2Cat, [bool]$All, [
             }
         }
         # ---- Inf2Cat, up to $Jobs runs at the same time; then the folders whose isolated run failed, whole
-        $pending = @($todo | ForEach-Object { $_.Runs })
+        $pending = @($i2c | ForEach-Object { $_.Runs })
         while ($pending.Count) {
             $start = Get-Date
-            foreach ($t in $todo) { if (@($t.Runs | Where-Object { $pending -contains $_ }).Count) { $t.Start = $start } }
+            foreach ($t in $i2c) { if (@($t.Runs | Where-Object { $pending -contains $_ }).Count) { $t.Start = $start } }
             $est = Get-LaneTime @() @($pending | ForEach-Object { [double]$_.Est }) $Jobs
             $how = if ($pending.Count -eq 1) { '1 run' } else { '{0} runs, up to {1} at the same time' -f $pending.Count, [math]::Min($Jobs, $pending.Count) }
             Write-Info ('Inf2Cat: {0} - estimated time {1}' -f $how, (Format-Span ([timespan]::FromSeconds([math]::Ceiling($est)))))
             $out = @(Invoke-Inf2CatQueue $Inf2Cat $pending $os $Jobs)
             for ($k = 0; $k -lt $pending.Count; $k++) { $pending[$k].R = $out[$k] }
             $retry = @()
-            foreach ($t in $todo) {
+            foreach ($t in $i2c) {
                 $mine = @($t.Runs | Where-Object { $pending -contains $_ })
                 foreach ($r in $mine) { Add-Log ("[$($r.Label)] Inf2Cat exit $($r.R.Code) after $(Format-Span $r.R.Time)`r`n" + ($r.R.Output | Out-String)) }
                 if ($t.Staged -and @($mine | Where-Object { $_.R.Code -ne 0 }).Count) {
@@ -400,12 +406,14 @@ function Invoke-SignFolder([string]$Root, $Cert, [string]$Inf2Cat, [bool]$All, [
         }
         # learned speed for the next estimate (runs shorter than a few seconds say little)
         $work = 0.0; $secs = 0.0
-        foreach ($t in $todo) { foreach ($r in $t.Runs) { if ($r.R -and $r.R.Code -eq 0 -and $r.R.Time.TotalSeconds -gt 8) { $work += $r.Infs * $t.Mb; $secs += $r.R.Time.TotalSeconds - 3 } } }
+        foreach ($t in $i2c) { foreach ($r in $t.Runs) { if ($r.R -and $r.R.Code -eq 0 -and $r.R.Time.TotalSeconds -gt 8) { $work += $r.Infs * $t.Mb; $secs += $r.R.Time.TotalSeconds - 3 } } }
         if ($secs -gt 0) { Save-Inf2CatRate ($work / $secs) }
 
         # ---- the new catalogs, signed together
         $newCats = @()
         foreach ($t in $todo) {
+            if (-not $t.Ok) { continue }
+            if ($t.Engine -ne 'inf2cat') { $newCats += $t.Cats; continue }
             if (@($t.Runs | Where-Object { $_.R.Code -ne 0 }).Count) {
                 $f = @($t.Runs | Where-Object { $_.R.Code -ne 0 })[0]
                 Write-Err "Inf2Cat failed for $($t.Rel)"
@@ -443,9 +451,14 @@ function Invoke-SignFolder([string]$Root, $Cert, [string]$Inf2Cat, [bool]$All, [
             }
             $runs = @($t.Runs)
             $longest = ($runs | ForEach-Object { $_.R.Time } | Sort-Object -Descending | Select-Object -First 1)
-            $took = if ($runs.Count -eq 1) { "Inf2Cat took $(Format-Span $longest)" } else { "$($runs.Count) Inf2Cat runs, the longest took $(Format-Span $longest)" }
-            if ($ok) { $res.Signed++; Write-Ok "$($t.Rel) signed and verified ($took)" } else { $res.Failed++ }
+            $took = if ($runs.Count -eq 1) { "$(Get-SignEngineName $t.Engine) took $(Format-Span $longest)" } else { "$($runs.Count) Inf2Cat runs, the longest took $(Format-Span $longest)" }
+            if ($ok) { $res.Signed++; Write-Ok "$($t.Rel) signed and verified ($took)" }
+            else {
+                $res.Failed++
+                if ($t.Engine -ne 'inf2cat') { Write-Info "Hint: choose the Inf2Cat engine on this page and sign again - $(Get-SignEngineName $t.Engine) does not parse the INF." }
+            }
         }
+        $res.Engine = (@($todo | Where-Object { $_.Ok } | ForEach-Object { Get-SignEngineName $_.Engine } | Sort-Object -Unique) -join ' + ')
     } finally {
         if (Test-Path -LiteralPath $stageBase) { Remove-Item -LiteralPath $stageBase -Recurse -Force -ErrorAction SilentlyContinue }
     }
@@ -462,12 +475,21 @@ function ConvertTo-PackageName([string]$Text) {
     if (-not $n) { $n = 'Driver' }
     return $n
 }
-function Invoke-SignPackage([string]$Source, [string]$Name, $Password, [bool]$All, [bool]$OnlyThisPc = $false, [bool]$Isolate = $true, [int]$Jobs = 1) {
+function Invoke-SignPackage([string]$Source, [string]$Name, $Password, [bool]$All, [bool]$OnlyThisPc = $false, [bool]$Isolate = $true, [int]$Jobs = 1, [string]$Engine = 'inf2cat') {
     if (-not (Test-Path -LiteralPath $Source -PathType Container)) { throw "Folder not found: $Source" }
     $Name = ConvertTo-PackageName $Name
     Write-Title "Re-sign modded drivers - $Name"
-    $tools = Get-SignTools
+    $tools = Get-SignTools $Engine
     $Script:SignTool = $tools.SignTool
+    $engTool = ''
+    if ($Engine -ne 'inf2cat') {
+        try { $engTool = Initialize-SignEngine $Engine }
+        catch {
+            Write-Warn "$(Get-SignEngineName $Engine) is not available: $($_.Exception.Message)"
+            Write-Info 'Inf2Cat builds the catalogs instead.'
+            $Engine = 'inf2cat'
+        }
+    }
     $cert = Get-SigningCert $Password
     Write-Info ("Certificate: {0}  {1}  valid until {2:yyyy-MM-dd}" -f $cert.Subject, $cert.Thumbprint, $cert.NotAfter)
     $dest = Join-Path $Script:P.Signed $Name
@@ -478,13 +500,15 @@ function Invoke-SignPackage([string]$Source, [string]$Name, $Password, [bool]$Al
     Write-Step 'Building new catalogs and signing them'
     $added = @(Add-TempTrust $cer)   # only while verifying - the ISO trusts it during setup
     if ($OnlyThisPc) { Write-Info 'Only the INF files for this PC''s hardware are kept - the ISO installs this driver on this PC only.' }
-    Write-Info ('Inf2Cat: up to {0} run(s) at the same time{1}' -f $Jobs, $(if ($Isolate) { ', only the INF files that need a new catalog get one' } else { ', every folder that needs a new catalog is catalogued whole' }))
-    try { $res = Invoke-SignFolder $dest $cert $tools.Inf2Cat $All $OnlyThisPc $Isolate $Jobs }
+    $scope = if ($Isolate) { 'only the INF files that need a new catalog get one' } else { 'every INF file of a folder that needs a new catalog gets one' }
+    if ($Engine -eq 'inf2cat') { Write-Info ('Engine: Inf2Cat, up to {0} run(s) at the same time - {1}' -f $Jobs, $scope) }
+    else { Write-Info ('Engine: {0} - one catalog per driver folder with the hash of every file in it, {1}; Inf2Cat for a folder it cannot do' -f (Get-SignEngineName $Engine), $scope) }
+    try { $res = Invoke-SignFolder $dest $cert $tools.Inf2Cat $All $OnlyThisPc $Isolate $Jobs $Engine $engTool }
     finally { if ($added.Count) { Remove-TempTrust $cer $added } }
     $rec = [ordered]@{
         Name = $Name; Source = $Source; Path = $dest; InstallDir = "C:\Drivers\$Name"; When = (Get-Date).ToString('yyyy-MM-dd HH:mm')
         Signed = [int]$res.Signed; Failed = [int]$res.Failed; Untouched = [int]$res.Untouched; Thumbprint = $cert.Thumbprint
-        OnlyThisPc = [bool]($OnlyThisPc -and $res.Removed -gt 0); Removed = [int]$res.Removed; Kept = @($res.Kept)
+        OnlyThisPc = [bool]($OnlyThisPc -and $res.Removed -gt 0); Removed = [int]$res.Removed; Kept = @($res.Kept); Engine = [string]$res.Engine
     }
     $Script:S.Signed = @(@($Script:S.Signed | Where-Object { $_ -and $_.Name -ne $Name }) + @($rec))
     Save-State

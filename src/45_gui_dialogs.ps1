@@ -95,7 +95,7 @@ $Script:XPages = @'
           <!-- 5 signed / modded -->
           <TabItem Visibility="Collapsed" Foreground="#E6EAF2"><ScrollViewer VerticalScrollBarVisibility="Auto"><StackPanel Margin="24,18,24,18">
             <TextBlock Style="{StaticResource H1}" Text="Signed NVIDIA / modded drivers"/>
-            <TextBlock Style="{StaticResource Sub}" Margin="0,0,0,14" Text="For driver packages whose INF was edited - NVCleanstall hardware-ID mods for an unsupported GPU, custom INF files. The edit breaks the catalog signature, so Windows refuses them. Every subfolder is scanned; each modified package gets a new catalog (Inf2Cat) signed with your own certificate. The package is added to the ISO through $OEM$ and installed by SetupComplete.cmd at the end of Windows setup, right after the certificate is trusted."/>
+            <TextBlock Style="{StaticResource Sub}" Margin="0,0,0,14" Text="For driver packages whose INF was edited - NVCleanstall hardware-ID mods for an unsupported GPU, custom INF files. The edit breaks the catalog signature, so Windows refuses them. Every subfolder is scanned; each modified package gets a new catalog (MakeCat by default, or the engine you pick below) signed with your own certificate. The package is added to the ISO through $OEM$ and installed by SetupComplete.cmd at the end of Windows setup, right after the certificate is trusted."/>
             <Border Style="{StaticResource Card}"><StackPanel>
               <TextBlock Style="{StaticResource H2}" Text="Driver package"/>
               <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="110"/><ColumnDefinition/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
@@ -108,16 +108,26 @@ $Script:XPages = @'
                 <TextBox x:Name="SignName" Grid.Column="1" Text="NVIDIA"/>
                 <TextBlock x:Name="SignDest" Grid.Column="2" Style="{StaticResource Sub}" VerticalAlignment="Center" Margin="12,0,0,0" Text="installs from C:\Drivers\NVIDIA during setup"/>
               </Grid>
+              <Grid Margin="0,12,0,0"><Grid.ColumnDefinitions><ColumnDefinition Width="110"/><ColumnDefinition/></Grid.ColumnDefinitions>
+                <TextBlock Text="Engine" VerticalAlignment="Top" Margin="0,7,0,0"/>
+                <WrapPanel Grid.Column="1">
+                  <RadioButton x:Name="SignEngMakeCat" Style="{StaticResource Seg}" Padding="14,7" Margin="0,0,6,6" GroupName="signeng" Content="MakeCat" AutomationProperties.Name="Signing engine: MakeCat"/>
+                  <RadioButton x:Name="SignEngLibwdi" Style="{StaticResource Seg}" Padding="14,7" Margin="0,0,6,6" GroupName="signeng" Content="libwdi-style" AutomationProperties.Name="Signing engine: libwdi-style"/>
+                  <RadioButton x:Name="SignEngGenCat" Style="{StaticResource Seg}" Padding="14,7" Margin="0,0,6,6" GroupName="signeng" Content="generate-cat-file (WSL)" AutomationProperties.Name="Signing engine: generate-cat-file in WSL"/>
+                  <RadioButton x:Name="SignEngInf2Cat" Style="{StaticResource Seg}" Padding="14,7" Margin="0,0,0,6" GroupName="signeng" Content="Inf2Cat" AutomationProperties.Name="Signing engine: Inf2Cat"/>
+                </WrapPanel>
+              </Grid>
+              <TextBlock x:Name="SignEngNote" Style="{StaticResource Sub}" Margin="110,2,0,0"/>
               <CheckBox x:Name="SignAll" Style="{StaticResource Toggle}" Margin="0,12,0,0" Content="Re-sign every package, not only the modified ones"/>
               <CheckBox x:Name="cfg_SignCleanup" Style="{StaticResource Toggle}" Content="Delete the driver copy from C:\Drivers once it is installed"/>
               <CheckBox x:Name="cfg_SignIsolate" Style="{StaticResource Toggle}" Content="Faster: new catalogs only for the INF files that need one"/>
-              <TextBlock Style="{StaticResource Sub}" Margin="48,-2,0,4" Text="Inf2Cat gets a copy of the folder with only the edited INF files (the driver files are hard links - no extra space), so it checks a few INF files instead of all of them, several at the same time. Every INF stays in the package, and the ones you did not edit keep their NVIDIA / Microsoft signature: an edited INF whose catalog is shared with them (nv_dispi.cat) gets a catalog file of its own. If Inf2Cat fails on that copy, the whole folder is catalogued as before."/>
+              <TextBlock Style="{StaticResource Sub}" Margin="48,-2,0,4" Text="Every INF stays in the package, and the ones you did not edit keep their NVIDIA / Microsoft signature. MakeCat and the other folder engines point only the edited INF files at the folder's new catalog (off: every INF of the folder). Inf2Cat gets a copy of the folder with only the edited INF files (the driver files are hard links - no extra space), several at the same time; an edited INF whose catalog is shared with the others (nv_dispi.cat) gets a catalog file of its own. If Inf2Cat fails on that copy, the whole folder is catalogued as before."/>
               <CheckBox x:Name="cfg_SignOnlyThisPc" Style="{StaticResource Toggle}" Content="Faster: only keep the INF files for this PC's hardware (when the ISO is for this PC)"/>
-              <TextBlock Style="{StaticResource Sub}" Margin="48,-2,0,4" Text="NVIDIA's Display.Driver has one INF file per laptop and desktop maker, and Inf2Cat checks every one of them against the whole package - that can take up to an hour. With this on, only the INF files that list a device of this PC are signed (minutes instead), the others are removed from the copy. The original folder is not touched."/>
+              <TextBlock Style="{StaticResource Sub}" Margin="48,-2,0,4" Text="Mostly for Inf2Cat: NVIDIA's Display.Driver has one INF file per laptop and desktop maker, and Inf2Cat checks every one of them against the whole package - that can take up to an hour. With this on, only the INF files that list a device of this PC are signed (minutes instead), the others are removed from the copy. The original folder is not touched."/>
               <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
-                <TextBlock Text="Inf2Cat runs at the same time" VerticalAlignment="Center" Margin="0,0,12,0"/>
+                <TextBlock Text="Catalog runs at the same time" VerticalAlignment="Center" Margin="0,0,12,0"/>
                 <TextBox x:Name="SignJobsBox" Width="50"/>
-                <TextBlock Style="{StaticResource Sub}" VerticalAlignment="Center" Margin="12,0,0,0" Text="1-8, empty = processor cores up to 8. Each Inf2Cat run uses one core."/>
+                <TextBlock Style="{StaticResource Sub}" VerticalAlignment="Center" Margin="12,0,0,0" Text="1-8, empty = processor cores up to 8. Each Inf2Cat run uses one core; MakeCat does up to 4 folders at once."/>
               </StackPanel>
               <WrapPanel Margin="0,14,0,0">
                 <Button x:Name="SignBtn" Style="{StaticResource Primary}" Content="Sign and add to the ISO"/>
@@ -127,7 +137,7 @@ $Script:XPages = @'
             <Border Style="{StaticResource Card}"><StackPanel>
               <TextBlock Style="{StaticResource H2}" Text="Signing certificate"/>
               <TextBlock x:Name="CertInfo" TextWrapping="Wrap" FontWeight="SemiBold"/>
-              <TextBlock Style="{StaticResource Sub}" Margin="0,6,0,0" Text="DriverSigning.pfx (private key) stays in the signing folder next to this tool - back it up and never share or upload it. Only the public DriverSigning.cer goes into the ISO. Tools (Inf2Cat, signtool) are downloaded automatically."/>
+              <TextBlock Style="{StaticResource Sub}" Margin="0,6,0,0" Text="DriverSigning.pfx (private key) stays in the signing folder next to this tool - back it up and never share or upload it. Only the public DriverSigning.cer goes into the ISO. Tools (makecat, Inf2Cat, signtool) are downloaded automatically."/>
             </StackPanel></Border>
             <Border Style="{StaticResource Card}"><StackPanel>
               <TextBlock Style="{StaticResource H2}" Text="Packages added to the ISO"/>
@@ -234,16 +244,17 @@ $Script:XPages = @'
           <!-- 9 tools -->
           <TabItem Visibility="Collapsed" Foreground="#E6EAF2"><ScrollViewer VerticalScrollBarVisibility="Auto"><StackPanel Margin="24,18,24,18">
             <TextBlock Style="{StaticResource H1}" Text="Tools"/>
-            <TextBlock Style="{StaticResource Sub}" Margin="0,0,0,14" Text="Everything missing is downloaded automatically when a step needs it, into the tools folder next to this file. oscdimg.exe comes from the Microsoft symbol server (SHA-256 checked) or the Windows ADK; Inf2Cat and signtool are extracted from Microsoft's NuGet packages (Windows SDK build tools / Windows Driver Kit) - only those tools are kept, nothing is installed."/>
+            <TextBlock Style="{StaticResource Sub}" Margin="0,0,0,14" Text="Everything missing is downloaded automatically when a step needs it, into the tools folder next to this file. oscdimg.exe comes from the Microsoft symbol server (SHA-256 checked) or the Windows ADK; makecat, Inf2Cat and signtool are extracted from Microsoft's NuGet packages (Windows SDK build tools / Windows Driver Kit) - only those tools are kept, nothing is installed."/>
             <Border Style="{StaticResource Card}"><StackPanel>
               <Grid>
                 <Grid.ColumnDefinitions><ColumnDefinition Width="150"/><ColumnDefinition/></Grid.ColumnDefinitions>
-                <Grid.RowDefinitions><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/></Grid.RowDefinitions>
+                <Grid.RowDefinitions><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/></Grid.RowDefinitions>
                 <TextBlock Grid.Row="0" Text="DISM" Margin="0,4"/><TextBlock x:Name="T_Dism" Grid.Row="0" Grid.Column="1" Margin="0,4" TextTrimming="CharacterEllipsis"/>
                 <TextBlock Grid.Row="1" Text="oscdimg.exe" Margin="0,4"/><TextBlock x:Name="T_Osc" Grid.Row="1" Grid.Column="1" Margin="0,4" TextTrimming="CharacterEllipsis"/>
                 <TextBlock Grid.Row="2" Text="Inf2Cat.exe" Margin="0,4"/><TextBlock x:Name="T_Inf" Grid.Row="2" Grid.Column="1" Margin="0,4" TextTrimming="CharacterEllipsis"/>
                 <TextBlock Grid.Row="3" Text="signtool.exe" Margin="0,4"/><TextBlock x:Name="T_Sign" Grid.Row="3" Grid.Column="1" Margin="0,4" TextTrimming="CharacterEllipsis"/>
-                <TextBlock Grid.Row="4" Text="curl.exe" Margin="0,4"/><TextBlock x:Name="T_Curl" Grid.Row="4" Grid.Column="1" Margin="0,4"/>
+                <TextBlock Grid.Row="4" Text="makecat.exe" Margin="0,4"/><TextBlock x:Name="T_Mkc" Grid.Row="4" Grid.Column="1" Margin="0,4" TextTrimming="CharacterEllipsis"/>
+                <TextBlock Grid.Row="5" Text="curl.exe" Margin="0,4"/><TextBlock x:Name="T_Curl" Grid.Row="5" Grid.Column="1" Margin="0,4"/>
               </Grid>
               <WrapPanel Margin="0,14,0,0"><Button x:Name="ToolsBtn" Style="{StaticResource Primary}" Content="Download missing tools now"/><Button x:Name="ToolsOpen" Style="{StaticResource Btn}" Content="Open tools folder"/></WrapPanel>
             </StackPanel></Border>

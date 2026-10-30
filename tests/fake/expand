@@ -1,0 +1,4 @@
+#!/bin/sh
+# fake expand.exe: "expand <src> <dst>" writes the expanded file (the source with an "expanded:" prefix)
+[ "$2" = "-F:*" ] && exit 1
+{ printf 'expanded:'; cat "$1"; } > "$2"

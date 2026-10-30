@@ -18,13 +18,14 @@ $i    = $cmd.IndexOf("`r`n#PS-BEGIN")
 if ($i -lt 0) { throw "#PS-BEGIN not found in $($built[0].Name)" }
 $body = Join-Path $here 'v2body.ps1'
 [IO.File]::WriteAllText($body, $cmd.Substring($i + 2).Replace("`r`n", "`n"))
-if (Get-Command chmod -ErrorAction SilentlyContinue) { chmod +x (Join-Path $here 'fake/inf2cat') (Join-Path $here 'fake/signtool') (Join-Path $here 'fake/dism') }
+if (Get-Command chmod -ErrorAction SilentlyContinue) { chmod +x @('inf2cat', 'signtool', 'dism', 'makecat', 'expand', 'wsl', 'wslpath' | ForEach-Object { Join-Path $here "fake/$_" }) }
 
 $suites = @(
     @{ File = 'engine-catalog.tests.ps1';        Args = @('-Engine', $body) }   # catalog parsing, families, state (v1 engine)
     @{ File = 'gui-engine.tests.ps1';            Args = @() }                   # log sink, live process output, signing, $OEM$
     @{ File = 'signing.tests.ps1';               Args = @() }                   # untrusted (NVCleanstall) catalogs, stderr handling
     @{ File = 'sign-speed.tests.ps1';            Args = @() }                   # isolated INF copies, parallel Inf2Cat, batched signing, time estimate
+    @{ File = 'sign-engines.tests.ps1';          Args = @() }                   # MakeCat / libwdi-style / generate-cat-file, Inf2Cat fallback, engine choice
     @{ File = 'install-check.tests.ps1';         Args = @() }                   # install check findings + fixes
     @{ File = 'generator-answer-file.tests.ps1'; Args = @() }                   # a real autounattend-generator file
     @{ File = 'ui-refresh.tests.ps1';            Args = @() }                   # page refresh, check list, PS 5.1 JSON

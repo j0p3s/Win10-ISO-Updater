@@ -1,0 +1,19 @@
+#!/bin/sh
+# fake makecat: "-v <cdf>" in the current folder (INF members are named relative to it). Every member
+# must exist; writes the catalog named in Name= with one member name per line.
+# FAKE_MAKECAT_LOG=<file>: "name=path" per member, then "--". FAKE_MAKECAT_FAIL=1: fails, no catalog.
+cdf="$2"
+[ -f "$cdf" ] || { echo "Failed to open $cdf"; exit 1; }
+if [ -n "$FAKE_MAKECAT_FAIL" ]; then echo "Failed: CryptCATCDFEnumMembersByCDFTagEx"; exit 1; fi
+name=$(grep '^Name=' "$cdf" | head -1 | sed 's/^Name=//' | tr -d '\r')
+members=$(sed -n '/^\[CatalogFiles\]/,$p' "$cdf" | tr -d '\r' | grep '^<HASH>' | grep -v 'ATTR[0-9]*=')
+echo "$members" | while IFS= read -r line; do
+  p="${line#*=}"
+  [ -f "$p" ] || { echo "Failed to process member: $p"; exit 1; }
+  echo "processing: $p"
+  echo "attribute: File"
+done || exit 1
+{ echo "catalog-unsigned"; echo "$members" | sed 's/^<HASH>//; s/=.*//'; } > "$name"
+[ -n "$FAKE_MAKECAT_LOG" ] && { echo "$members" | sed 's/^<HASH>//'; echo "--"; } >> "$FAKE_MAKECAT_LOG"
+echo "Succeeded"
+exit 0
