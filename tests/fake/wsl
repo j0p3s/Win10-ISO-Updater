@@ -1,0 +1,5 @@
+#!/bin/sh
+# fake wsl.exe: "-e sh" runs the script from stdin here; wslpath (next to this file) returns the path unchanged
+[ "$1" = "-e" ] || exit 1
+shift
+PATH="$(dirname "$0"):$PATH" exec "$@"

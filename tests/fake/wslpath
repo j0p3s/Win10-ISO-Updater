@@ -1,0 +1,3 @@
+#!/bin/sh
+[ "$1" = "-a" ] && shift
+printf '%s\n' "$1"

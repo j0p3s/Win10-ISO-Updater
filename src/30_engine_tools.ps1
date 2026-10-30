@@ -72,10 +72,15 @@ function Format-Span([TimeSpan]$T) { return ('{0}:{1:mm\:ss}' -f [int][math]::Fl
 # Inf2Cat can run for a long time on big packages (NVIDIA Display.Driver has dozens of INF files
 # that all point at the same ~1 GB of files). One run uses one processor core, so several folders
 # are catalogued at the same time (up to $Jobs runs). The output of every run is read live: the
-# status line shows what is running and for how long, even while Inf2Cat prints nothing. With an
+# status line shows what is running and for how long, even while the tool prints nothing. With an
 # estimate for every item (Est, seconds) it also shows the time left and drives the progress bar.
-# Items: Dir, Label, Est. Returns one result per item, in the same order.
+# Items: Dir, Label, Est, Args (the tool's arguments), WorkDir (optional). $Tool names it in the status
+# line. Returns one result per item, in the same order.
 function Invoke-Inf2CatQueue([string]$Exe, $Items, [string]$Os, [int]$Jobs = 1) {
+    $runs = @(foreach ($it in @($Items)) { [pscustomobject]@{ Dir = $it.Dir; Label = $it.Label; Est = $it.Est; Args = @("/driver:$($it.Dir)", "/os:$Os", '/uselocaltime', '/verbose') } })
+    return (Invoke-ToolQueue $Exe $runs $Jobs 'Inf2Cat')
+}
+function Invoke-ToolQueue([string]$Exe, $Items, [int]$Jobs = 1, [string]$Tool = 'Inf2Cat') {
     $Items = @($Items)
     $Jobs = [math]::Max(1, $Jobs)
     $res = New-Object 'object[]' $Items.Count
@@ -90,11 +95,12 @@ function Invoke-Inf2CatQueue([string]$Exe, $Items, [string]$Os, [int]$Jobs = 1) 
     while ($next -lt $Items.Count -or $run.Count -gt 0) {
         while ($next -lt $Items.Count -and $run.Count -lt $Jobs) {
             $it = $Items[$next]
-            $argText = (@("/driver:$($it.Dir)", "/os:$Os", '/uselocaltime', '/verbose') | ForEach-Object { ConvertTo-ArgText $_ }) -join ' '
+            $argText = (@($it.Args) | ForEach-Object { ConvertTo-ArgText $_ }) -join ' '
             Add-Log "EXEC $Exe $argText"
             $psi = New-Object Diagnostics.ProcessStartInfo
             $psi.FileName = $Exe
             $psi.Arguments = $argText
+            if ($it.WorkDir) { $psi.WorkingDirectory = [string]$it.WorkDir }
             $psi.UseShellExecute = $false
             $psi.RedirectStandardOutput = $true
             $psi.RedirectStandardError = $true
@@ -133,7 +139,7 @@ function Invoke-Inf2CatQueue([string]$Exe, $Items, [string]$Os, [int]$Jobs = 1) 
                 continue
             }
             # engine.log gets a "still running" line every 5 minutes
-            if (($now - $j.Start).TotalMinutes -ge $j.Beat) { Add-Log ('Inf2Cat {0} still running ({1}) - {2}' -f $j.It.Label, (Format-Span ($now - $j.Start)), $j.What); $j.Beat += 5 }
+            if (($now - $j.Start).TotalMinutes -ge $j.Beat) { Add-Log ('{0} {1} still running ({2}) - {3}' -f $Tool, $j.It.Label, (Format-Span ($now - $j.Start)), $j.What); $j.Beat += 5 }
         }
         if ($Script:Sync -and $run.Count -gt 0 -and ($now - $shown).TotalMilliseconds -ge 400) {
             $eta = ''
@@ -152,9 +158,9 @@ function Invoke-Inf2CatQueue([string]$Exe, $Items, [string]$Os, [int]$Jobs = 1) 
             }
             $j = if ($last) { $last } else { $run[0] }
             if ($run.Count -eq 1) {
-                $Script:Sync.Status = ('Inf2Cat {0}  {1}{2}  - {3}' -f $j.It.Label, (Format-Span ($now - $j.Start)), $eta, $j.What)
+                $Script:Sync.Status = ('{0} {1}  {2}{3}  - {4}' -f $Tool, $j.It.Label, (Format-Span ($now - $j.Start)), $eta, $j.What)
             } else {
-                $Script:Sync.Status = ('Inf2Cat {0} runs at the same time, {1} of {2} done  {3}{4}  - {5}: {6}' -f $run.Count, $done, $Items.Count, (Format-Span ($now - $t0)), $eta, $j.It.Label, $j.What)
+                $Script:Sync.Status = ('{0} {1} runs at the same time, {2} of {3} done  {4}{5}  - {6}: {7}' -f $Tool, $run.Count, $done, $Items.Count, (Format-Span ($now - $t0)), $eta, $j.It.Label, $j.What)
             }
             $shown = $now
         }
@@ -303,26 +309,35 @@ function Get-FromNuGet([string]$Exe, [string[]]$Packages, [string]$Prefer) {
     }
     return $null
 }
-function Get-SignTools {
+# signtool always; Inf2Cat when it builds the catalogs (for the other engines it is the fallback,
+# fetched with Get-Inf2CatTool when first needed).
+function Get-SignTools([string]$Engine = 'inf2cat') {
     $t = @{ Inf2Cat = (Find-Tool 'Inf2Cat.exe'); SignTool = (Find-Tool 'signtool.exe') }
     if (-not $t.SignTool) {
         Write-Step 'Getting signtool.exe (Windows SDK build tools)'
         $t.SignTool = Get-FromNuGet 'signtool.exe' @('Microsoft.Windows.SDK.BuildTools', 'Microsoft.Windows.WDK.x64') '(?i)/x64/'
     }
-    if (-not $t.Inf2Cat) {
-        Write-Step 'Getting Inf2Cat.exe (Windows Driver Kit, about 110 MB)'
-        $t.Inf2Cat = Get-FromNuGet 'Inf2Cat.exe' @('Microsoft.Windows.WDK.x64') '(?i)/x86/'
-    }
-    if (-not $t.Inf2Cat) { throw 'Inf2Cat.exe could not be downloaded from nuget.org (see the lines above). Check the internet connection and try again - only the Inf2Cat folder of the package is kept, nothing is installed.' }
-    Write-Info "Inf2Cat : $($t.Inf2Cat)"
+    if ($Engine -eq 'inf2cat') { $t.Inf2Cat = Get-Inf2CatTool }
+    elseif ($t.Inf2Cat) { Write-Info "Inf2Cat : $($t.Inf2Cat) (fallback)" }
     if ($t.SignTool) { Write-Info "signtool: $($t.SignTool)" } else { Write-Warn 'signtool.exe not available - PowerShell signing is used and every package is re-signed.' }
     return $t
+}
+function Get-Inf2CatTool {
+    $i = Find-Tool 'Inf2Cat.exe'
+    if (-not $i) {
+        Write-Step 'Getting Inf2Cat.exe (Windows Driver Kit, about 110 MB)'
+        $i = Get-FromNuGet 'Inf2Cat.exe' @('Microsoft.Windows.WDK.x64') '(?i)/x86/'
+    }
+    if (-not $i) { throw 'Inf2Cat.exe could not be downloaded from nuget.org (see the lines above). Check the internet connection and try again - only the Inf2Cat folder of the package is kept, nothing is installed.' }
+    Write-Info "Inf2Cat : $i"
+    return $i
 }
 function Get-AllTools {
     Write-Title 'Tools'
     $o = Get-Oscdimg
     Write-Ok "oscdimg.exe : $o"
     [void](Get-SignTools)
+    if ((Get-SignEngine) -eq 'makecat') { $m = Get-MakeCat; if ($m) { Write-Info "MakeCat : $m" } else { Write-Warn 'makecat.exe could not be downloaded - Inf2Cat signs instead.' } }
     Write-Ok 'All tools are ready.'
 }
 #endregion

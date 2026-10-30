@@ -1,5 +1,37 @@
 # Changelog
 
+## v3.6.0 — 2026-10-30
+
+The signing changes of [NVIDIA Modded Drivers Signer](https://github.com/j0p3s/nvidia-modded-drivers-signer) 2.3.0, and a choice of the engine that builds the catalogs.
+
+**Upgrading from 3.5:** download `Windows-ISO-updater-GUI_v3.6.0.cmd` and delete the old `.cmd`. Settings, the `signing` folder and the work folder are kept. **Signing now uses MakeCat by default**; choose *Inf2Cat* on page 5 for the old behaviour. Packages you already signed stay as they are.
+
+### Added
+- **Engine** buttons on page 5 (*Signed NVIDIA / modded*), saved as `SignEngine` in the settings file:
+  - **MakeCat** (default): `makecat.exe` and a generated `.cdf` build **one catalog per driver folder** (`<folder>_w10u.cat`) with the SHA-256 hash of the INF files that need a new signature and of every file of the folder. Each file is hashed once — about 20 s for NVIDIA's 3 GB `Display.Driver`, where Inf2Cat can take up to an hour. `makecat.exe` comes from an installed Windows Kit or from Microsoft's NuGet packages (SDK build tools, then WDK).
+  - **libwdi-style** (experimental): the same folder catalog, built with Windows' CryptCAT API (`wintrust.dll`) from a C# class compiled when needed, the way libwdi does it. Nothing to download.
+  - **generate-cat-file (WSL)** (experimental): LINBIT's tool, downloaded as source from GitHub (pinned commit, SHA-256 checked) and built inside WSL.
+  - **Inf2Cat**: Microsoft's standard tool, as before (isolated copies, several runs at the same time, time estimate).
+  - A note under the buttons says what the chosen engine does and what it needs.
+- **Every file of the folder goes into the catalog**, also the ones an INF copies as a whole directory and doesn't list in `[SourceDisksFiles]` (`ngx-builtins`, `NvCamera`). Windows checks every file it copies, and one missing hash makes it refuse the driver.
+- **Compressed files** (`nvngx_dlssd.dl_`, while the INF names `nvngx_dlssd.dll`) are expanded with `expand.exe` into a temporary folder and hashed under the name the INF uses, because Windows checks the expanded file. The compressed file is hashed too.
+- **Inf2Cat is the fallback**: when the engine isn't available (no `makecat.exe`, no WSL) or can't build a folder's catalog, Inf2Cat catalogues that folder in the same run. Inf2Cat is downloaded only then.
+- After signing, every INF is checked against its new catalog with `signtool verify /pa /c`; a mismatch with a folder engine is reported with the hint to sign again with Inf2Cat.
+- The log lists what went into each catalog (INF files, listed files, other files of the folder, compressed files) and warns about files an INF copies that are not in the folder.
+- The list of signed packages has an **Engine** column. The *Tools* page shows `makecat.exe`.
+
+### Changed
+- *Inf2Cat runs at the same time* is now *Catalog runs at the same time*: MakeCat runs up to 4 folders at once.
+- `tools\` holds `makecat.exe` when the MakeCat engine is used; `Inf2Cat.exe` is downloaded only when Inf2Cat signs.
+
+### Code and tests
+- New `src/39_engine_catalogs.ps1` with the engines, ported from the signer: INF `[SourceDisksFiles]` parsing with compressed files, catalog members, the `.cdf`, the CryptCAT class, the WSL build and run.
+- The Inf2Cat process queue is now a general tool queue (`Invoke-ToolQueue`, with a working folder per run) that MakeCat uses too.
+- New `tests/sign-engines.tests.ps1` (52 checks) with stand-ins for `makecat`, `expand.exe` and `wsl.exe`: catalog members and the `.cdf`, MakeCat end to end (only the edited INF moves to the folder catalog, the shared WHQL catalog stays valid), the fallback to Inf2Cat, libwdi-style and generate-cat-file runs, the CryptCAT source compiling, the engine setting and buttons.
+
+### README
+- New **Signing engines** section; troubleshooting, files, privacy and legal notice (generate-cat-file GPL-2.0, libwdi-style) updated.
+
 ## v3.5.1 — 2026-10-30
 
 Fix for 3.5.0, which did not open on Windows.
