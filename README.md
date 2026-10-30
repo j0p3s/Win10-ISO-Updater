@@ -1,10 +1,10 @@
 # Windows ISO Updater
 
-![version](https://img.shields.io/badge/version-4.1.0-2F9BFF) ![platform](https://img.shields.io/badge/Windows-10%20%7C%2011-8B5CF6) ![license](https://img.shields.io/badge/license-MIT-3DDC97) [![tests](https://github.com/j0p3s/Windows-ISO-Updater/actions/workflows/tests.yml/badge.svg)](https://github.com/j0p3s/Windows-ISO-Updater/actions/workflows/tests.yml)
+![version](https://img.shields.io/badge/version-4.2.0-2F9BFF) ![platform](https://img.shields.io/badge/Windows-10%20%7C%2011-8B5CF6) ![license](https://img.shields.io/badge/license-MIT-3DDC97) [![tests](https://github.com/j0p3s/Windows-ISO-Updater/actions/workflows/tests.yml/badge.svg)](https://github.com/j0p3s/Windows-ISO-Updater/actions/workflows/tests.yml)
 
 **One file. Double-click. Get a fully updated Windows 10 or Windows 11 ISO with your drivers, your signed NVIDIA mod, your answer file and your `$OEM$` folder baked in.**
 
-`Windows-ISO-updater-GUI_vX.X.X.cmd` (the version is part of the file name) is a single-file tool with a dark graphical interface that:
+`Windows-ISO-updater-GUI_vX.X.X.cmd` (the version is part of the file name) is a single-file tool with a dark or light graphical interface in **English, Portuguese, Spanish, French, German or Italian** that:
 
 1. **Unpacks a Windows 10 or Windows 11 ISO** (pick the version on page 1) and detects its build, editions, language and architecture
 2. **Downloads every update it needs** from the Microsoft Update Catalog (cumulative update, servicing stack, Safe OS and Setup Dynamic Updates, .NET)
@@ -16,7 +16,7 @@
 
 Missing tools (`oscdimg`, `makecat`, `Inf2Cat`, `signtool`) are downloaded automatically from Microsoft and verified.
 
-**Contents:** [Screenshots](#screenshots) · [Quick start](#quick-start) · [The pages](#the-pages) · [Speed](#speed) · [Modded drivers](#modded-drivers-nvidia--nvcleanstall) · [Install check](#install-check) · [Display and accessibility](#display-and-accessibility) · [Supported Windows versions](#supported-windows-versions) · [Privacy](#privacy-what-stays-on-your-pc) · [Files the tool creates](#files-the-tool-creates) · [Troubleshooting](#troubleshooting) · [Building from source](#building-from-source) · [Changelog](#changelog) · [Legal notice](#legal-notice)
+**Contents:** [Screenshots](#screenshots) · [Quick start](#quick-start) · [The pages](#the-pages) · [Speed](#speed) · [Modded drivers](#modded-drivers-nvidia--nvcleanstall) · [Install check](#install-check) · [Display, accessibility and language](#display-and-accessibility) · [Supported Windows versions](#supported-windows-versions) · [Privacy](#privacy-what-stays-on-your-pc) · [Files the tool creates](#files-the-tool-creates) · [Troubleshooting](#troubleshooting) · [Building from source](#building-from-source) · [Changelog](#changelog) · [Legal notice](#legal-notice)
 
 ---
 
@@ -81,12 +81,19 @@ Two buttons in the **top right corner**, next to minimize:
 | Button | What it does |
 |---|---|
 | **Sun / moon** | Switches between the **dark** and the **light** theme at once |
-| **Display and accessibility** (the accessibility icon) | Opens a panel with **Theme** (*Dark*, *Light*, or *Like Windows*, which follows the app mode in Windows' color settings), **Text size** (*100 %*, *115 %*, *130 %*, *150 %* — it enlarges the whole window, text and controls together) and **Font** (*Segoe UI*, *Verdana*, *Tahoma*, *Arial*; Verdana and Tahoma have wider, more distinct letters) |
+| **Display and accessibility** (the accessibility icon) | Opens a panel with **Theme** (*Dark*, *Light*, or *Like Windows*, which follows the app mode in Windows' color settings), **Text size** (*100 %*, *115 %*, *130 %*, *150 %* — it enlarges the whole window, text and controls together), **Font** (*Segoe UI*, *Verdana*, *Tahoma*, *Arial*; Verdana and Tahoma have wider, more distinct letters) and **Language** |
 
 - **Ctrl + plus**, **Ctrl + minus** and **Ctrl + 0**, or **Ctrl + mouse wheel**, change the text size anywhere in the window. **Esc** closes the panel.
 - The choices are saved and used at the next start. The dialogs (driver picker, certificate password) follow them too.
 - In the light theme, every text color has at least 4.5:1 contrast on its background (WCAG AA); the tests check it.
 - The buttons in the title bar have names for screen readers.
+
+**Language:** *Like Windows* (the default), *English*, *Português*, *Español*, *Français*, *Deutsch* or *Italiano*.
+- *Like Windows* uses Windows' display language when the tool has it, English otherwise.
+- The language changes at once, without a restart. It covers every page, button, option and help text, the notes under the options, the dialogs, messages and questions, and the column headers of the lists.
+- The **Activity log** and the **Install check findings** stay in English. They come from the engine, and an English log is what a bug report or a search needs.
+- The choice is saved (`UiLanguage` in the settings file) and kept by *Restore default options*.
+- **Adding a language** takes one file, `src/lang/<code>.json`, that maps each English text to its translation (UTF-8). `python3 src/lang/keys.py --missing` lists the texts a language doesn't have yet. The build turns accented letters into `&#xE9;`-style codes, so the `.cmd` stays plain ASCII and readable. Add the code to `LANGUAGES` in `keys.py` and a button in the panel (`src/40_gui_xaml.ps1`, `Get-LanguageList`), and `tests/lang.tests.ps1` checks that every text is translated and every `{0}` placeholder is kept.
 
 The ISO is written to a temporary `.part` file and renamed when oscdimg has finished, so a failed build never deletes an older ISO of the same name. Before oscdimg starts, the tool checks that the output drive has room for the ISO and that the file isn't mounted or open somewhere.
 
@@ -329,6 +336,7 @@ python src/build.py
 | `33_engine_check.ps1`, `34_engine_check2.ps1` | install check and its fixes |
 | `32_engine_jobs.ps1` | driver scan / import, answer file, run everything, job entry point for the background worker |
 | `40_gui_xaml.ps1`, `45_gui_dialogs.ps1` | window, pages and dialogs (WPF XAML) |
+| `48_gui_lang.ps1`, `lang/*.json`, `lang/keys.py` | interface languages: `T 'English text'` returns the text in the language in use; the tables come from `lang/<code>.json` (built into `Get-LangData`); `keys.py` lists every text and what a language still misses |
 | `50_gui.ps1`, `55_gui_main.ps1` | window logic, background worker, events |
 
 ### Tests
@@ -337,7 +345,7 @@ python src/build.py
 pwsh tests/run-tests.ps1
 ```
 
-Thirteen suites (about 465 checks) run the PowerShell part on Linux / macOS with PowerShell 7: catalog parsing (Windows 10 and Windows 11 titles, the 24H2 checkpoint order, the DISM choice), signing with stand-ins for `signtool` / `Inf2Cat` (an NVCleanstall-style untrusted catalog, live Inf2Cat status from a worker runspace, keeping only this PC's INF files, isolated copies with only the edited INF files, an own catalog for an INF whose catalog is shared (NVIDIA's `nv_dispi.cat`) with its encoding kept, several Inf2Cat runs at the same time, the fallback to the whole folder, batched signing, the time estimate), the signing engines with stand-ins for `makecat`, `expand` and WSL (one catalog per folder with every file in it, compressed files expanded, the `.cdf`, the CryptCAT source compiled, the fallback to Inf2Cat, the engine buttons), `$OEM$` assembly, every install check finding and fix, an answer file made by the autounattend generator (`tests/fixtures`, personal data removed), the page refresh with Windows PowerShell 5.1's JSON behaviour simulated (and the taskbar progress), the dark / light theme (XAML conversion, a light color for every color, text contrast) with the text size and font settings, a whole slipstream against a stand-in `dism` (boot.wim and WinRE in the background vs. sequential, several editions at the same time — how many at once, the edition order of the new `install.wim`, WinRE in every edition, a failing edition, no background worker — updates the image already has, `boot.wim` in one pass, older driver versions, a failed WinRE update, the driver set, the Defender option, the time per step), the ISO build against a stand-in `oscdimg` (failed build, ISO in use, free space), and the download step with a stand-in catalog (the servicing stack lookup running while the other updates download). DISM, WPF and real driver installs still need a Windows test run.
+Fourteen suites (about 505 checks) run the PowerShell part on Linux / macOS with PowerShell 7: catalog parsing (Windows 10 and Windows 11 titles, the 24H2 checkpoint order, the DISM choice), signing with stand-ins for `signtool` / `Inf2Cat` (an NVCleanstall-style untrusted catalog, live Inf2Cat status from a worker runspace, keeping only this PC's INF files, isolated copies with only the edited INF files, an own catalog for an INF whose catalog is shared (NVIDIA's `nv_dispi.cat`) with its encoding kept, several Inf2Cat runs at the same time, the fallback to the whole folder, batched signing, the time estimate), the signing engines with stand-ins for `makecat`, `expand` and WSL (one catalog per folder with every file in it, compressed files expanded, the `.cdf`, the CryptCAT source compiled, the fallback to Inf2Cat, the engine buttons), `$OEM$` assembly, every install check finding and fix, an answer file made by the autounattend generator (`tests/fixtures`, personal data removed), the page refresh with Windows PowerShell 5.1's JSON behaviour simulated (and the taskbar progress), the dark / light theme (XAML conversion, a light color for every color, text contrast) with the text size and font settings, the interface languages (every text translated in every language, placeholders and formats kept, the language in use, switching), a whole slipstream against a stand-in `dism` (boot.wim and WinRE in the background vs. sequential, several editions at the same time — how many at once, the edition order of the new `install.wim`, WinRE in every edition, a failing edition, no background worker — updates the image already has, `boot.wim` in one pass, older driver versions, a failed WinRE update, the driver set, the Defender option, the time per step), the ISO build against a stand-in `oscdimg` (failed build, ISO in use, free space), and the download step with a stand-in catalog (the servicing stack lookup running while the other updates download). DISM, WPF and real driver installs still need a Windows test run.
 
 ---
 
@@ -347,7 +355,8 @@ The full list of changes is in **[CHANGELOG.md](CHANGELOG.md)**; every release o
 
 | Version | Date | Highlights |
 |---|---|---|
-| **4.1.0** | 2026-10-30 | Faster slipstream: updates an image already has are skipped (refreshed ISOs), `boot.wim` gets the update in one pass, several editions at the same time; older driver versions unticked; time of every step at the end of the log |
+| **4.2.0** | 2026-10-30 | The interface in Portuguese, Spanish, French, German and Italian (top right, *Language*), switched at once |
+| 4.1.0 | 2026-10-30 | Faster slipstream: updates an image already has are skipped (refreshed ISOs), `boot.wim` gets the update in one pass, several editions at the same time; older driver versions unticked; time of every step at the end of the log |
 | 4.0.0 | 2026-10-30 | Choice of signing engine on page 5: **MakeCat** (default, seconds instead of minutes for NVIDIA), libwdi-style, generate-cat-file (WSL), Inf2Cat — from NVIDIA Modded Drivers Signer 2.3.0 |
 | 3.6.0 | 2026-10-30 | The same changes, published for a few minutes before they were numbered 4.0.0 |
 | 3.5.1 | 2026-10-30 | Fix: 3.5.0 didn't open on Windows (*"'#FF0B0E14' is not a valid value for property 'Background'"*) |

@@ -1,5 +1,43 @@
 # Changelog
 
+## v4.2.0 — 2026-10-30
+
+The interface in more languages: Portuguese, Spanish, French, German and Italian, besides English.
+
+**Upgrading from 4.1:** download `Windows-ISO-updater-GUI_v4.2.0.cmd` and delete the old `.cmd`. Settings, the `signing` folder and the work folder are kept. The window starts in Windows' display language when the tool has it; choose another one in the panel at the top right.
+
+### Added
+- **Language** in the *Display and accessibility* panel (top right):
+  - *Like Windows* (the default, Windows' display language when there is a translation, English otherwise), *English*, *Português*, *Español*, *Français*, *Deutsch* or *Italiano*;
+  - saved as `UiLanguage` in the settings file, kept by *Restore default options*.
+- The language changes **at once**, without a restart. It covers:
+  - every page, button, option and help text;
+  - the notes under the options and the status texts in the sidebar;
+  - the dialogs (driver picker, certificate password), the messages and the questions;
+  - the column headers of the lists, and the window's names for screen readers.
+- The **Activity log** and the **Install check findings** stay in English, and the panel says so: they come from the engine, and an English log is what a bug report or a search needs.
+
+### Code and tests
+- New `src/48_gui_lang.ps1`:
+  - `T 'English text'` returns the text in the language in use, or the English text when a translation is missing;
+  - when a window is built, every text from its XAML (`Text`, `Content`, `Header`, `ToolTip`, screen-reader name) is recorded with its English original, so a language change puts the new language on the same elements;
+  - list columns get their header in the language in use when they are made.
+- Every text the window code sets (notes, statuses, messages, questions, dialog titles) goes through `T`, with values as `{0}` placeholders.
+- Translations live in `src/lang/<code>.json` (UTF-8, English text -> translation, 328 texts each):
+  - the build turns them into `Get-LangData`, with accented letters written as `&#xE9;`, so the `.cmd` stays plain ASCII and readable;
+  - `src/lang/keys.py` lists every interface text (XAML, `T` calls, list columns), and `--missing` lists what a language still misses;
+  - the build warns about missing or no longer used texts.
+- New `tests/lang.tests.ps1` (38 checks):
+  - every text translated in every language, `{0}` placeholders and formats kept, and every text with values formats;
+  - no language copies the English;
+  - accents decoded, the language in use (setting, *Like Windows* by display language);
+  - switching between languages on stand-in elements and list columns;
+  - no message, question or dialog title left as a bare English literal.
+- `tests/theme.tests.ps1`: the language buttons in the panel.
+
+### README
+- *Display, accessibility and language*: the languages, what stays in English, how to add a language.
+
 ## v4.1.0 — 2026-10-30
 
 A faster slipstream, from the DISM logs of a real run: an ISO Microsoft refreshed already has the cumulative update, and the tool no longer unpacks it again for every image. Also several editions at the same time, older driver versions left out, and the time of every step at the end of the log.

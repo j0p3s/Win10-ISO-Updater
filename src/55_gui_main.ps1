@@ -2,15 +2,15 @@
 #region ---------------------------------------------------------------- page actions
 function Test-Unpacked {
     if ($Script:S.Unpacked) { return $true }
-    Show-Msg 'Unpack an ISO first (page 1).'
+    Show-Msg (T 'Unpack an ISO first (page 1).')
     $Script:U.Nav1.IsChecked = $true
     return $false
 }
 function Invoke-UnpackClick {
     $iso = $Script:U.IsoBox.Text.Trim().Trim('"')
-    if (-not $iso -or -not (Test-Path -LiteralPath $iso)) { Show-Msg 'Choose an existing .iso file first.' 'Warning'; return }
+    if (-not $iso -or -not (Test-Path -LiteralPath $iso)) { Show-Msg (T 'Choose an existing .iso file first.') 'Warning'; return }
     if ($Script:S.Unpacked -and (Test-Path -LiteralPath (Join-Path $Script:P.Media 'sources'))) {
-        if (-not (Confirm-Ui "The work folder already has unpacked media ($(Split-Path ([string]$Script:S.SourceIso) -Leaf)). Replace it with a fresh copy of this ISO?")) { return }
+        if (-not (Confirm-Ui ((T 'The work folder already has unpacked media ({0}). Replace it with a fresh copy of this ISO?') -f (Split-Path ([string]$Script:S.SourceIso) -Leaf)))) { return }
     }
     Start-Work 'Unpack' @{ Iso = $iso; NoAsk = $true } { if (@($Script:S.Images).Count -gt 1) { $Script:U.Nav2.IsChecked = $true } }
 }
@@ -18,27 +18,27 @@ function Invoke-HostDriversClick {
     Start-Work 'ScanHost' @{} {
         $items = @($Script:Sync.Result)
         if ($items.Count -eq 0) { return }
-        $pick = @(Show-DriverPicker $items 'Drivers installed on this PC' 'Third-party drivers exported from this PC. Ticked ones are slipstreamed into the ISO.')
+        $pick = @(Show-DriverPicker $items (T 'Drivers installed on this PC') (T 'Third-party drivers exported from this PC. Ticked ones are slipstreamed into the ISO.'))
         Start-Work 'CommitHost' @{ Pick = $pick }
     }
 }
 function Invoke-ImportDriversClick {
     $start = @(Find-DriverBackupFolders) | Select-Object -First 1
-    $dir = Select-Folder 'Pick the drivers folder - Drivers-Backup made by Drivers.cmd, a folder from another PC or a vendor pack. All subfolders are scanned.' $start
+    $dir = Select-Folder (T 'Pick the drivers folder - Drivers-Backup made by Drivers.cmd, a folder from another PC or a vendor pack. All subfolders are scanned.') $start
     if (-not $dir) { return }
     $Script:ImportDir = $dir
     Start-Work 'ScanFolder' @{ Dir = $dir } {
         $items = @($Script:Sync.Result)
-        if ($items.Count -eq 0) { Show-Msg 'No .inf drivers in that folder.' 'Warning'; return }
-        $pick = @(Show-DriverPicker $items "Drivers in $($Script:ImportDir)" 'Drivers built for another architecture than the ISO are unticked and left out.')
+        if ($items.Count -eq 0) { Show-Msg (T 'No .inf drivers in that folder.') 'Warning'; return }
+        $pick = @(Show-DriverPicker $items ((T 'Drivers in {0}') -f $Script:ImportDir) (T 'Drivers built for another architecture than the ISO are unticked and left out.'))
         if ($pick.Count -gt 0) { Start-Work 'CommitImport' @{ Dir = $Script:ImportDir; Pick = $pick } }
     }
 }
 function Invoke-SignClick {
     $src = $Script:U.SignSrc.Text.Trim().Trim('"')
-    if (-not $src -or -not (Test-Path -LiteralPath $src -PathType Container)) { Show-Msg 'Choose the driver folder first (for example the folder NVCleanstall extracted).' 'Warning'; return }
+    if (-not $src -or -not (Test-Path -LiteralPath $src -PathType Container)) { Show-Msg (T 'Choose the driver folder first (for example the folder NVCleanstall extracted).') 'Warning'; return }
     $hasInf = Get-ChildItem -LiteralPath $src -Recurse -Filter *.inf -File -ErrorAction SilentlyContinue | Select-Object -First 1
-    if (-not $hasInf) { Show-Msg 'There are no .inf files in that folder or its subfolders.' 'Warning'; return }
+    if (-not $hasInf) { Show-Msg (T 'There are no .inf files in that folder or its subfolders.') 'Warning'; return }
     $name = ConvertTo-PackageName $Script:U.SignName.Text
     $mode = Get-CertStatus
     $pw = $null
@@ -50,33 +50,34 @@ function Invoke-SignClick {
 }
 function Invoke-ServiceClick {
     if (-not (Test-Unpacked)) { return }
-    if (@($Script:S.Selected).Count -eq 0) { Show-Msg 'Tick at least one edition first.'; $Script:U.Nav2.IsChecked = $true; return }
-    if ($Script:S.Serviced -and -not (Confirm-Ui "This media was already slipstreamed on $($Script:S.Serviced.When). For a clean result unpack the ISO again (page 1). Slipstream again anyway?" 'Warning')) { return }
+    if (@($Script:S.Selected).Count -eq 0) { Show-Msg (T 'Tick at least one edition first.'); $Script:U.Nav2.IsChecked = $true; return }
+    if ($Script:S.Serviced -and -not (Confirm-Ui ((T 'This media was already slipstreamed on {0}. For a clean result unpack the ISO again (page 1). Slipstream again anyway?') -f $Script:S.Serviced.When) 'Warning')) { return }
     if (@($Script:S.Updates).Count -eq 0 -and $Script:S.Family.Supported -and
-        -not (Confirm-Ui 'No updates are downloaded (page 3). Continue with drivers and options only?')) { return }
+        -not (Confirm-Ui (T 'No updates are downloaded (page 3). Continue with drivers and options only?'))) { return }
     Start-Work 'Service' @{} { $Script:U.Nav7.IsChecked = $true }
 }
 function Invoke-BuildClick {
     if (-not (Test-Unpacked)) { return }
-    if (-not $Script:S.Serviced -and -not (Confirm-Ui 'The media has not been slipstreamed yet. Build the ISO anyway (drivers, updates and options are then missing)?' 'Warning')) { return }
+    if (-not $Script:S.Serviced -and -not (Confirm-Ui (T 'The media has not been slipstreamed yet. Build the ISO anyway (drivers, updates and options are then missing)?') 'Warning')) { return }
     Start-Work 'Build' @{ Out = $Script:U.OutBox.Text.Trim().Trim('"') }
 }
 function Invoke-FixClick {
     $fixes = @($Script:CheckRows | Where-Object { $_.Fix } )
-    if ($fixes.Count -eq 0) { Show-Msg 'Nothing to fix automatically - run the check first. Findings without a fix need a change on the page they mention.'; return }
+    if ($fixes.Count -eq 0) { Show-Msg (T 'Nothing to fix automatically - run the check first. Findings without a fix need a change on the page they mention.'); return }
     $txt = ($fixes | ForEach-Object { '- ' + $_.FixText } | Sort-Object -Unique) -join "`n"
-    if (-not (Confirm-Ui ("Apply these fixes? They change the copies that go into the ISO, not your own files.`n`n" + $txt))) { return }
+    if (-not (Confirm-Ui ((T 'Apply these fixes? They change the copies that go into the ISO, not your own files.') + "`n`n" + $txt))) { return }
     Start-Work 'Fix' @{ Fixes = @($fixes | ForEach-Object { [string]$_.Fix } | Sort-Object -Unique) } { Show-CheckResults }
 }
 function Invoke-RunAllClick {
     $iso = $Script:U.IsoBox.Text.Trim().Trim('"')
     if (-not $iso) { $iso = [string]$Script:S.SourceIso }
-    if (-not $iso -or -not (Test-Path -LiteralPath $iso)) { Show-Msg 'Choose the source ISO on page 1 first.' 'Warning'; $Script:U.Nav1.IsChecked = $true; return }
-    $lines = @("Source: $(Split-Path $iso -Leaf)")
-    $lines += "Editions: $(if (@($Script:S.Selected).Count) { "$(@($Script:S.Selected).Count) ticked" } else { 'asked after unpacking' })"
-    $lines += "Drivers: $(@($Script:S.Drivers).Count)   Signed packages: $(@($Script:S.Signed | Where-Object { $_ }).Count)"
-    $lines += "Answer file: $(if ($Script:S.Unattend) { 'yes' } else { 'no' })   `$OEM`$: $(if ($Script:S.Oem) { 'yes' } else { 'no' })"
-    if (-not (Confirm-Ui ("Run everything now? It takes 30-90 minutes - the PC is kept awake until it is done.`n`n" + ($lines -join "`n")))) { return }
+    if (-not $iso -or -not (Test-Path -LiteralPath $iso)) { Show-Msg (T 'Choose the source ISO on page 1 first.') 'Warning'; $Script:U.Nav1.IsChecked = $true; return }
+    $yes = T 'yes'; $no = T 'no'
+    $lines = @((T 'Source: {0}') -f (Split-Path $iso -Leaf))
+    $lines += (T 'Editions: {0}') -f $(if (@($Script:S.Selected).Count) { (T '{0} ticked') -f @($Script:S.Selected).Count } else { T 'asked after unpacking' })
+    $lines += (T 'Drivers: {0}   Signed packages: {1}') -f @($Script:S.Drivers).Count, @($Script:S.Signed | Where-Object { $_ }).Count
+    $lines += (T 'Answer file: {0}   $OEM$: {1}') -f $(if ($Script:S.Unattend) { $yes } else { $no }), $(if ($Script:S.Oem) { $yes } else { $no })
+    if (-not (Confirm-Ui ((T 'Run everything now? It takes 30-90 minutes - the PC is kept awake until it is done.') + "`n`n" + ($lines -join "`n")))) { return }
     Start-Work 'All' @{ Iso = $iso; Out = $Script:U.OutBox.Text.Trim().Trim('"') }
 }
 #endregion
@@ -108,9 +109,10 @@ try {
     if ($init.HadErrors) { throw "Worker failed to start: $($init.Streams.Error[0])" }
     $init.Dispose()
 
-    $Script:ThemeNow = Get-ThemeName          # the window is built in the saved theme, font and text size
+    $Script:ThemeNow = Get-ThemeName          # the window is built in the saved theme, font, text size and language
+    $Script:LangNow = Get-UiLanguage
     $M = New-Xaml $Script:XMain
-    $Script:W = $M.W; $Script:U = $M.U
+    $Script:W = $M.W; $Script:U = $M.U; $Script:UiTexts = $M.Texts
     $W = $Script:W; $U = $Script:U
     $U.VerRun.Text = "  v$Script:AppVersion"
     Set-UiLook
@@ -147,6 +149,11 @@ try {
         $U[$x[0]].Tag = $x[1]
         $U[$x[0]].Add_Click({ $Script:Cfg.UiFont = [string]$this.Tag; Save-Settings; Set-UiLook })
     }
+    $U.LangAuto.Tag = 'auto'
+    foreach ($l in (Get-LanguageList)) { $U[$l.Button].Tag = $l.Code }
+    foreach ($n in @('LangAuto') + @(Get-LanguageList | ForEach-Object { $_.Button })) {
+        $U[$n].Add_Click({ $Script:Cfg.UiLanguage = [string]$this.Tag; Save-Settings; Set-UiLanguage })
+    }
     # Ctrl + plus / minus / 0 and Ctrl + mouse wheel change the text size anywhere in the window
     $W.Add_PreviewKeyDown({ param($s, $e)
         if (([Windows.Input.Keyboard]::Modifiers -band [Windows.Input.ModifierKeys]::Control) -eq 0) { return }
@@ -178,31 +185,26 @@ try {
             $Script:Cfg[$this.Tag] = [bool]$this.IsChecked
             Save-Settings
             if ($this.Tag -eq 'DefenderExclude' -and $this.IsChecked) {
-                Show-Msg ("While a job runs (unpack, download, sign, slipstream, build), Windows Defender does not scan the work folder " +
-                          "($($Script:P.Work)). The exclusion is removed when the job ends, and at the next start if the program was closed during a job. " +
-                          'Everything in there comes from Microsoft, your drivers and this tool - do not put other downloads in that folder.') 'Information'
+                Show-Msg ((T 'While a job runs (unpack, download, sign, slipstream, build), Windows Defender does not scan the work folder ({0}). The exclusion is removed when the job ends, and at the next start if the program was closed during a job. Everything in there comes from Microsoft, your drivers and this tool - do not put other downloads in that folder.') -f $Script:P.Work) 'Information'
             }
             if ($this.Tag -eq 'SignOnlyThisPc' -and $this.IsChecked) {
-                Show-Msg ("Use this only when the ISO is for this PC. INF files for other hardware are removed from the signed copy, so the driver " +
-                          "installs only on hardware that matches this PC. NVIDIA's own setup.exe may refuse to run from that copy - pnputil installs " +
-                          'the driver anyway. Sign the package again for it to take effect.') 'Information'
+                Show-Msg (T 'Use this only when the ISO is for this PC. INF files for other hardware are removed from the signed copy, so the driver installs only on hardware that matches this PC. NVIDIA''s own setup.exe may refuse to run from that copy - pnputil installs the driver anyway. Sign the package again for it to take effect.') 'Information'
             }
             if ($this.Tag -eq 'Boot2023' -and $this.IsChecked) {
-                Show-Msg ("With Secure Boot on, this ISO only boots on PCs whose UEFI already trusts 'Windows UEFI CA 2023'. Older firmware needs that " +
-                          'Secure Boot update first (or Secure Boot off). The image also needs a 2024-04 or newer update.') 'Warning'
+                Show-Msg (T 'With Secure Boot on, this ISO only boots on PCs whose UEFI already trusts ''Windows UEFI CA 2023''. Older firmware needs that Secure Boot update first (or Secure Boot off). The image also needs a 2024-04 or newer update.') 'Warning'
             }
         })
     }
     $U.CutoffBox.Add_LostFocus({
         $v = $Script:U.CutoffBox.Text.Trim()
         if ($v -match '^\d{4}-\d{2}$') { $Script:Cfg.Win10Cutoff = $v; Save-Settings }
-        else { $Script:U.CutoffBox.Text = [string]$Script:Cfg.Win10Cutoff; if ($v) { Show-Msg 'Use the YYYY-MM format, e.g. 2025-10.' } }
+        else { $Script:U.CutoffBox.Text = [string]$Script:Cfg.Win10Cutoff; if ($v) { Show-Msg (T 'Use the YYYY-MM format, e.g. 2025-10.') } }
     })
     $U.SignJobsBox.Add_LostFocus({
         $v = $Script:U.SignJobsBox.Text.Trim()
         if (-not $v) { $Script:Cfg.SignJobs = 0; Save-Settings }
         elseif ($v -match '^[1-8]$') { if ([int]$v -ne (Get-SignJobs)) { $Script:Cfg.SignJobs = [int]$v; Save-Settings } }
-        else { Show-Msg 'Use a number from 1 to 8 (or leave it empty for the number of processor cores, up to 8).' }
+        else { Show-Msg (T 'Use a number from 1 to 8 (or leave it empty for the number of processor cores, up to 8).') }
         $Script:U.SignJobsBox.Text = [string](Get-SignJobs)
     })
     $U.EdJobsBox.Add_LostFocus({
@@ -210,14 +212,14 @@ try {
         $now = (Get-EditionJobs 4 1e6).Wanted
         if (-not $v) { $Script:Cfg.ParallelEditions = 0; Save-Settings }
         elseif ($v -match '^[1-4]$') { if ([int]$v -ne $now) { $Script:Cfg.ParallelEditions = [int]$v; Save-Settings } }
-        else { Show-Msg 'Use a number from 1 to 4 (or leave it empty: 2 on 4+ processor cores, 3 on 8+).' }
+        else { Show-Msg (T 'Use a number from 1 to 4 (or leave it empty: 2 on 4+ processor cores, 3 on 8+).') }
         $Script:U.EdJobsBox.Text = [string](Get-EditionJobs 4 1e6).Wanted
     })
 
     # 1 source
     $U.IsoBrowse.Add_Click({
         $start = if ($Script:S.SourceIso) { Split-Path ([string]$Script:S.SourceIso) -Parent } else { Join-Path $env:USERPROFILE 'Downloads' }
-        $f = Select-File "Select a Windows $(if ($Script:Cfg.WinVersion -eq '11') { '11' } else { '10' }) ISO" 'ISO images (*.iso)|*.iso' $start
+        $f = Select-File ((T 'Select a Windows {0} ISO') -f $(if ($Script:Cfg.WinVersion -eq '11') { '11' } else { '10' })) ((T 'ISO images') + ' (*.iso)|*.iso') $start
         if ($f) { $Script:U.IsoBox.Text = $f }
     })
     $U.UnpackBtn.Add_Click({ Invoke-UnpackClick })
@@ -241,18 +243,18 @@ try {
     $U.DrvImport.Add_Click({ Invoke-ImportDriversClick })
     $U.DrvRemove.Add_Click({
         $nums = @($Script:U.DrvGrid.SelectedItems | ForEach-Object { [int]$_.Row['No'] })
-        if ($nums.Count -eq 0) { Show-Msg 'Select the drivers to remove in the list first (Ctrl+click for several).'; return }
+        if ($nums.Count -eq 0) { Show-Msg (T 'Select the drivers to remove in the list first (Ctrl+click for several).'); return }
         Remove-DriverEntries $nums; Update-Ui
     })
     $U.DrvClear.Add_Click({
-        if (@($Script:S.Drivers).Count -and (Confirm-Ui 'Remove every selected driver?')) {
+        if (@($Script:S.Drivers).Count -and (Confirm-Ui (T 'Remove every selected driver?'))) {
             Remove-Item -LiteralPath $Script:P.DrvSel -Recurse -Force -ErrorAction SilentlyContinue
             $Script:S.Drivers = @(); Save-State; Update-Ui
         }
     })
     # 5 signed drivers
     $U.SignBrowse.Add_Click({
-        $d = Select-Folder 'Pick the modded driver folder (e.g. the folder NVCleanstall extracted). All subfolders are scanned.' $Script:U.SignSrc.Text
+        $d = Select-Folder (T 'Pick the modded driver folder (e.g. the folder NVCleanstall extracted). All subfolders are scanned.') $Script:U.SignSrc.Text
         if ($d) {
             $Script:U.SignSrc.Text = $d
             $leaf = Split-Path $d -Leaf
@@ -273,21 +275,21 @@ try {
     $U.SignOpen.Add_Click({ New-Item -ItemType Directory -Force -Path $Script:SignDir | Out-Null; Open-Path $Script:SignDir })
     $U.SignRemove.Add_Click({
         $names = @($Script:U.SignGrid.SelectedItems | ForEach-Object { [string]$_.Row['Name'] })
-        if ($names.Count -eq 0) { Show-Msg 'Select a package in the list first.'; return }
+        if ($names.Count -eq 0) { Show-Msg (T 'Select a package in the list first.'); return }
         foreach ($n in $names) { Remove-SignedPackage $n }
         Write-Ok "Removed: $($names -join ', ') (taken out of the media at the next build)"
         Update-Ui
     })
     # 6 answer file + oem
     $U.UnaPick.Add_Click({
-        $f = Select-File 'Select your autounattend.xml' 'Answer files (*.xml)|*.xml' (Join-Path $env:USERPROFILE 'Downloads')
+        $f = Select-File (T 'Select your autounattend.xml') ((T 'Answer files') + ' (*.xml)|*.xml') (Join-Path $env:USERPROFILE 'Downloads')
         if ($f) { try { Set-UnattendFile $f } catch { Show-Msg $_.Exception.Message 'Error' }; Update-Ui }
     })
     $U.UnaGen.Add_Click({ Start-Process $Script:GeneratorUrl })
     $U.UnaRemove.Add_Click({ Clear-UnattendFile; Update-Ui })
     $U.OemPick.Add_Click({
         $start = if ($Script:S.Oem) { [string]$Script:S.Oem.Source } else { $null }
-        $d = Select-Folder 'Pick your $OEM$ folder (the one that contains $1 and/or $$)' $start
+        $d = Select-Folder (T 'Pick your $OEM$ folder (the one that contains $1 and/or $$)') $start
         if ($d) { $Script:OemCache = $null; Set-OemFolder $d; Update-Ui }
     })
     $U.OemOpen.Add_Click({ if ($Script:S.Oem) { Open-Path ([string]$Script:S.Oem.Source) } })
@@ -295,7 +297,7 @@ try {
     # 7 build
     $U.OutBrowse.Add_Click({
         $d = New-Object Microsoft.Win32.SaveFileDialog
-        $d.Filter = 'ISO image (*.iso)|*.iso'; $d.FileName = if ($Script:S -and $Script:S.Family) { 'Win' + (Get-FamilyOs $Script:S.Family) + '_custom.iso' } else { 'Windows_custom.iso' }
+        $d.Filter = (T 'ISO image') + ' (*.iso)|*.iso'; $d.FileName = if ($Script:S -and $Script:S.Family) { 'Win' + (Get-FamilyOs $Script:S.Family) + '_custom.iso' } else { 'Windows_custom.iso' }
         if ($d.ShowDialog($Script:W)) { $Script:U.OutBox.Text = $d.FileName }
     })
     $U.SvcBtn.Add_Click({ Invoke-ServiceClick })
@@ -304,11 +306,11 @@ try {
         if ($Script:S.Iso -and (Test-Path -LiteralPath $Script:S.Iso)) { Start-Process explorer.exe "/select,`"$($Script:S.Iso)`"" } else { Open-Path $Script:P.Output }
     })
     # 8 options
-    $U.WorkBrowse.Add_Click({ $d = Select-Folder 'Pick or create the work folder (NTFS, no spaces, ~30 GB free)' $Script:Cfg.WorkDir; if ($d) { $Script:U.WorkBox.Text = $d } })
+    $U.WorkBrowse.Add_Click({ $d = Select-Folder (T 'Pick or create the work folder (NTFS, no spaces, ~30 GB free)') $Script:Cfg.WorkDir; if ($d) { $Script:U.WorkBox.Text = $d } })
     $U.WorkApply.Add_Click({
         $w = $Script:U.WorkBox.Text.Trim().Trim('"').TrimEnd('\')
         if (-not $w) { return }
-        if ($w -match '\s' -and -not (Confirm-Ui 'The path has spaces - a short path like D:\W10U is safer for DISM. Use it anyway?' 'Warning')) { return }
+        if ($w -match '\s' -and -not (Confirm-Ui (T 'The path has spaces - a short path like D:\W10U is safer for DISM. Use it anyway?') 'Warning')) { return }
         $Script:Cfg.WorkDir = $w; Save-Settings; Initialize-Paths; $Script:S = Import-State
         Write-Ok "Work folder: $w"
         Update-Ui
@@ -322,31 +324,31 @@ try {
     $U.ClnBtn.Add_Click({
         $a = [ordered]@{ Updates = [bool]$Script:U.ClnUpd.IsChecked; Media = [bool]$Script:U.ClnMedia.IsChecked; Output = [bool]$Script:U.ClnOut.IsChecked; Signed = [bool]$Script:U.ClnSigned.IsChecked
                          Drivers = [bool]$Script:U.ClnDrivers.IsChecked; Extra = [bool]$Script:U.ClnExtra.IsChecked; Logs = [bool]$Script:U.ClnLogs.IsChecked; All = [bool]$Script:U.ClnAll.IsChecked }
-        $names = @{ Updates = 'downloaded updates'; Media = 'unpacked media'; Output = 'built ISOs'; Signed = 're-signed driver copies'; Drivers = 'copied drivers'
-                    Extra = 'answer file copy and check results'; Logs = 'logs'; All = 'EVERYTHING in the work folder' }
-        $what = @('mounted images and temp files') + @($a.Keys | Where-Object { $a[$_] } | ForEach-Object { $names[$_] })
-        if (Confirm-Ui ("Delete: " + ($what -join ', ') + '?') 'Warning') { Start-Work 'Clean' $a }
+        $names = @{ Updates = (T 'downloaded updates'); Media = (T 'unpacked media'); Output = (T 'built ISOs'); Signed = (T 're-signed driver copies'); Drivers = (T 'copied drivers')
+                    Extra = (T 'answer file copy and check results'); Logs = (T 'logs'); All = (T 'EVERYTHING in the work folder') }
+        $what = @(T 'mounted images and temp files') + @($a.Keys | Where-Object { $a[$_] } | ForEach-Object { $names[$_] })
+        if (Confirm-Ui ((T 'Delete: {0}?') -f ($what -join ', ')) 'Warning') { Start-Work 'Clean' $a }
     })
     $U.DefBtn.Add_Click({
-        if (-not (Confirm-Ui 'Restore the default options? The work folder is kept.')) { return }
-        $keep = $Script:Cfg.WorkDir; $last = $Script:Cfg.LastDriverFolder
-        $Script:Cfg = Get-DefaultSettings; $Script:Cfg.WorkDir = $keep; $Script:Cfg.LastDriverFolder = $last
+        if (-not (Confirm-Ui (T 'Restore the default options? The work folder is kept.'))) { return }
+        $keep = $Script:Cfg.WorkDir; $last = $Script:Cfg.LastDriverFolder; $lang = $Script:Cfg.UiLanguage
+        $Script:Cfg = Get-DefaultSettings; $Script:Cfg.WorkDir = $keep; $Script:Cfg.LastDriverFolder = $last; $Script:Cfg.UiLanguage = $lang
         Save-Settings; Update-Ui; Write-Ok 'Default options restored.'
     })
     # install check
     $U.ChkBtn.Add_Click({ Start-Work 'Check' @{} { Show-CheckResults } })
     $U.ChkFix.Add_Click({ Invoke-FixClick })
     $U.ChkSave.Add_Click({
-        if (-not (Test-Path -LiteralPath $Script:P.Unattend)) { Show-Msg 'There is no answer file yet (page 6).'; return }
+        if (-not (Test-Path -LiteralPath $Script:P.Unattend)) { Show-Msg (T 'There is no answer file yet (page 6).'); return }
         $d = New-Object Microsoft.Win32.SaveFileDialog
-        $d.Filter = 'Answer file (*.xml)|*.xml'; $d.FileName = 'autounattend.xml'
+        $d.Filter = (T 'Answer file') + ' (*.xml)|*.xml'; $d.FileName = 'autounattend.xml'
         if ($Script:S.Unattend -and $Script:S.Unattend.Source) { $d.InitialDirectory = Split-Path ([string]$Script:S.Unattend.Source) -Parent }
         if ($d.ShowDialog($Script:W)) { Copy-Item -LiteralPath $Script:P.Unattend -Destination $d.FileName -Force; Write-Ok "Saved: $($d.FileName)" }
     })
     $U.ChkUndo.Add_Click({
         $bak = Join-Path $Script:P.Work 'autounattend.original.xml'
-        if (-not (Test-Path -LiteralPath $bak)) { Show-Msg 'No answer file fixes to undo.'; return }
-        if (-not (Confirm-Ui 'Put the answer file back the way it was before the fixes?')) { return }
+        if (-not (Test-Path -LiteralPath $bak)) { Show-Msg (T 'No answer file fixes to undo.'); return }
+        if (-not (Confirm-Ui (T 'Put the answer file back the way it was before the fixes?'))) { return }
         Copy-Item -LiteralPath $bak -Destination $Script:P.Unattend -Force; Remove-Item -LiteralPath $bak -Force
         if ($Script:S.Unattend) { $Script:S.Unattend.Remove('Fixed') }
         Save-State; Sync-Unattend; Write-Ok 'Answer file fixes undone.'; Update-Ui
@@ -362,7 +364,7 @@ try {
     $W.Add_Closing({
         param($s, $ev)
         if ($Script:Busy) {
-            $r = [Windows.MessageBox]::Show($Script:W, "'$($Script:JobLabel)' is still running. Closing now can leave a mounted image behind (run Clean up next time). Close anyway?", $Script:AppTitle, 'YesNo', 'Warning')
+            $r = [Windows.MessageBox]::Show($Script:W, ((T '''{0}'' is still running. Closing now can leave a mounted image behind (run Clean up next time). Close anyway?') -f $Script:JobLabel), $Script:AppTitle, 'YesNo', 'Warning')
             if ($r -ne 'Yes') { $ev.Cancel = $true; return }
             try { [void]$Script:Ps.BeginStop($null, $null) } catch { }
         }

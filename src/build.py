@@ -32,7 +32,7 @@ def edit(text, old, new, count=1):
 # ---- kept regions of the v1 engine -----------------------------------------
 settings = rng(162, 353)          # settings/state + process/DISM helpers
 settings = edit(settings, "        LastDriverFolder = ''\n",
-                "        LastDriverFolder = ''\n        SignCleanup      = $true\n        InstallOemDrivers = $false\n        SignOnlyThisPc   = $false\n        WinVersion       = '10'\n        UiTheme          = 'Dark'\n        UiZoom           = 100\n        UiFont           = 'Segoe UI'\n        SignIsolate      = $true\n        SignJobs         = 0\n        SignEngine       = 'makecat'\n        ParallelBoot     = $true\n        ParallelEditions = 0\n        BootSkipPE       = $false\n        DefenderExclude  = $false\n")
+                "        LastDriverFolder = ''\n        SignCleanup      = $true\n        InstallOemDrivers = $false\n        SignOnlyThisPc   = $false\n        WinVersion       = '10'\n        UiTheme          = 'Dark'\n        UiZoom           = 100\n        UiFont           = 'Segoe UI'\n        SignIsolate      = $true\n        SignJobs         = 0\n        SignEngine       = 'makecat'\n        UiLanguage       = 'auto'\n        ParallelBoot     = $true\n        ParallelEditions = 0\n        BootSkipPE       = $false\n        DefenderExclude  = $false\n")
 settings = edit(settings, "        Output   = Join-Path $w 'output'\n",
                 "        Output   = Join-Path $w 'output'\n        Signed   = Join-Path $w 'signed'\n        Scratch  = Join-Path $w 'temp\\scratch'\n")
 # servicing commands use a scratch folder inside the work folder (covered by the Defender option)
@@ -127,10 +127,44 @@ engine = '\n\n'.join([
     part('30_engine_tools.ps1'), part('31_engine_sign.ps1'), part('39_engine_catalogs.ps1'), part('33_engine_check.ps1'), part('34_engine_check2.ps1'), part('32_engine_jobs.ps1'),
 ])
 
+# ---- interface languages: src/lang/<code>.json (English text -> translation, UTF-8) become Get-LangData,
+# one line per text "English<TAB>translation", accented letters as &#xE9; so the .cmd stays ASCII.
+sys.path.insert(0, os.path.join(SRC, 'lang'))
+import keys as langkeys
+
+def lang_data():
+    ks = langkeys.keys()
+    out = ['function Get-LangData([string]$Code) {', '    switch ($Code) {']
+    for code in langkeys.LANGUAGES:
+        t = langkeys.load(code)
+        if not t:
+            continue
+        miss = [k for k in ks if k not in t]
+        unused = [k for k in t if k not in ks]
+        if miss:
+            print(f'{code}: {len(miss)} of {len(ks)} texts not translated yet (shown in English) - python3 src/lang/keys.py --missing')
+        if unused:
+            print(f'{code}: {len(unused)} translation(s) for texts the interface no longer has: {unused[:3]}')
+        esc = lambda v: ''.join(c if ord(c) < 128 else '&#x%X;' % ord(c) for c in v)
+        lines = []
+        for k in ks:
+            if k in t:
+                if '\t' in k + t[k] or '\n' in k + t[k]:
+                    sys.exit(f'{code}: tab or line break in {k!r}')
+                line = esc(k) + '\t' + esc(t[k])
+                if line.startswith("'@"):
+                    sys.exit(f'{code}: a line may not start with \'@: {k!r}')
+                lines.append(line)
+        out += [f"        '{code}' {{ return @'"] + lines + ["'@ }"]
+    out += ['    }', "    return ''", '}']
+    return '\n'.join(out)
+
 pieces = [part('00_header.cmd'), engine]
-for extra in ('40_gui_xaml.ps1', '45_gui_dialogs.ps1', '50_gui.ps1', '55_gui_main.ps1'):
+for extra in ('40_gui_xaml.ps1', '45_gui_dialogs.ps1', '48_gui_lang.ps1', '50_gui.ps1', '55_gui_main.ps1'):
     if os.path.exists(os.path.join(SRC, extra)):
         pieces.append(part(extra))
+    if extra == '48_gui_lang.ps1':
+        pieces.append(lang_data())
 text = '\n'.join(pieces) + '\n'
 text = text.replace('@@VERSION@@', VERSION).replace('@@FILENAME@@', FILENAME)
 if '@@' in text:

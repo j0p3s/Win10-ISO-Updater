@@ -11,7 +11,11 @@ function New-Xaml([string]$Text) {
         $o = $win.FindName($m.Groups[1].Value)
         if ($o) { $names[$m.Groups[1].Value] = $o }
     }
-    return @{ W = $win; U = $names }
+    # the texts in the language in use (English in the XAML); list columns get theirs when they are made
+    $texts = Get-UiTexts $win
+    Set-UiTexts $texts
+    Add-GridHeaderTranslation $texts
+    return @{ W = $win; U = $names; Texts = $texts }
 }
 function New-Brush([string]$Hex) {
     $b = New-Object Windows.Media.SolidColorBrush ([Windows.Media.ColorConverter]::ConvertFromString((Get-ThemeHex $Hex)))
@@ -62,7 +66,7 @@ function Select-File([string]$Title, [string]$Filter, [string]$Start) {
     return $null
 }
 function Open-Path([string]$Path) {
-    if ($Path -and (Test-Path -LiteralPath $Path)) { Start-Process explorer.exe "`"$Path`"" } else { Show-Msg "Not there yet: $Path" }
+    if ($Path -and (Test-Path -LiteralPath $Path)) { Start-Process explorer.exe "`"$Path`"" } else { Show-Msg ((T 'Not there yet: {0}') -f $Path) }
 }
 function Get-LogBrush([string]$Color) {
     if (-not $Script:LogBrushes) {
@@ -185,10 +189,14 @@ function Update-A11yUi {
     foreach ($n in 100, 115, 130, 150) { $U["Zoom$n"].IsChecked = ($z -eq $n) }
     $f = Get-UiFont
     $U.FontSegoe.IsChecked = ($f -eq 'Segoe UI'); $U.FontVerdana.IsChecked = ($f -eq 'Verdana'); $U.FontTahoma.IsChecked = ($f -eq 'Tahoma'); $U.FontArial.IsChecked = ($f -eq 'Arial')
+    $lc = ([string]$Script:Cfg.UiLanguage).ToLowerInvariant()
+    if (-not $lc) { $lc = 'auto' }
+    $U.LangAuto.IsChecked = ($lc -eq 'auto')
+    foreach ($l in (Get-LanguageList)) { $U[$l.Button].IsChecked = ($lc -eq $l.Code) }
     $light = $Script:ThemeNow -eq 'Light'
     $U.ThemeBtn.Content = if ($light) { [string][char]0xE708 } else { [string][char]0xE706 }      # moon / sun
-    $U.ThemeBtn.ToolTip = if ($light) { 'Dark theme' } else { 'Light theme' }
-    try { [Windows.Automation.AutomationProperties]::SetName($U.ThemeBtn, $(if ($light) { 'Switch to the dark theme' } else { 'Switch to the light theme' })) } catch { }
+    $U.ThemeBtn.ToolTip = if ($light) { T 'Dark theme' } else { T 'Light theme' }
+    try { [Windows.Automation.AutomationProperties]::SetName($U.ThemeBtn, $(if ($light) { T 'Switch to the dark theme' } else { T 'Switch to the light theme' })) } catch { }
 }
 function Set-Theme {
     $Script:ThemeNow = Get-ThemeName
@@ -239,7 +247,7 @@ function Request-Attention {
     } catch { }
 }
 function Start-Work([string]$Job, $A = @{}, [scriptblock]$Then) {
-    if ($Script:Busy) { Show-Msg 'Another job is still running.'; return }
+    if ($Script:Busy) { Show-Msg (T 'Another job is still running.'); return }
     try { Save-Settings } catch { }
     $Script:Busy = $true
     $Script:JobName = $Job
@@ -264,11 +272,11 @@ function Complete-Work {
     $Script:Cfg = Import-Settings; Initialize-Paths; $Script:S = Import-State
     Set-Busy $false
     if ($ok) {
-        $Script:U.BusyText.Text = ('{0} finished in {1:mm\:ss}' -f $Script:JobLabel, $took)
+        $Script:U.BusyText.Text = ((T '{0} finished in {1:mm\:ss}') -f $Script:JobLabel, $took)
         Set-BusyDot '#3DDC97'
         Set-TaskbarState 'None'
     } else {
-        $Script:U.BusyText.Text = "$($Script:JobLabel) stopped with an error - see the log"
+        $Script:U.BusyText.Text = (T '{0} stopped with an error - see the log') -f $Script:JobLabel
         Set-BusyDot '#FF5C7A'
         Set-TaskbarState 'Error' 1      # red until the window is in front again
     }
@@ -279,9 +287,9 @@ function Complete-Work {
     if ($ok -and $then) { & $then }
 }
 function Set-Busy([bool]$On) {
-    $labels = @{ Unpack = 'Unpack'; Analyze = 'Analyze'; Download = 'Download updates'; ScanHost = 'Driver scan'; CommitHost = 'Copy drivers'
-                 ScanFolder = 'Folder scan'; CommitImport = 'Import drivers'; Sign = 'Re-sign drivers'; Service = 'Slipstream'; Build = 'Build ISO'
-                 All = 'Run everything'; Tools = 'Tools'; Clean = 'Clean up'; Check = 'Install check'; Fix = 'Apply fixes' }
+    $labels = @{ Unpack = (T 'Unpack'); Analyze = (T 'Analyze'); Download = (T 'Download updates'); ScanHost = (T 'Driver scan'); CommitHost = (T 'Copy drivers')
+                 ScanFolder = (T 'Folder scan'); CommitImport = (T 'Import drivers'); Sign = (T 'Re-sign drivers'); Service = (T 'Slipstream'); Build = (T 'Build ISO')
+                 All = (T 'Run everything'); Tools = (T 'Tools'); Clean = (T 'Clean up'); Check = (T 'Install check'); Fix = (T 'Apply fixes') }
     $Script:JobLabel = $labels[$Script:JobName]
     if (-not $Script:JobLabel) { $Script:JobLabel = $Script:JobName }
     $Script:U.Pages.IsEnabled = -not $On
@@ -335,38 +343,38 @@ function Set-Step([int]$N, [string]$Text, [string]$Kind) {
 }
 function Update-Status {
     $S = $Script:S; $U = $Script:U
-    $U.HdrIso.Text = if ($S.SourceIso) { Split-Path $S.SourceIso -Leaf } else { 'no ISO yet' }
-    $U.HdrImg.Text = if ($S.Family -and @($S.Images).Count -gt 0) { '{0}  |  {1}  |  {2}  |  {3} edition(s)' -f $S.Family.Name, $S.Images[0].Version, $S.Family.Arch, @($S.Images).Count } else { '-' }
+    $U.HdrIso.Text = if ($S.SourceIso) { Split-Path $S.SourceIso -Leaf } else { T 'no ISO yet' }
+    $U.HdrImg.Text = if ($S.Family -and @($S.Images).Count -gt 0) { (T '{0}  |  {1}  |  {2}  |  {3} edition(s)') -f $S.Family.Name, $S.Images[0].Version, $S.Family.Arch, @($S.Images).Count } else { '-' }
     $free = ''
-    try { $free = '  (' + (Format-Size (New-Object IO.DriveInfo([IO.Path]::GetPathRoot([IO.Path]::GetFullPath($Script:P.Work)))).AvailableFreeSpace) + ' free)' } catch { }
+    try { $free = '  (' + ((T '{0} free') -f (Format-Size (New-Object IO.DriveInfo([IO.Path]::GetPathRoot([IO.Path]::GetFullPath($Script:P.Work)))).AvailableFreeSpace)) + ')' } catch { }
     $U.HdrWork.Text = $Script:P.Work + $free
 
-    if ($S.Unpacked) { Set-Step 1 'unpacked' 'ok' } else { Set-Step 1 'to do' 'todo' }
+    if ($S.Unpacked) { Set-Step 1 (T 'unpacked') 'ok' } else { Set-Step 1 (T 'to do') 'todo' }
     $ns = @($S.Selected).Count
-    if ($ns -gt 0) { Set-Step 2 "$ns of $(@($S.Images).Count) ticked" 'ok' } elseif ($S.Unpacked) { Set-Step 2 'tick at least one' 'todo' } else { Set-Step 2 'to do' 'todo' }
+    if ($ns -gt 0) { Set-Step 2 ((T '{0} of {1} ticked') -f $ns, @($S.Images).Count) 'ok' } elseif ($S.Unpacked) { Set-Step 2 (T 'tick at least one') 'todo' } else { Set-Step 2 (T 'to do') 'todo' }
     $lcu = @($S.Updates | Where-Object { $_.Kind -eq 'LCU' }) | Select-Object -First 1
-    if ($S.Family -and -not $S.Family.Supported) { Set-Step 3 'not available for this build' 'warn' }
-    elseif ($lcu) { Set-Step 3 ('{0} ({1}) + {2} more' -f $lcu.KB, $lcu.Date.Substring(0, 7), (@($S.Updates).Count - 1)) 'ok' }
-    else { Set-Step 3 'to do' 'todo' }
+    if ($S.Family -and -not $S.Family.Supported) { Set-Step 3 (T 'not available for this build') 'warn' }
+    elseif ($lcu) { Set-Step 3 ((T '{0} ({1}) + {2} more') -f $lcu.KB, $lcu.Date.Substring(0, 7), (@($S.Updates).Count - 1)) 'ok' }
+    else { Set-Step 3 (T 'to do') 'todo' }
     $nd = @($S.Drivers).Count
-    if ($nd -gt 0) { Set-Step 4 ('{0} packages ({1} for boot)' -f $nd, @($S.Drivers | Where-Object { $Script:BootClasses -contains $_.Class }).Count) 'ok' } else { Set-Step 4 'none (optional)' 'opt' }
+    if ($nd -gt 0) { Set-Step 4 ((T '{0} packages ({1} for boot)') -f $nd, @($S.Drivers | Where-Object { $Script:BootClasses -contains $_.Class }).Count) 'ok' } else { Set-Step 4 (T 'none (optional)') 'opt' }
     $sg = @($S.Signed | Where-Object { $_ })
     if ($sg.Count -gt 0) {
         $kind = if (@($sg | Where-Object { [int]$_.Failed -gt 0 }).Count) { 'warn' } else { 'ok' }
         Set-Step 5 (($sg | ForEach-Object { $_.Name }) -join ', ') $kind
-    } else { Set-Step 5 'none (optional)' 'opt' }
+    } else { Set-Step 5 (T 'none (optional)') 'opt' }
     $p6 = @()
     if ($S.Unattend) { $p6 += 'autounattend' }
     if ($S.Oem) { $p6 += '$OEM$' }
-    if ($p6.Count) { Set-Step 6 ($p6 -join ' + ') 'ok' } else { Set-Step 6 'none (optional)' 'opt' }
+    if ($p6.Count) { Set-Step 6 ($p6 -join ' + ') 'ok' } else { Set-Step 6 (T 'none (optional)') 'opt' }
     if ($S.Check) {
-        if ([int]$S.Check.Errors -gt 0) { Set-Step 8 ('{0} error(s), {1} warning(s)' -f $S.Check.Errors, $S.Check.Warnings) 'warn' }
-        elseif ([int]$S.Check.Warnings -gt 0) { Set-Step 8 ('{0} warning(s)' -f $S.Check.Warnings) 'todo' }
-        else { Set-Step 8 'all good' 'ok' }
-    } else { Set-Step 8 'not run yet' 'opt' }
-    if ($S.Iso -and (Test-Path -LiteralPath $S.Iso)) { Set-Step 7 'ISO ready' 'ok' }
-    elseif ($S.Serviced) { Set-Step 7 "slipstreamed ($($S.Serviced.Build)) - build the ISO" 'todo' }
-    else { Set-Step 7 'to do' 'todo' }
+        if ([int]$S.Check.Errors -gt 0) { Set-Step 8 ((T '{0} error(s), {1} warning(s)') -f $S.Check.Errors, $S.Check.Warnings) 'warn' }
+        elseif ([int]$S.Check.Warnings -gt 0) { Set-Step 8 ((T '{0} warning(s)') -f $S.Check.Warnings) 'todo' }
+        else { Set-Step 8 (T 'all good') 'ok' }
+    } else { Set-Step 8 (T 'not run yet') 'opt' }
+    if ($S.Iso -and (Test-Path -LiteralPath $S.Iso)) { Set-Step 7 (T 'ISO ready') 'ok' }
+    elseif ($S.Serviced) { Set-Step 7 ((T 'slipstreamed ({0}) - build the ISO') -f $S.Serviced.Build) 'todo' }
+    else { Set-Step 7 (T 'to do') 'todo' }
 }
 # Windows 10 / 11 on page 1: follows a newly unpacked ISO, otherwise the choice made there.
 function Update-WinVersion {
@@ -377,14 +385,14 @@ function Update-WinVersion {
     $Script:WinVerKey = $key
     $os = if ([string]$Cfg.WinVersion -eq '11') { '11' } else { '10' }
     $U.WinVer10.IsChecked = ($os -eq '10'); $U.WinVer11.IsChecked = ($os -eq '11')
-    $note = if ($os -eq '11') { 'Updates for Windows 11 21H2, 22H2 / 23H2, 24H2 / LTSC 2024 and 25H2 (x64, ARM64). On a Windows 10 PC the slipstream uses the DISM of the Windows ADK Deployment Tools, installed from Microsoft when needed.' }
-            else { 'Updates for Windows 10 1607 / LTSB 2016, 1809 / LTSC 2019, 2004-22H2 and LTSC 2021 (x64, x86, ARM64).' }
-    if ($isoOs -and $isoOs -ne $os) { $note += " The unpacked ISO is Windows $isoOs - pick a Windows $os ISO and unpack it to switch." }
+    $note = if ($os -eq '11') { T 'Updates for Windows 11 21H2, 22H2 / 23H2, 24H2 / LTSC 2024 and 25H2 (x64, ARM64). On a Windows 10 PC the slipstream uses the DISM of the Windows ADK Deployment Tools, installed from Microsoft when needed.' }
+            else { T 'Updates for Windows 10 1607 / LTSB 2016, 1809 / LTSC 2019, 2004-22H2 and LTSC 2021 (x64, x86, ARM64).' }
+    if ($isoOs -and $isoOs -ne $os) { $note += ' ' + ((T 'The unpacked ISO is Windows {0} - pick a Windows {1} ISO and unpack it to switch.') -f $isoOs, $os) }
     $U.WinVerNote.Text = $note
-    $U.GetIsoBtn.Content = "Download Windows $os from Microsoft"
+    $U.GetIsoBtn.Content = (T 'Download Windows {0} from Microsoft') -f $os
     $U.CutoffRow.Visibility = if ($os -eq '10') { 'Visible' } else { 'Collapsed' }
-    $U.CutoffNote.Text = if ($os -eq '10') { '2025-10 is the last Windows 10 update Microsoft allows offline. ESU updates (Nov 2025+) come from Windows Update after setup on enrolled PCs.' }
-                         else { 'Windows 11: the newest updates in the Microsoft Update Catalog are used (21H2, which is out of servicing: its last ones, 2024-10).' }
+    $U.CutoffNote.Text = if ($os -eq '10') { T '2025-10 is the last Windows 10 update Microsoft allows offline. ESU updates (Nov 2025+) come from Windows Update after setup on enrolled PCs.' }
+                         else { T 'Windows 11: the newest updates in the Microsoft Update Catalog are used (21H2, which is out of servicing: its last ones, 2024-10).' }
 }
 function Update-Ui {
     $Script:Loading = $true
@@ -402,13 +410,13 @@ function Update-Ui {
         # 1 source
         $imgs = @($S.Images)
         if ($S.Family -and $imgs.Count) {
-            $U.ImgInfo.Text = '{0}  -  build {1}  -  {2}  -  {3} edition(s)' -f $S.Family.Name, $imgs[0].Version, $S.Family.Arch, $imgs.Count
-            $U.ImgNote.Text = if (-not $S.Family.Supported) { 'No automatic updates for this build - drivers, signed packages, answer file and $OEM$ still work.' }
-                              elseif ($S.Family.Cap -and (Get-FamilyOs $S.Family) -eq '10') { "Updates up to $($Cfg.Win10Cutoff) (the last month Microsoft allows offline for Windows 10)." }
-                              elseif ($S.Family.Cap) { "Its last updates ($($S.Family.Cap)) - this version is out of servicing." }
-                              else { 'Newest updates available in the Microsoft Update Catalog.' }
-            if ($S.Family.Supported -and $S.Family.NeedsEkb) { $U.ImgNote.Text += " The $(if ($S.Family.EkbFor) { $S.Family.EkbFor } else { '22H2' }) enablement package is added too." }
-        } else { $U.ImgInfo.Text = 'Nothing unpacked yet.'; $U.ImgNote.Text = '' }
+            $U.ImgInfo.Text = (T '{0}  -  build {1}  -  {2}  -  {3} edition(s)') -f $S.Family.Name, $imgs[0].Version, $S.Family.Arch, $imgs.Count
+            $U.ImgNote.Text = if (-not $S.Family.Supported) { T 'No automatic updates for this build - drivers, signed packages, answer file and $OEM$ still work.' }
+                              elseif ($S.Family.Cap -and (Get-FamilyOs $S.Family) -eq '10') { (T 'Updates up to {0} (the last month Microsoft allows offline for Windows 10).') -f $Cfg.Win10Cutoff }
+                              elseif ($S.Family.Cap) { (T 'Its last updates ({0}) - this version is out of servicing.') -f $S.Family.Cap }
+                              else { T 'Newest updates available in the Microsoft Update Catalog.' }
+            if ($S.Family.Supported -and $S.Family.NeedsEkb) { $U.ImgNote.Text += ' ' + ((T 'The {0} enablement package is added too.') -f $(if ($S.Family.EkbFor) { $S.Family.EkbFor } else { '22H2' })) }
+        } else { $U.ImgInfo.Text = T 'Nothing unpacked yet.'; $U.ImgNote.Text = '' }
         $U.ImgGrid.ItemsSource = (New-Table @('Index:int', 'Edition', 'EditionId', 'Build', 'Size', 'Language') @(foreach ($i in $imgs) { , @($i.Index, $i.Name, $i.Edition, $i.Version, (Format-Size $i.Size), $i.Langs) })).DefaultView
 
         # 2 editions
@@ -427,28 +435,28 @@ function Update-Ui {
         if ($d.Count) {
             $mb = 0.0; foreach ($x in $d) { $mb += [double]$x.SizeMB }
             $boot = @($d | Where-Object { $Script:BootClasses -contains $_.Class }).Count
-            $U.DrvSum.Text = '{0} driver package(s), {1} storage/network for boot.wim and WinRE, about {2:N0} MB' -f $d.Count, $boot, $mb
-        } else { $U.DrvSum.Text = 'No drivers selected.' }
+            $U.DrvSum.Text = (T '{0} driver package(s), {1} storage/network for boot.wim and WinRE, about {2:N0} MB') -f $d.Count, $boot, $mb
+        } else { $U.DrvSum.Text = T 'No drivers selected.' }
 
         # 5 signed
-        $U.SignGrid.ItemsSource = (New-Table @('Name', 'InstallsFrom', 'Signed:int', 'Failed:int', 'INFs', 'Engine', 'When', 'Source') @(foreach ($x in @($S.Signed | Where-Object { $_ })) { , @($x.Name, $x.InstallDir, [int]$x.Signed, [int]$x.Failed, $(if ($x.OnlyThisPc) { "this PC only ($(@($x.Kept).Count) kept)" } else { 'all' }), $(if ($x.Engine) { [string]$x.Engine } else { 'Inf2Cat' }), $x.When, $x.Source) })).DefaultView
+        $U.SignGrid.ItemsSource = (New-Table @('Name', 'InstallsFrom', 'Signed:int', 'Failed:int', 'INFs', 'Engine', 'When', 'Source') @(foreach ($x in @($S.Signed | Where-Object { $_ })) { , @($x.Name, $x.InstallDir, [int]$x.Signed, [int]$x.Failed, $(if ($x.OnlyThisPc) { (T 'this PC only ({0} kept)') -f @($x.Kept).Count } else { T 'all' }), $(if ($x.Engine) { [string]$x.Engine } else { 'Inf2Cat' }), $x.When, $x.Source) })).DefaultView
         Update-SignDest
         Update-SignEngine
         $cs = 'create'; $c = $null
         try { $cs = Get-CertStatus; $c = Get-StoreCert } catch { }
         $U.CertInfo.Text = switch ($cs) {
-            'ready'  { 'Ready - {0}, valid until {1:yyyy-MM-dd} (backed up as DriverSigning.pfx)' -f $c.Subject, $c.NotAfter }
-            'export' { 'In this PC''s certificate store, not backed up yet - you will be asked for a password to save DriverSigning.pfx.' }
-            'import' { 'DriverSigning.pfx found - its password is asked when you sign.' }
-            default  { 'None yet - one is created the first time you sign (you choose its password).' }
+            'ready'  { (T 'Ready - {0}, valid until {1:yyyy-MM-dd} (backed up as DriverSigning.pfx)') -f $c.Subject, $c.NotAfter }
+            'export' { T 'In this PC''s certificate store, not backed up yet - you will be asked for a password to save DriverSigning.pfx.' }
+            'import' { T 'DriverSigning.pfx found - its password is asked when you sign.' }
+            default  { T 'None yet - one is created the first time you sign (you choose its password).' }
         }
 
         # 6 answer file + oem
-        $U.UnaCur.Text = if ($S.Unattend) { "$($S.Unattend.Source)   (added $($S.Unattend.Added))" } else { 'none' }
+        $U.UnaCur.Text = if ($S.Unattend) { (T '{0}   (added {1})') -f $S.Unattend.Source, $S.Unattend.Added } else { T 'none' }
         if ($S.Oem -and $S.Oem.Source) {
             $U.OemCur.Text = [string]$S.Oem.Source
             $U.OemInfo.Text = Get-OemSummary ([string]$S.Oem.Source)
-        } else { $U.OemCur.Text = 'none'; $U.OemInfo.Text = '' }
+        } else { $U.OemCur.Text = T 'none'; $U.OemInfo.Text = '' }
 
         # 7 build
         if ($S.Iso -and (Test-Path -LiteralPath $S.Iso)) {
@@ -456,9 +464,9 @@ function Update-Ui {
             $h = "$($S.Iso).sha256"
             $U.IsoHash.Text = if (Test-Path -LiteralPath $h) { 'SHA-256  ' + ((Get-Content -LiteralPath $h -Raw) -split '\s')[0] } else { '' }
         } elseif ($S.Serviced) {
-            $U.IsoInfo.Text = "Slipstreamed on $($S.Serviced.When) - build $($S.Serviced.Build). Build the ISO next."
+            $U.IsoInfo.Text = (T 'Slipstreamed on {0} - build {1}. Build the ISO next.') -f $S.Serviced.When, $S.Serviced.Build
             $U.IsoHash.Text = ''
-        } else { $U.IsoInfo.Text = 'No ISO built yet.'; $U.IsoHash.Text = '' }
+        } else { $U.IsoInfo.Text = T 'No ISO built yet.'; $U.IsoHash.Text = '' }
 
         Update-Tools
         Show-CheckResults
@@ -477,16 +485,16 @@ function Show-CheckResults {
     $U.ChkGrid.ItemsSource = (New-Table @('Level', 'Area', 'Finding', 'FixText', 'Fix') @(foreach ($r in $rows) { , @($r.Level, $r.Area, $r.Finding, $r.FixText, $r.Fix) })).DefaultView
     $c = $Script:S.Check
     if ($c) {
-        $U.ChkSum.Text = '{0} error(s), {1} warning(s), {2} check(s) passed   -   {3}' -f $c.Errors, $c.Warnings, $c.Passed, $c.When
+        $U.ChkSum.Text = (T '{0} error(s), {1} warning(s), {2} check(s) passed   -   {3}') -f $c.Errors, $c.Warnings, $c.Passed, $c.When
         $U.ChkSum.Foreground = New-Brush $(if ([int]$c.Errors) { '#FF5C7A' } elseif ([int]$c.Warnings) { '#FFC857' } else { '#3DDC97' })
-    } else { $U.ChkSum.Text = 'Not run yet.'; $U.ChkSum.Foreground = New-Brush '#E6EAF2' }
+    } else { $U.ChkSum.Text = T 'Not run yet.'; $U.ChkSum.Foreground = New-Brush '#E6EAF2' }
     $nf = @($rows | Where-Object { $_.Fix }).Count
     $U.ChkFix.IsEnabled = $nf -gt 0
-    $U.ChkFix.Content = if ($nf) { "Apply $nf fix(es)" } else { 'Apply all fixes' }
+    $U.ChkFix.Content = if ($nf) { (T 'Apply {0} fix(es)') -f $nf } else { T 'Apply all fixes' }
     $fixed = $Script:S.Unattend -and $Script:S.Unattend.Fixed
     $U.ChkUndo.IsEnabled = [bool]$fixed
     $U.ChkSave.IsEnabled = [bool]$fixed
-    $U.ChkNote.Text = if ($fixed) { "The ISO uses a fixed copy of your answer file (fixed $($Script:S.Unattend.Fixed)). Save it to update your own file too." } else { '' }
+    $U.ChkNote.Text = if ($fixed) { (T 'The ISO uses a fixed copy of your answer file (fixed {0}). Save it to update your own file too.') -f $Script:S.Unattend.Fixed } else { '' }
 }
 # A borderless WPF window maximizes over the taskbar, so "maximized" is done by hand:
 # the window is sized to the working area of the monitor it is on.
@@ -509,14 +517,14 @@ function Set-WorkAreaMax([bool]$On) {
     }
 }
 function Get-OemSummary([string]$Dir) {
-    if (-not (Test-Path -LiteralPath $Dir)) { return 'folder not found' }
-    if ($Script:OemCache -and $Script:OemCache[0] -eq $Dir) { return $Script:OemCache[1] }
+    if (-not (Test-Path -LiteralPath $Dir)) { return (T 'folder not found') }
+    if ($Script:OemCache -and $Script:OemCache[0] -eq "$Dir|$Script:LangNow") { return $Script:OemCache[1] }
     $files = @(Get-ChildItem -LiteralPath $Dir -Recurse -File -Force -ErrorAction SilentlyContinue)
     $mb = ($files | Measure-Object -Property Length -Sum).Sum
     $parts = @(Get-ChildItem -LiteralPath $Dir -Directory -Force -ErrorAction SilentlyContinue | ForEach-Object { $_.Name })
-    $txt = '{0} files, {1}   ({2})' -f $files.Count, (Format-Size ([double]$mb)), ($parts -join ', ')
-    if (Test-Path -LiteralPath (Join-Path $Dir '$$\Setup\Scripts\SetupComplete.cmd')) { $txt += '   - has SetupComplete.cmd' }
-    $Script:OemCache = @($Dir, $txt)
+    $txt = (T '{0} files, {1}   ({2})') -f $files.Count, (Format-Size ([double]$mb)), ($parts -join ', ')
+    if (Test-Path -LiteralPath (Join-Path $Dir '$$\Setup\Scripts\SetupComplete.cmd')) { $txt += '   - ' + (T 'has SetupComplete.cmd') }
+    $Script:OemCache = @("$Dir|$Script:LangNow", $txt)
     return $txt
 }
 function Update-Tools {
@@ -529,12 +537,12 @@ function Update-Tools {
     }
     $osc = Find-Oscdimg; $inf = Find-Tool 'Inf2Cat.exe'; $sig = Find-Tool 'signtool.exe'; $mkc = Find-Tool 'makecat.exe'
     $eng = Get-SignEngine
-    & $set $U.T_Osc $osc 'missing - downloaded automatically when you build the ISO'
-    & $set $U.T_Inf $inf $(if ($eng -eq 'inf2cat') { 'missing - downloaded automatically when you sign drivers' } else { 'missing - downloaded only if the signing engine needs Inf2Cat as fallback' })
-    & $set $U.T_Sign $sig 'missing - downloaded automatically when you sign drivers'
-    & $set $U.T_Mkc $mkc $(if ($eng -eq 'makecat') { 'missing - downloaded automatically when you sign drivers' } else { 'missing - only needed for the MakeCat signing engine' })
+    & $set $U.T_Osc $osc (T 'missing - downloaded automatically when you build the ISO')
+    & $set $U.T_Inf $inf $(if ($eng -eq 'inf2cat') { T 'missing - downloaded automatically when you sign drivers' } else { T 'missing - downloaded only if the signing engine needs Inf2Cat as fallback' })
+    & $set $U.T_Sign $sig (T 'missing - downloaded automatically when you sign drivers')
+    & $set $U.T_Mkc $mkc $(if ($eng -eq 'makecat') { T 'missing - downloaded automatically when you sign drivers' } else { T 'missing - only needed for the MakeCat signing engine' })
     $curl = Join-Path $env:SystemRoot 'System32\curl.exe'
-    & $set $U.T_Curl $(if (Test-Path -LiteralPath $curl) { $curl }) 'missing - PowerShell / BITS downloads are used'
+    & $set $U.T_Curl $(if (Test-Path -LiteralPath $curl) { $curl }) (T 'missing - PowerShell / BITS downloads are used')
     $cat = switch ($eng) { 'inf2cat' { $inf } 'makecat' { $mkc } default { $true } }
     $U.ToolsDot.Text = if ($osc -and $cat -and $sig) { '' } else { [string][char]0x25CF }
 }
@@ -551,15 +559,15 @@ function Update-SignEngine {
     $U.SignEngMakeCat.IsChecked = ($e -eq 'makecat'); $U.SignEngLibwdi.IsChecked = ($e -eq 'libwdi')
     $U.SignEngGenCat.IsChecked = ($e -eq 'gencat'); $U.SignEngInf2Cat.IsChecked = ($e -eq 'inf2cat')
     $U.SignEngNote.Text = switch ($e) {
-        'makecat' { 'Default. makecat.exe (Windows SDK) builds one catalog per driver folder with the hash of every file in it, so each file is hashed once - about 20 s for NVIDIA''s 3 GB Display.Driver instead of minutes. Compressed files (name.dl_) are hashed expanded, the way Windows checks them. MakeCat does not parse the INF: every catalog is checked with signtool afterwards, and a folder MakeCat cannot do goes to Inf2Cat.' }
-        'libwdi'  { 'Experimental. The catalog is built with the CryptCAT API of Windows itself, the way libwdi (Zadig) does it - nothing to download. One catalog per driver folder with the hash of every file in it (SHA-1). Checked with signtool afterwards; a folder it cannot do goes to Inf2Cat.' }
-        'gencat'  { 'Experimental. LINBIT generate-cat-file (GPL-2.0): its source is downloaded from GitHub (one pinned commit, SHA-256 checked) and built inside WSL - needs WSL with a Linux distribution that has gcc and make. One catalog per driver folder; Inf2Cat signs when WSL or the build is missing.' }
-        default   { 'Microsoft''s standard tool from the Windows Driver Kit: it parses every INF and checks it against every file of the package. The proven choice, but slow on big packages - the options below make it faster.' }
+        'makecat' { T 'Default. makecat.exe (Windows SDK) builds one catalog per driver folder with the hash of every file in it, so each file is hashed once - about 20 s for NVIDIA''s 3 GB Display.Driver instead of minutes. Compressed files (name.dl_) are hashed expanded, the way Windows checks them. MakeCat does not parse the INF: every catalog is checked with signtool afterwards, and a folder MakeCat cannot do goes to Inf2Cat.' }
+        'libwdi'  { T 'Experimental. The catalog is built with the CryptCAT API of Windows itself, the way libwdi (Zadig) does it - nothing to download. One catalog per driver folder with the hash of every file in it (SHA-1). Checked with signtool afterwards; a folder it cannot do goes to Inf2Cat.' }
+        'gencat'  { T 'Experimental. LINBIT generate-cat-file (GPL-2.0): its source is downloaded from GitHub (one pinned commit, SHA-256 checked) and built inside WSL - needs WSL with a Linux distribution that has gcc and make. One catalog per driver folder; Inf2Cat signs when WSL or the build is missing.' }
+        default   { T 'Microsoft''s standard tool from the Windows Driver Kit: it parses every INF and checks it against every file of the package. The proven choice, but slow on big packages - the options below make it faster.' }
     }
 }
 function Update-SignDest {
     $n = ConvertTo-PackageName $Script:U.SignName.Text
-    $Script:U.SignDest.Text = "installs from C:\Drivers\$n during Windows setup"
+    $Script:U.SignDest.Text = (T 'installs from {0} during Windows setup') -f "C:\Drivers\$n"
 }
 #endregion
 
@@ -573,13 +581,13 @@ function Show-DriverPicker($Items, [string]$Title, [string]$SubText) {
     $Script:PickTable = New-Table @('Use:bool', 'No:int', 'Class', 'Provider', 'Version', 'Date', 'Arch', 'SizeMB:dbl', 'Older:bool', 'Inf', 'Folder') @(foreach ($x in @($Items)) {
         $n++; , @(((Test-DriverArch ([string]$x.Arch) $arch) -and -not [bool]$x.Older), $n, $x.Class, $x.Provider, $x.Version, $x.Date, [string]$x.Arch, [double]$x.'Size (MB)', [bool]$x.Older, $x.Inf, $x.Folder) })
     $old = @($Items | Where-Object { $_.Older }).Count
-    if ($old) { $SubText += " $old older version(s) of drivers that are here in a newer version too are unticked (column Older) - Windows uses the newest one." }
+    if ($old) { $SubText += ' ' + ((T '{0} older version(s) of drivers that are here in a newer version too are unticked (column Older) - Windows uses the newest one.') -f $old) }
     $Script:PickArch = $arch
     $D.U.PTitle.Text = $Title
     $D.U.PSub.Text = $SubText
     $D.U.PGrid.Add_AutoGeneratingColumn({ param($s, $e) if ($e.PropertyName -eq 'Use') { $e.Cancel = $true } else { $e.Column.IsReadOnly = $true } })
     $D.U.PGrid.ItemsSource = $Script:PickTable.DefaultView
-    $count = { $c = @($Script:PickTable.Select('Use = true')).Count; $Script:PickD.U.PCount.Text = "$c of $($Script:PickTable.Rows.Count) ticked" }
+    $count = { $c = @($Script:PickTable.Select('Use = true')).Count; $Script:PickD.U.PCount.Text = (T '{0} of {1} ticked') -f $c, $Script:PickTable.Rows.Count }
     $Script:PickCount = $count
     & $count
     $Script:PickTable.add_ColumnChanged({ & $Script:PickCount })
@@ -601,15 +609,15 @@ function Show-PasswordDialog([string]$Mode) {
     $Script:PwMode = $Mode
     $D.W.Owner = $Script:W
     $D.U.PwText.Text = switch ($Mode) {
-        'import' { 'DriverSigning.pfx was found next to this tool. Enter its password to load your signing certificate.' }
-        'export' { 'Your signing certificate is in this PC''s store but has no backup yet. Choose a password to save it as DriverSigning.pfx - you need it to sign again after reinstalling Windows.' }
-        default  { 'A new self-signed code-signing certificate will be created. Choose a password for its backup file DriverSigning.pfx - you need it to sign again after reinstalling Windows.' }
+        'import' { T 'DriverSigning.pfx was found next to this tool. Enter its password to load your signing certificate.' }
+        'export' { T 'Your signing certificate is in this PC''s store but has no backup yet. Choose a password to save it as DriverSigning.pfx - you need it to sign again after reinstalling Windows.' }
+        default  { T 'A new self-signed code-signing certificate will be created. Choose a password for its backup file DriverSigning.pfx - you need it to sign again after reinstalling Windows.' }
     }
     if ($Mode -eq 'import') { $D.U.Pw2Panel.Visibility = 'Collapsed' }
     $D.U.PwOk.Add_Click({
         $a = $Script:PwD.U.Pw1.Password
-        if (-not $a) { $Script:PwD.U.PwErr.Text = 'Enter a password.'; return }
-        if ($Script:PwMode -ne 'import' -and $a -cne $Script:PwD.U.Pw2.Password) { $Script:PwD.U.PwErr.Text = 'The passwords do not match.'; return }
+        if (-not $a) { $Script:PwD.U.PwErr.Text = T 'Enter a password.'; return }
+        if ($Script:PwMode -ne 'import' -and $a -cne $Script:PwD.U.Pw2.Password) { $Script:PwD.U.PwErr.Text = T 'The passwords do not match.'; return }
         $Script:PwD.W.DialogResult = $true
     })
     $D.W.Add_ContentRendered({ [void]$Script:PwD.U.Pw1.Focus() })

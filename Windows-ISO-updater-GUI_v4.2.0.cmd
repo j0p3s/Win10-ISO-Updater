@@ -1,6 +1,6 @@
 @echo off
 :: ===========================================================================
-::  Windows-ISO-updater-GUI_v4.1.0.cmd  -  one file, graphical interface
+::  Windows-ISO-updater-GUI_v4.2.0.cmd  -  one file, graphical interface
 ::  Windows ISO Updater: the file name carries the version (vX.X.X).
 ::  - unpacks a Windows 10 or Windows 11 ISO and detects its build
 ::  - downloads its updates from the Microsoft Update Catalog
@@ -26,7 +26,7 @@ exit /b
 
 :admin_ok
 set "W10U_SELF=%~f0"
-echo Starting Windows ISO Updater v4.1.0 ...  (this window hides when the program opens)
+echo Starting Windows ISO Updater v4.2.0 ...  (this window hides when the program opens)
 "%PSEXE%" -NoProfile -STA -ExecutionPolicy Bypass -Command "$t=[IO.File]::ReadAllText($env:W10U_SELF);$i=$t.IndexOf('#'+'PS-BEGIN');Invoke-Expression $t.Substring($i)"
 if errorlevel 1 pause
 exit /b
@@ -42,7 +42,7 @@ $ProgressPreference    = 'SilentlyContinue'
 
 $Script:AppName      = 'Windows-ISO-Updater'
 $Script:AppTitle     = 'Windows ISO Updater'
-$Script:AppVersion   = '4.1.0'
+$Script:AppVersion   = '4.2.0'
 $Script:Root         = Split-Path -Parent $env:W10U_SELF
 $ToolsDir            = Join-Path $Script:Root 'tools'
 $IsoPath             = $null
@@ -145,6 +145,7 @@ function Get-DefaultSettings {
         SignIsolate      = $true
         SignJobs         = 0
         SignEngine       = 'makecat'
+        UiLanguage       = 'auto'
         ParallelBoot     = $true
         ParallelEditions = 0
         BootSkipPE       = $false
@@ -5070,7 +5071,7 @@ __RES__
           <TextBlock Text="W10" Foreground="White" FontWeight="Bold" FontSize="12" HorizontalAlignment="Center" VerticalAlignment="Center"/>
         </Border>
         <StackPanel Margin="12,0,0,0" VerticalAlignment="Center">
-          <TextBlock FontSize="15" FontWeight="SemiBold"><Run Text="Windows ISO Updater"/><Run x:Name="VerRun" Text="  v4.1.0" Foreground="#5B6478" FontWeight="Normal" FontSize="12"/></TextBlock>
+          <TextBlock FontSize="15" FontWeight="SemiBold"><Run Text="Windows ISO Updater"/><Run x:Name="VerRun" Text="  v4.2.0" Foreground="#5B6478" FontWeight="Normal" FontSize="12"/></TextBlock>
           <TextBlock Text="updates + drivers + signed NVIDIA mods + autounattend + $OEM$  ->  bootable ISO" Foreground="#8A94A8" FontSize="11"/>
         </StackPanel>
       </StackPanel>
@@ -5106,7 +5107,18 @@ __RES__
               <RadioButton x:Name="FontTahoma" Style="{StaticResource Seg}" Padding="12,7" GroupName="font" Content="Tahoma" FontFamily="Tahoma" Margin="0,0,6,6"/>
               <RadioButton x:Name="FontArial" Style="{StaticResource Seg}" Padding="12,7" GroupName="font" Content="Arial" FontFamily="Arial" Margin="0,0,0,6"/>
             </WrapPanel>
+            <TextBlock Text="Language" FontWeight="SemiBold" Margin="0,8,0,6"/>
+            <WrapPanel>
+              <RadioButton x:Name="LangAuto" Style="{StaticResource Seg}" Padding="12,7" GroupName="lang" Content="Like Windows" Margin="0,0,6,6"/>
+              <RadioButton x:Name="LangEn" Style="{StaticResource Seg}" Padding="12,7" GroupName="lang" Content="English" Margin="0,0,6,6"/>
+              <RadioButton x:Name="LangPt" Style="{StaticResource Seg}" Padding="12,7" GroupName="lang" Content="Portugu&#xEA;s" Margin="0,0,6,6"/>
+              <RadioButton x:Name="LangEs" Style="{StaticResource Seg}" Padding="12,7" GroupName="lang" Content="Espa&#xF1;ol" Margin="0,0,6,6"/>
+              <RadioButton x:Name="LangFr" Style="{StaticResource Seg}" Padding="12,7" GroupName="lang" Content="Fran&#xE7;ais" Margin="0,0,6,6"/>
+              <RadioButton x:Name="LangDe" Style="{StaticResource Seg}" Padding="12,7" GroupName="lang" Content="Deutsch" Margin="0,0,6,6"/>
+              <RadioButton x:Name="LangIt" Style="{StaticResource Seg}" Padding="12,7" GroupName="lang" Content="Italiano" Margin="0,0,0,6"/>
+            </WrapPanel>
             <TextBlock Style="{StaticResource Sub}" FontSize="12" Margin="0,8,0,0" Text="Ctrl + plus / Ctrl + minus / Ctrl + 0 change the text size anywhere in the window. Verdana and Tahoma have wider, more distinct letters. Saved for the next start."/>
+            <TextBlock Style="{StaticResource Sub}" FontSize="12" Margin="0,6,0,0" Text="The Activity log and the Install check findings stay in English - that is what a bug report or a search needs."/>
           </StackPanel>
         </Border>
       </Popup>
@@ -5605,6 +5617,1757 @@ __RES__
   </StackPanel>
 </Window>
 '@
+#region ---------------------------------------------------------------- interface language
+# The texts are written in English in the code and the XAML. Every other language is a table English ->
+# translation (src/lang/<code>.json, built into Get-LangData by build.py, with accented letters written as
+# &#xE9; so this file stays ASCII). T 'English' returns the text in the language in use, or the English text
+# when the table has none. The Activity log and the Install check findings stay in English: they come from
+# the engine, and they are what a bug report or a search needs.
+function Get-LanguageList {
+    return @(
+        [pscustomobject]@{ Code = 'en'; Button = 'LangEn' }
+        [pscustomobject]@{ Code = 'pt'; Button = 'LangPt' }
+        [pscustomobject]@{ Code = 'es'; Button = 'LangEs' }
+        [pscustomobject]@{ Code = 'fr'; Button = 'LangFr' }
+        [pscustomobject]@{ Code = 'de'; Button = 'LangDe' }
+        [pscustomobject]@{ Code = 'it'; Button = 'LangIt' }
+    )
+}
+# The language in use: the setting, or - "Like Windows" (auto) - Windows' display language when there is a
+# table for it, English otherwise.
+function Get-UiLanguage {
+    $codes = @(Get-LanguageList | ForEach-Object { $_.Code })
+    $c = ([string]$Script:Cfg.UiLanguage).ToLowerInvariant()
+    if (-not $c -or $c -eq 'auto') { $c = [Globalization.CultureInfo]::CurrentUICulture.TwoLetterISOLanguageName }
+    if ($codes -contains $c) { return $c }
+    return 'en'
+}
+function ConvertFrom-LangText([string]$Text) {
+    return [regex]::Replace($Text, '&#x([0-9A-Fa-f]{2,4});', { param($m) [string][char][Convert]::ToInt32($m.Groups[1].Value, 16) })
+}
+# One line per text: English, a tab, the translation.
+function Get-LangTable([string]$Code) {
+    if (-not $Script:LangTables) { $Script:LangTables = @{} }
+    if ($Script:LangTables.ContainsKey($Code)) { return $Script:LangTables[$Code] }
+    $t = New-Object 'System.Collections.Generic.Dictionary[string,string]'
+    foreach ($line in ((Get-LangData $Code) -split "`r?`n")) {
+        $i = $line.IndexOf("`t")
+        if ($i -gt 0) { $t[(ConvertFrom-LangText $line.Substring(0, $i))] = ConvertFrom-LangText $line.Substring($i + 1) }
+    }
+    $Script:LangTables[$Code] = $t
+    return $t
+}
+function T([string]$Text) {
+    if (-not $Text -or -not $Script:LangNow -or $Script:LangNow -eq 'en') { return $Text }
+    $t = Get-LangTable $Script:LangNow
+    $v = $null
+    if ($t.TryGetValue($Text, [ref]$v)) { return $v }
+    return $Text
+}
+# Every text a window shows from its XAML: element, property and the English text. Kept for the main
+# window, so the language can change at once without building the window again.
+function Get-UiTexts($Root) {
+    $list = New-Object System.Collections.Generic.List[object]
+    $stack = New-Object System.Collections.Stack
+    $stack.Push($Root)
+    while ($stack.Count) {
+        $o = $stack.Pop()
+        if ($o -isnot [Windows.DependencyObject]) { continue }
+        $add = { param($Prop, $Val) if ($Val -is [string] -and $Val -match '[A-Za-z]{2}') { $list.Add([pscustomobject]@{ El = $o; Prop = $Prop; En = $Val }) } }
+        if ($o -is [Windows.Controls.TextBlock]) {
+            if ($o.Inlines.Count -le 1 -and -not ($o.Inlines.Count -eq 1 -and $o.Inlines.FirstInline.Name)) { & $add 'Text' $o.Text }
+        } elseif ($o -is [Windows.Documents.Run]) {
+            if (-not $o.Name -and $o.Parent -is [Windows.Controls.TextBlock] -and $o.Parent.Inlines.Count -gt 1) { & $add 'Text' $o.Text }
+        }
+        if ($o -is [Windows.Controls.HeaderedContentControl] -or $o -is [Windows.Controls.HeaderedItemsControl]) { & $add 'Header' $o.Header }
+        if ($o -is [Windows.Controls.ContentControl] -and $o -isnot [Windows.Window]) { & $add 'Content' $o.Content }
+        if ($o -is [Windows.FrameworkElement]) { & $add 'ToolTip' $o.ToolTip }
+        $an = [Windows.Automation.AutomationProperties]::GetName($o)
+        if ($an) { & $add 'AutomationName' $an }
+        if ($o -is [Windows.Controls.DataGrid]) { $list.Add([pscustomobject]@{ El = $o; Prop = 'Columns'; En = '' }) }
+        foreach ($c in [Windows.LogicalTreeHelper]::GetChildren($o)) { $stack.Push($c) }
+    }
+    return , $list
+}
+# Puts the texts in the language in use. List columns are named after their data (Edition, Size ...),
+# translated when they are made and here when the language changes.
+function Set-UiTexts($Texts) {
+    foreach ($x in @($Texts)) {
+        switch ($x.Prop) {
+            'AutomationName' { [Windows.Automation.AutomationProperties]::SetName($x.El, (T $x.En)) }
+            'Columns' { foreach ($c in @($x.El.Columns)) { if ($c.SortMemberPath) { $c.Header = T $c.SortMemberPath } } }
+            default { $x.El.($x.Prop) = [string](T $x.En) }
+        }
+    }
+}
+# New list columns get their header in the language in use (added before the page's own handlers).
+function Add-GridHeaderTranslation($Texts) {
+    foreach ($x in @($Texts | Where-Object { $_.Prop -eq 'Columns' })) {
+        $x.El.Add_AutoGeneratingColumn({ param($s, $e) $e.Column.Header = T ([string]$e.PropertyName) })
+    }
+}
+function Set-UiLanguage {
+    $Script:LangNow = Get-UiLanguage
+    Set-UiTexts $Script:UiTexts
+    Update-A11yUi
+    Update-Ui
+}
+#endregion
+function Get-LangData([string]$Code) {
+    switch ($Code) {
+        'pt' { return @'
+updates + drivers + signed NVIDIA mods + autounattend + $OEM$  ->  bootable ISO	atualiza&#xE7;&#xF5;es + controladores + mods NVIDIA assinados + autounattend + $OEM$  ->  ISO de arranque
+Light theme	Tema claro
+Switch to the light theme	Mudar para o tema claro
+Display and accessibility: theme, text size, font	Visualiza&#xE7;&#xE3;o e acessibilidade: tema, tamanho do texto, tipo de letra
+Display and accessibility settings	Defini&#xE7;&#xF5;es de visualiza&#xE7;&#xE3;o e acessibilidade
+Minimize	Minimizar
+Maximize	Maximizar
+Close	Fechar
+Display and accessibility	Visualiza&#xE7;&#xE3;o e acessibilidade
+Theme	Tema
+Dark	Escuro
+Light	Claro
+Like Windows	Como o Windows
+Text size	Tamanho do texto
+Font	Tipo de letra
+Language	Idioma
+Ctrl + plus / Ctrl + minus / Ctrl + 0 change the text size anywhere in the window. Verdana and Tahoma have wider, more distinct letters. Saved for the next start.	Ctrl + mais / Ctrl + menos / Ctrl + 0 alteram o tamanho do texto em qualquer parte da janela. Verdana e Tahoma t&#xEA;m letras mais largas e mais distintas. Fica guardado para o pr&#xF3;ximo arranque.
+The Activity log and the Install check findings stay in English - that is what a bug report or a search needs.	O registo de Atividade e os resultados da Verifica&#xE7;&#xE3;o da instala&#xE7;&#xE3;o ficam em ingl&#xEA;s - &#xE9; o que um relat&#xF3;rio de erro ou uma pesquisa precisam.
+STEPS	PASSOS
+Source ISO	ISO de origem
+to do	por fazer
+Editions	Edi&#xE7;&#xF5;es
+Windows updates	Atualiza&#xE7;&#xF5;es do Windows
+Drivers	Controladores
+optional	opcional
+Signed NVIDIA / modded	NVIDIA assinados / modificados
+Answer file + $OEM$	Ficheiro de respostas + $OEM$
+Install check	Verifica&#xE7;&#xE3;o da instala&#xE7;&#xE3;o
+not run yet	ainda n&#xE3;o executada
+Slipstream + build ISO	Integrar + criar ISO
+MORE	MAIS
+Options and clean up	Op&#xE7;&#xF5;es e limpeza
+Tools	Ferramentas
+Run everything	Executar tudo
+unpack - updates - slipstream - ISO, using what you set on each page	extrair - atualiza&#xE7;&#xF5;es - integrar - ISO, com o que definiu em cada p&#xE1;gina
+SOURCE	ORIGEM
+IMAGE	IMAGEM
+WORK FOLDER	PASTA DE TRABALHO
+ACTIVITY	ATIVIDADE
+Ready	Pronto
+Logs folder	Pasta de registos
+Clear	Limpar
+Choose Windows 10 or Windows 11 and pick its ISO. It is copied into the work folder and its build and editions are detected - the version follows the ISO you unpack.	Escolha o Windows 10 ou o Windows 11 e selecione a respetiva ISO. &#xC9; copiada para a pasta de trabalho e a compila&#xE7;&#xE3;o e as edi&#xE7;&#xF5;es s&#xE3;o detetadas - a vers&#xE3;o segue a ISO que extrair.
+Windows version	Vers&#xE3;o do Windows
+ISO file	Ficheiro ISO
+Browse...	Procurar...
+Unpack and analyze	Extrair e analisar
+Re-read image info	Voltar a ler a imagem
+Download Windows 10 from Microsoft	Transferir o Windows 10 da Microsoft
+Detected image	Imagem detetada
+Nothing unpacked yet.	Ainda nada foi extra&#xED;do.
+Tick the editions to update. With the option below on, unticked editions are left out of the new ISO (smaller and faster).	Marque as edi&#xE7;&#xF5;es a atualizar. Com a op&#xE7;&#xE3;o abaixo ativa, as edi&#xE7;&#xF5;es n&#xE3;o marcadas ficam de fora da nova ISO (mais pequena e mais r&#xE1;pida).
+Tick all	Marcar todas
+Tick none	Desmarcar todas
+Use	Usar
+Keep only the ticked editions in the new ISO	Manter apenas as edi&#xE7;&#xF5;es marcadas na nova ISO
+Finds the newest cumulative update, servicing stack, Safe OS and Setup Dynamic Updates and .NET updates for this build in the Microsoft Update Catalog and downloads them (SHA-1 checked).	Procura no Cat&#xE1;logo do Microsoft Update a atualiza&#xE7;&#xE3;o cumulativa mais recente, a pilha de manuten&#xE7;&#xE3;o, as Atualiza&#xE7;&#xF5;es Din&#xE2;micas Safe OS e de Configura&#xE7;&#xE3;o e as atualiza&#xE7;&#xF5;es do .NET para esta compila&#xE7;&#xE3;o e transfere-as (verificadas com SHA-1).
+What to integrate	O que integrar
+Add .NET Framework 4.8.1 (Windows 10 2004-22H2 - Windows 11 has it built in)	Adicionar o .NET Framework 4.8.1 (Windows 10 2004-22H2 - o Windows 11 j&#xE1; o inclui)
+Enable .NET Framework 3.5 (from the ISO's sources\sxs)	Ativar o .NET Framework 3.5 (a partir de sources\sxs da ISO)
+Component cleanup /ResetBase (smaller image - updates can't be uninstalled)	Limpeza de componentes /ResetBase (imagem mais pequena - as atualiza&#xE7;&#xF5;es deixam de poder ser desinstaladas)
+Newest month to integrate	M&#xEA;s mais recente a integrar
+YYYY-MM, for Windows 10 2004-22H2 / LTSC 2021	AAAA-MM, para o Windows 10 2004-22H2 / LTSC 2021
+2025-10 is the last Windows 10 update Microsoft allows offline. ESU updates (Nov 2025+) come from Windows Update after setup on enrolled PCs.	2025-10 &#xE9; a &#xFA;ltima atualiza&#xE7;&#xE3;o do Windows 10 que a Microsoft permite integrar offline. As atualiza&#xE7;&#xF5;es ESU (nov. 2025+) chegam pelo Windows Update depois da instala&#xE7;&#xE3;o, nos PCs inscritos.
+Find and download updates	Procurar e transferir atualiza&#xE7;&#xF5;es
+Downloaded	Transferidas
+Signed drivers are slipstreamed into install.wim with DISM, so Windows installs them on first boot. Storage and network drivers also go into boot.wim and WinRE, so Setup sees RAID / VMD disks. Modded drivers (edited INF) belong on the next page.	Os controladores assinados s&#xE3;o integrados no install.wim com o DISM, para o Windows os instalar no primeiro arranque. Os controladores de armazenamento e de rede v&#xE3;o tamb&#xE9;m para o boot.wim e o WinRE, para a Configura&#xE7;&#xE3;o ver discos RAID / VMD. Os controladores modificados (INF editado) ficam na p&#xE1;gina seguinte.
+Add drivers from this PC	Adicionar controladores deste PC
+Import a drivers folder	Importar uma pasta de controladores
+Remove selected	Remover selecionados
+Clear all	Remover todos
+Also put storage and network drivers into boot.wim and WinRE	Colocar tamb&#xE9;m os controladores de armazenamento e de rede no boot.wim e no WinRE
+Allow unsigned drivers in DISM (/ForceUnsigned)	Permitir controladores n&#xE3;o assinados no DISM (/ForceUnsigned)
+Signed NVIDIA / modded drivers	Controladores NVIDIA assinados / modificados
+For driver packages whose INF was edited - NVCleanstall hardware-ID mods for an unsupported GPU, custom INF files. The edit breaks the catalog signature, so Windows refuses them. Every subfolder is scanned; each modified package gets a new catalog (MakeCat by default, or the engine you pick below) signed with your own certificate. The package is added to the ISO through $OEM$ and installed by SetupComplete.cmd at the end of Windows setup, right after the certificate is trusted.	Para pacotes de controladores cujo INF foi editado - mods de ID de hardware do NVCleanstall para uma GPU n&#xE3;o suportada, ficheiros INF personalizados. A edi&#xE7;&#xE3;o quebra a assinatura do cat&#xE1;logo e o Windows recusa-os. Todas as subpastas s&#xE3;o analisadas; cada pacote modificado recebe um novo cat&#xE1;logo (MakeCat por predefini&#xE7;&#xE3;o, ou o motor que escolher abaixo) assinado com o seu pr&#xF3;prio certificado. O pacote &#xE9; adicionado &#xE0; ISO atrav&#xE9;s de $OEM$ e instalado pelo SetupComplete.cmd no fim da instala&#xE7;&#xE3;o do Windows, logo depois de o certificado ser considerado fidedigno.
+Driver package	Pacote de controladores
+Folder	Pasta
+Name	Nome
+installs from C:\Drivers\NVIDIA during setup	instala a partir de C:\Drivers\NVIDIA durante a instala&#xE7;&#xE3;o
+Engine	Motor
+Signing engine: MakeCat	Motor de assinatura: MakeCat
+Signing engine: libwdi-style	Motor de assinatura: libwdi-style
+Signing engine: generate-cat-file in WSL	Motor de assinatura: generate-cat-file no WSL
+Signing engine: Inf2Cat	Motor de assinatura: Inf2Cat
+Re-sign every package, not only the modified ones	Voltar a assinar todos os pacotes, n&#xE3;o s&#xF3; os modificados
+Delete the driver copy from C:\Drivers once it is installed	Apagar a c&#xF3;pia dos controladores de C:\Drivers depois de instalada
+Faster: new catalogs only for the INF files that need one	Mais r&#xE1;pido: novos cat&#xE1;logos s&#xF3; para os ficheiros INF que precisam de um
+Every INF stays in the package, and the ones you did not edit keep their NVIDIA / Microsoft signature. MakeCat and the other folder engines point only the edited INF files at the folder's new catalog (off: every INF of the folder). Inf2Cat gets a copy of the folder with only the edited INF files (the driver files are hard links - no extra space), several at the same time; an edited INF whose catalog is shared with the others (nv_dispi.cat) gets a catalog file of its own. If Inf2Cat fails on that copy, the whole folder is catalogued as before.	Todos os INF ficam no pacote, e os que n&#xE3;o editou mant&#xEA;m a assinatura da NVIDIA / Microsoft. O MakeCat e os outros motores por pasta apontam apenas os INF editados para o novo cat&#xE1;logo da pasta (desativado: todos os INF da pasta). O Inf2Cat recebe uma c&#xF3;pia da pasta s&#xF3; com os INF editados (os ficheiros dos controladores s&#xE3;o liga&#xE7;&#xF5;es f&#xED;sicas - sem espa&#xE7;o extra), v&#xE1;rias ao mesmo tempo; um INF editado cujo cat&#xE1;logo &#xE9; partilhado com os outros (nv_dispi.cat) recebe um ficheiro de cat&#xE1;logo pr&#xF3;prio. Se o Inf2Cat falhar nessa c&#xF3;pia, a pasta inteira &#xE9; catalogada como antes.
+Faster: only keep the INF files for this PC's hardware (when the ISO is for this PC)	Mais r&#xE1;pido: manter s&#xF3; os ficheiros INF do hardware deste PC (quando a ISO &#xE9; para este PC)
+Mostly for Inf2Cat: NVIDIA's Display.Driver has one INF file per laptop and desktop maker, and Inf2Cat checks every one of them against the whole package - that can take up to an hour. With this on, only the INF files that list a device of this PC are signed (minutes instead), the others are removed from the copy. The original folder is not touched.	Sobretudo para o Inf2Cat: o Display.Driver da NVIDIA tem um ficheiro INF por fabricante de port&#xE1;teis e de computadores de secret&#xE1;ria, e o Inf2Cat verifica cada um contra o pacote inteiro - pode demorar at&#xE9; uma hora. Com isto ativo, s&#xF3; s&#xE3;o assinados os INF que indicam um dispositivo deste PC (minutos em vez disso); os outros s&#xE3;o removidos da c&#xF3;pia. A pasta original n&#xE3;o &#xE9; alterada.
+Catalog runs at the same time	Cataloga&#xE7;&#xF5;es em simult&#xE2;neo
+1-8, empty = processor cores up to 8. Each Inf2Cat run uses one core; MakeCat does up to 4 folders at once.	1-8, vazio = n&#xFA;cleos do processador at&#xE9; 8. Cada execu&#xE7;&#xE3;o do Inf2Cat usa um n&#xFA;cleo; o MakeCat trata at&#xE9; 4 pastas de uma vez.
+Sign and add to the ISO	Assinar e adicionar &#xE0; ISO
+Open signing folder	Abrir a pasta de assinatura
+Signing certificate	Certificado de assinatura
+DriverSigning.pfx (private key) stays in the signing folder next to this tool - back it up and never share or upload it. Only the public DriverSigning.cer goes into the ISO. Tools (makecat, Inf2Cat, signtool) are downloaded automatically.	O DriverSigning.pfx (chave privada) fica na pasta de assinatura ao lado desta ferramenta - fa&#xE7;a uma c&#xF3;pia de seguran&#xE7;a e nunca o partilhe nem o carregue em lado nenhum. S&#xF3; o DriverSigning.cer p&#xFA;blico vai para a ISO. As ferramentas (makecat, Inf2Cat, signtool) s&#xE3;o transferidas automaticamente.
+Packages added to the ISO	Pacotes adicionados &#xE0; ISO
+Answer file and $OEM$	Ficheiro de respostas e $OEM$
+Both are optional and copied into the media when the ISO is built.	Ambos s&#xE3;o opcionais e s&#xE3;o copiados para o suporte quando a ISO &#xE9; criada.
+none	nenhum
+Placed in the ISO root so Setup runs unattended. Create one with the autounattend generator.	Colocado na raiz da ISO para a Configura&#xE7;&#xE3;o correr sem interven&#xE7;&#xE3;o. Crie um com o gerador de autounattend.
+Choose autounattend.xml	Escolher autounattend.xml
+Open the generator	Abrir o gerador
+Remove	Remover
+$OEM$ folder	Pasta $OEM$
+Copied to sources\$OEM$: $OEM$\$1 lands in C:\ and $OEM$\$$ in C:\Windows (e.g. $$\Setup\Scripts\SetupComplete.cmd). Packages from the signed-drivers page are merged in, and your SetupComplete.cmd gets a call to SetupComplete-drivers.cmd as its first command.	Copiada para sources\$OEM$: $OEM$\$1 vai para C:\ e $OEM$\$$ para C:\Windows (p. ex. $$\Setup\Scripts\SetupComplete.cmd). Os pacotes da p&#xE1;gina de controladores assinados s&#xE3;o juntados, e o seu SetupComplete.cmd recebe uma chamada a SetupComplete-drivers.cmd como primeiro comando.
+Choose $OEM$ folder	Escolher a pasta $OEM$
+Open	Abrir
+Slipstream and build	Integrar e criar
+Slipstream applies updates, drivers and options to WinRE, install.wim and boot.wim (30-90 minutes). Build writes the bootable BIOS + UEFI ISO with your answer file, $OEM$ and signed drivers.	A integra&#xE7;&#xE3;o aplica atualiza&#xE7;&#xF5;es, controladores e op&#xE7;&#xF5;es ao WinRE, install.wim e boot.wim (30-90 minutos). A cria&#xE7;&#xE3;o escreve a ISO de arranque BIOS + UEFI com o seu ficheiro de respostas, $OEM$ e controladores assinados.
+Boot options	Op&#xE7;&#xF5;es de arranque
+UEFI boot without 'Press any key to boot from CD or DVD'	Arranque UEFI sem 'Prima qualquer tecla para arrancar a partir do CD ou DVD'
+Boot manager signed by Windows UEFI CA 2023 (needs firmware that trusts it)	Gestor de arranque assinado pela Windows UEFI CA 2023 (precisa de firmware que confie nela)
+Split install.wim into 3.8 GB parts (FAT32 USB sticks)	Dividir o install.wim em partes de 3,8 GB (pens USB FAT32)
+Speed	Velocidade
+Update boot.wim and WinRE at the same time as install.wim (faster, uses more CPU and disk)	Atualizar o boot.wim e o WinRE ao mesmo tempo que o install.wim (mais r&#xE1;pido, usa mais CPU e disco)
+Editions at the same time	Edi&#xE7;&#xF5;es em simult&#xE2;neo
+Editions updated at the same time	Edi&#xE7;&#xF5;es atualizadas em simult&#xE2;neo
+1-4, empty = automatic (2 on 4+ processor cores, 3 on 8+). Each one needs about 25 GB free on the work drive; fewer run at once when there is less. 1 = one after the other.	1-4, vazio = autom&#xE1;tico (2 com 4+ n&#xFA;cleos, 3 com 8+). Cada uma precisa de cerca de 25 GB livres na unidade de trabalho; com menos espa&#xE7;o correm menos de cada vez. 1 = uma depois da outra.
+Let Windows Defender skip the work folder while a job runs (removed again afterwards)	Deixar o Windows Defender ignorar a pasta de trabalho durante uma tarefa (removido depois)
+Leave boot.wim index 1 (Windows PE for WDS servers) as it is - USB / DVD setup uses index 2	Deixar o &#xED;ndice 1 do boot.wim (Windows PE para servidores WDS) como est&#xE1; - a instala&#xE7;&#xE3;o por USB / DVD usa o &#xED;ndice 2
+DISM applies each update with one process, so servicing one image cannot use more cores - updating boot.wim, WinRE and several editions side by side can. Defender scanning every file DISM writes is often the biggest slowdown. Storage / network drivers go into WinRE and boot.wim with one DISM call. The log ends with the time of every step.	O DISM aplica cada atualiza&#xE7;&#xE3;o com um s&#xF3; processo, por isso a manuten&#xE7;&#xE3;o de uma imagem n&#xE3;o aproveita mais n&#xFA;cleos - atualizar o boot.wim, o WinRE e v&#xE1;rias edi&#xE7;&#xF5;es lado a lado sim. A an&#xE1;lise do Defender a cada ficheiro que o DISM escreve &#xE9; muitas vezes o maior atraso. Os controladores de armazenamento / rede v&#xE3;o para o WinRE e o boot.wim numa s&#xF3; chamada ao DISM. O registo termina com o tempo de cada passo.
+Output ISO	ISO de sa&#xED;da
+Save as...	Guardar como...
+Empty = work folder\output\Win10_ or Win11_version_build_arch_date.iso	Vazio = pasta de trabalho\output\Win10_ ou Win11_vers&#xE3;o_compila&#xE7;&#xE3;o_arquitetura_data.iso
+1 - Slipstream into the image	1 - Integrar na imagem
+2 - Build the ISO	2 - Criar a ISO
+Open output folder	Abrir a pasta de sa&#xED;da
+Result	Resultado
+No ISO built yet.	Ainda nenhuma ISO criada.
+Work folder	Pasta de trabalho
+Apply	Aplicar
+Short NTFS path without spaces with about 30 GB free (e.g. D:\W10U). A new folder starts empty.	Caminho NTFS curto, sem espa&#xE7;os, com cerca de 30 GB livres (p. ex. D:\W10U). Uma pasta nova come&#xE7;a vazia.
+Clean up	Limpeza
+Leftover mounted images and temporary files are always removed. Also delete:	As imagens montadas que sobraram e os ficheiros tempor&#xE1;rios s&#xE3;o sempre removidos. Apagar tamb&#xE9;m:
+Downloaded updates	Atualiza&#xE7;&#xF5;es transferidas
+Unpacked media	Suporte extra&#xED;do
+Built ISOs	ISOs criadas
+Re-signed driver copies	C&#xF3;pias de controladores assinados de novo
+Copied drivers (this PC / imported folder)	Controladores copiados (deste PC / pasta importada)
+Answer file copy and install check results (the answer file must be chosen again)	C&#xF3;pia do ficheiro de respostas e resultados da verifica&#xE7;&#xE3;o (o ficheiro de respostas tem de ser escolhido de novo)
+Logs	Registos
+Everything - empty the work folder and start from scratch	Tudo - esvaziar a pasta de trabalho e come&#xE7;ar do zero
+Clean up now	Limpar agora
+Defaults	Predefini&#xE7;&#xF5;es
+Restore default options	Repor as op&#xE7;&#xF5;es predefinidas
+Open work folder	Abrir a pasta de trabalho
+Everything missing is downloaded automatically when a step needs it, into the tools folder next to this file. oscdimg.exe comes from the Microsoft symbol server (SHA-256 checked) or the Windows ADK; makecat, Inf2Cat and signtool are extracted from Microsoft's NuGet packages (Windows SDK build tools / Windows Driver Kit) - only those tools are kept, nothing is installed.	Tudo o que faltar &#xE9; transferido automaticamente quando um passo precisa, para a pasta tools ao lado deste ficheiro. O oscdimg.exe vem do servidor de s&#xED;mbolos da Microsoft (verificado com SHA-256) ou do Windows ADK; makecat, Inf2Cat e signtool s&#xE3;o extra&#xED;dos dos pacotes NuGet da Microsoft (Windows SDK build tools / Windows Driver Kit) - s&#xF3; essas ferramentas s&#xE3;o guardadas, nada &#xE9; instalado.
+Download missing tools now	Transferir agora as ferramentas em falta
+Open tools folder	Abrir a pasta de ferramentas
+Checks your autounattend.xml, $OEM$ folder and drivers against the ISO you are building and points out what would break or stall a clean install: wrong edition index or language, invalid computer / account names or time zone, duplicate command numbers, scripts that wait for a key, missing files, drivers that nothing installs or that Windows will refuse, and SetupComplete.cmd being skipped on PCs with an OEM key. Fixes change only the copies that go into the ISO - your own files stay as they are. The check also runs before every ISO build.	Verifica o seu autounattend.xml, a pasta $OEM$ e os controladores em rela&#xE7;&#xE3;o &#xE0; ISO que est&#xE1; a criar e indica o que estragaria ou pararia uma instala&#xE7;&#xE3;o limpa: &#xED;ndice de edi&#xE7;&#xE3;o ou idioma errados, nomes de computador / conta ou fuso hor&#xE1;rio inv&#xE1;lidos, n&#xFA;meros de comando repetidos, scripts que esperam por uma tecla, ficheiros em falta, controladores que nada instala ou que o Windows vai recusar, e o SetupComplete.cmd a ser ignorado em PCs com chave OEM. As corre&#xE7;&#xF5;es s&#xF3; alteram as c&#xF3;pias que v&#xE3;o para a ISO - os seus ficheiros ficam como est&#xE3;o. A verifica&#xE7;&#xE3;o tamb&#xE9;m corre antes de cada cria&#xE7;&#xE3;o da ISO.
+Run the check	Executar a verifica&#xE7;&#xE3;o
+Apply all fixes	Aplicar todas as corre&#xE7;&#xF5;es
+Save fixed answer file as...	Guardar o ficheiro de respostas corrigido como...
+Undo answer file fixes	Anular as corre&#xE7;&#xF5;es do ficheiro de respostas
+Not run yet.	Ainda n&#xE3;o executada.
+Level	N&#xED;vel
+Area	&#xC1;rea
+Finding	Resultado
+Fix	Corre&#xE7;&#xE3;o
+Also install the driver folders in my $OEM$\$1 with pnputil (from SetupComplete-drivers.cmd)	Instalar tamb&#xE9;m as pastas de controladores do meu $OEM$\$1 com o pnputil (a partir do SetupComplete-drivers.cmd)
+Filter	Filtrar
+Class, provider, INF or folder name	Classe, fornecedor, INF ou nome da pasta
+All that fit	Todos os compat&#xED;veis
+Tick shown	Marcar os vis&#xED;veis
+None	Nenhum
+Add ticked drivers	Adicionar os controladores marcados
+Cancel	Cancelar
+Driver signing certificate	Certificado de assinatura de controladores
+Password	Palavra-passe
+Repeat the password	Repetir a palavra-passe
+Not there yet: {0}	Ainda n&#xE3;o existe: {0}
+Dark theme	Tema escuro
+Switch to the dark theme	Mudar para o tema escuro
+Another job is still running.	Outra tarefa ainda est&#xE1; a decorrer.
+{0} finished in {1:mm\:ss}	{0} conclu&#xED;do em {1:mm\:ss}
+{0} stopped with an error - see the log	{0} parou com um erro - veja o registo
+Unpack	Extrair
+Analyze	Analisar
+Download updates	Transferir atualiza&#xE7;&#xF5;es
+Driver scan	An&#xE1;lise de controladores
+Copy drivers	Copiar controladores
+Folder scan	An&#xE1;lise de pasta
+Import drivers	Importar controladores
+Re-sign drivers	Voltar a assinar controladores
+Slipstream	Integra&#xE7;&#xE3;o
+Build ISO	Criar ISO
+Apply fixes	Aplicar corre&#xE7;&#xF5;es
+no ISO yet	ainda sem ISO
+{0}  |  {1}  |  {2}  |  {3} edition(s)	{0}  |  {1}  |  {2}  |  {3} edi&#xE7;&#xE3;o(&#xF5;es)
+{0} free	{0} livres
+unpacked	extra&#xED;da
+{0} of {1} ticked	{0} de {1} marcadas
+tick at least one	marque pelo menos uma
+not available for this build	indispon&#xED;vel para esta compila&#xE7;&#xE3;o
+{0} ({1}) + {2} more	{0} ({1}) + mais {2}
+{0} packages ({1} for boot)	{0} pacotes ({1} para o arranque)
+none (optional)	nenhum (opcional)
+{0} error(s), {1} warning(s)	{0} erro(s), {1} aviso(s)
+{0} warning(s)	{0} aviso(s)
+all good	tudo bem
+ISO ready	ISO pronta
+slipstreamed ({0}) - build the ISO	integrada ({0}) - crie a ISO
+Updates for Windows 11 21H2, 22H2 / 23H2, 24H2 / LTSC 2024 and 25H2 (x64, ARM64). On a Windows 10 PC the slipstream uses the DISM of the Windows ADK Deployment Tools, installed from Microsoft when needed.	Atualiza&#xE7;&#xF5;es para o Windows 11 21H2, 22H2 / 23H2, 24H2 / LTSC 2024 e 25H2 (x64, ARM64). Num PC com Windows 10, a integra&#xE7;&#xE3;o usa o DISM das Ferramentas de Implementa&#xE7;&#xE3;o do Windows ADK, instaladas a partir da Microsoft quando necess&#xE1;rio.
+Updates for Windows 10 1607 / LTSB 2016, 1809 / LTSC 2019, 2004-22H2 and LTSC 2021 (x64, x86, ARM64).	Atualiza&#xE7;&#xF5;es para o Windows 10 1607 / LTSB 2016, 1809 / LTSC 2019, 2004-22H2 e LTSC 2021 (x64, x86, ARM64).
+The unpacked ISO is Windows {0} - pick a Windows {1} ISO and unpack it to switch.	A ISO extra&#xED;da &#xE9; Windows {0} - escolha uma ISO do Windows {1} e extraia-a para mudar.
+Download Windows {0} from Microsoft	Transferir o Windows {0} da Microsoft
+Windows 11: the newest updates in the Microsoft Update Catalog are used (21H2, which is out of servicing: its last ones, 2024-10).	Windows 11: s&#xE3;o usadas as atualiza&#xE7;&#xF5;es mais recentes do Cat&#xE1;logo do Microsoft Update (21H2, j&#xE1; fora de suporte: as suas &#xFA;ltimas, 2024-10).
+{0}  -  build {1}  -  {2}  -  {3} edition(s)	{0}  -  compila&#xE7;&#xE3;o {1}  -  {2}  -  {3} edi&#xE7;&#xE3;o(&#xF5;es)
+No automatic updates for this build - drivers, signed packages, answer file and $OEM$ still work.	Sem atualiza&#xE7;&#xF5;es autom&#xE1;ticas para esta compila&#xE7;&#xE3;o - controladores, pacotes assinados, ficheiro de respostas e $OEM$ continuam a funcionar.
+Updates up to {0} (the last month Microsoft allows offline for Windows 10).	Atualiza&#xE7;&#xF5;es at&#xE9; {0} (o &#xFA;ltimo m&#xEA;s que a Microsoft permite integrar offline no Windows 10).
+Its last updates ({0}) - this version is out of servicing.	As suas &#xFA;ltimas atualiza&#xE7;&#xF5;es ({0}) - esta vers&#xE3;o est&#xE1; fora de suporte.
+Newest updates available in the Microsoft Update Catalog.	Atualiza&#xE7;&#xF5;es mais recentes dispon&#xED;veis no Cat&#xE1;logo do Microsoft Update.
+The {0} enablement package is added too.	O pacote de ativa&#xE7;&#xE3;o {0} tamb&#xE9;m &#xE9; adicionado.
+{0} driver package(s), {1} storage/network for boot.wim and WinRE, about {2:N0} MB	{0} pacote(s) de controladores, {1} de armazenamento/rede para o boot.wim e o WinRE, cerca de {2:N0} MB
+No drivers selected.	Nenhum controlador selecionado.
+this PC only ({0} kept)	s&#xF3; este PC ({0} mantidos)
+all	todos
+Ready - {0}, valid until {1:yyyy-MM-dd} (backed up as DriverSigning.pfx)	Pronto - {0}, v&#xE1;lido at&#xE9; {1:yyyy-MM-dd} (c&#xF3;pia de seguran&#xE7;a em DriverSigning.pfx)
+In this PC's certificate store, not backed up yet - you will be asked for a password to save DriverSigning.pfx.	No arquivo de certificados deste PC, ainda sem c&#xF3;pia de seguran&#xE7;a - vai ser pedida uma palavra-passe para guardar o DriverSigning.pfx.
+DriverSigning.pfx found - its password is asked when you sign.	DriverSigning.pfx encontrado - a palavra-passe &#xE9; pedida quando assinar.
+None yet - one is created the first time you sign (you choose its password).	Ainda nenhum - &#xE9; criado na primeira vez que assinar (escolhe a palavra-passe).
+{0}   (added {1})	{0}   (adicionado {1})
+Slipstreamed on {0} - build {1}. Build the ISO next.	Integrada em {0} - compila&#xE7;&#xE3;o {1}. A seguir, crie a ISO.
+{0} error(s), {1} warning(s), {2} check(s) passed   -   {3}	{0} erro(s), {1} aviso(s), {2} verifica&#xE7;&#xE3;o(&#xF5;es) aprovada(s)   -   {3}
+Apply {0} fix(es)	Aplicar {0} corre&#xE7;&#xE3;o(&#xF5;es)
+The ISO uses a fixed copy of your answer file (fixed {0}). Save it to update your own file too.	A ISO usa uma c&#xF3;pia corrigida do seu ficheiro de respostas (corrigida em {0}). Guarde-a para atualizar tamb&#xE9;m o seu ficheiro.
+folder not found	pasta n&#xE3;o encontrada
+{0} files, {1}   ({2})	{0} ficheiros, {1}   ({2})
+has SetupComplete.cmd	tem SetupComplete.cmd
+missing - downloaded automatically when you build the ISO	em falta - transferido automaticamente quando criar a ISO
+missing - downloaded automatically when you sign drivers	em falta - transferido automaticamente quando assinar controladores
+missing - downloaded only if the signing engine needs Inf2Cat as fallback	em falta - s&#xF3; &#xE9; transferido se o motor de assinatura precisar do Inf2Cat como alternativa
+missing - only needed for the MakeCat signing engine	em falta - s&#xF3; &#xE9; preciso para o motor de assinatura MakeCat
+missing - PowerShell / BITS downloads are used	em falta - s&#xE3;o usadas transfer&#xEA;ncias do PowerShell / BITS
+Default. makecat.exe (Windows SDK) builds one catalog per driver folder with the hash of every file in it, so each file is hashed once - about 20 s for NVIDIA's 3 GB Display.Driver instead of minutes. Compressed files (name.dl_) are hashed expanded, the way Windows checks them. MakeCat does not parse the INF: every catalog is checked with signtool afterwards, and a folder MakeCat cannot do goes to Inf2Cat.	Predefinido. O makecat.exe (Windows SDK) cria um cat&#xE1;logo por pasta de controladores com o hash de todos os ficheiros nela, por isso cada ficheiro &#xE9; calculado uma s&#xF3; vez - cerca de 20 s para os 3 GB do Display.Driver da NVIDIA em vez de minutos. Os ficheiros comprimidos (nome.dl_) s&#xE3;o calculados expandidos, como o Windows os verifica. O MakeCat n&#xE3;o analisa o INF: cada cat&#xE1;logo &#xE9; verificado com o signtool depois, e uma pasta que o MakeCat n&#xE3;o consiga tratar passa para o Inf2Cat.
+Experimental. The catalog is built with the CryptCAT API of Windows itself, the way libwdi (Zadig) does it - nothing to download. One catalog per driver folder with the hash of every file in it (SHA-1). Checked with signtool afterwards; a folder it cannot do goes to Inf2Cat.	Experimental. O cat&#xE1;logo &#xE9; criado com a API CryptCAT do pr&#xF3;prio Windows, como faz o libwdi (Zadig) - nada a transferir. Um cat&#xE1;logo por pasta de controladores com o hash de todos os ficheiros nela (SHA-1). Verificado com o signtool depois; uma pasta que n&#xE3;o consiga tratar passa para o Inf2Cat.
+Experimental. LINBIT generate-cat-file (GPL-2.0): its source is downloaded from GitHub (one pinned commit, SHA-256 checked) and built inside WSL - needs WSL with a Linux distribution that has gcc and make. One catalog per driver folder; Inf2Cat signs when WSL or the build is missing.	Experimental. LINBIT generate-cat-file (GPL-2.0): o c&#xF3;digo-fonte &#xE9; transferido do GitHub (um commit fixo, verificado com SHA-256) e compilado dentro do WSL - precisa do WSL com uma distribui&#xE7;&#xE3;o Linux que tenha gcc e make. Um cat&#xE1;logo por pasta de controladores; o Inf2Cat assina quando falta o WSL ou a compila&#xE7;&#xE3;o.
+Microsoft's standard tool from the Windows Driver Kit: it parses every INF and checks it against every file of the package. The proven choice, but slow on big packages - the options below make it faster.	A ferramenta padr&#xE3;o da Microsoft, do Windows Driver Kit: analisa cada INF e verifica-o contra todos os ficheiros do pacote. A escolha comprovada, mas lenta em pacotes grandes - as op&#xE7;&#xF5;es abaixo tornam-na mais r&#xE1;pida.
+installs from {0} during Windows setup	instala a partir de {0} durante a instala&#xE7;&#xE3;o do Windows
+{0} older version(s) of drivers that are here in a newer version too are unticked (column Older) - Windows uses the newest one.	{0} vers&#xE3;o(&#xF5;es) antiga(s) de controladores que tamb&#xE9;m est&#xE3;o aqui numa vers&#xE3;o mais recente ficam desmarcadas (coluna Antiga) - o Windows usa a mais recente.
+DriverSigning.pfx was found next to this tool. Enter its password to load your signing certificate.	O DriverSigning.pfx foi encontrado ao lado desta ferramenta. Introduza a palavra-passe para carregar o seu certificado de assinatura.
+Your signing certificate is in this PC's store but has no backup yet. Choose a password to save it as DriverSigning.pfx - you need it to sign again after reinstalling Windows.	O seu certificado de assinatura est&#xE1; no arquivo deste PC mas ainda n&#xE3;o tem c&#xF3;pia de seguran&#xE7;a. Escolha uma palavra-passe para o guardar como DriverSigning.pfx - precisa dele para voltar a assinar depois de reinstalar o Windows.
+A new self-signed code-signing certificate will be created. Choose a password for its backup file DriverSigning.pfx - you need it to sign again after reinstalling Windows.	Vai ser criado um novo certificado de assinatura de c&#xF3;digo autoassinado. Escolha uma palavra-passe para o ficheiro de c&#xF3;pia de seguran&#xE7;a DriverSigning.pfx - precisa dele para voltar a assinar depois de reinstalar o Windows.
+Enter a password.	Introduza uma palavra-passe.
+The passwords do not match.	As palavras-passe n&#xE3;o coincidem.
+Index	&#xCD;ndice
+Edition	Edi&#xE7;&#xE3;o
+Build	Compila&#xE7;&#xE3;o
+Size	Tamanho
+SizeGB	Tamanho (GB)
+Kind	Tipo
+Date	Data
+Title	T&#xED;tulo
+No	N.&#xBA;
+Source	Origem
+Class	Classe
+Provider	Fornecedor
+Version	Vers&#xE3;o
+SizeMB	Tamanho (MB)
+InstallsFrom	Instala de
+Signed	Assinados
+Failed	Falhados
+When	Quando
+FixText	Corre&#xE7;&#xE3;o
+Arch	Arquitetura
+Older	Antiga
+Unpack an ISO first (page 1).	Extraia primeiro uma ISO (p&#xE1;gina 1).
+Choose an existing .iso file first.	Escolha primeiro um ficheiro .iso existente.
+The work folder already has unpacked media ({0}). Replace it with a fresh copy of this ISO?	A pasta de trabalho j&#xE1; tem um suporte extra&#xED;do ({0}). Substitu&#xED;-lo por uma c&#xF3;pia nova desta ISO?
+Drivers installed on this PC	Controladores instalados neste PC
+Third-party drivers exported from this PC. Ticked ones are slipstreamed into the ISO.	Controladores de terceiros exportados deste PC. Os marcados s&#xE3;o integrados na ISO.
+Pick the drivers folder - Drivers-Backup made by Drivers.cmd, a folder from another PC or a vendor pack. All subfolders are scanned.	Escolha a pasta de controladores - Drivers-Backup criada pelo Drivers.cmd, uma pasta de outro PC ou um pacote do fabricante. Todas as subpastas s&#xE3;o analisadas.
+No .inf drivers in that folder.	N&#xE3;o h&#xE1; controladores .inf nessa pasta.
+Drivers in {0}	Controladores em {0}
+Drivers built for another architecture than the ISO are unticked and left out.	Os controladores feitos para outra arquitetura que n&#xE3;o a da ISO ficam desmarcados e de fora.
+Choose the driver folder first (for example the folder NVCleanstall extracted).	Escolha primeiro a pasta dos controladores (por exemplo a pasta que o NVCleanstall extraiu).
+There are no .inf files in that folder or its subfolders.	N&#xE3;o h&#xE1; ficheiros .inf nessa pasta nem nas subpastas.
+Tick at least one edition first.	Marque primeiro pelo menos uma edi&#xE7;&#xE3;o.
+This media was already slipstreamed on {0}. For a clean result unpack the ISO again (page 1). Slipstream again anyway?	Este suporte j&#xE1; foi integrado em {0}. Para um resultado limpo, extraia de novo a ISO (p&#xE1;gina 1). Integrar de novo mesmo assim?
+No updates are downloaded (page 3). Continue with drivers and options only?	N&#xE3;o h&#xE1; atualiza&#xE7;&#xF5;es transferidas (p&#xE1;gina 3). Continuar s&#xF3; com controladores e op&#xE7;&#xF5;es?
+The media has not been slipstreamed yet. Build the ISO anyway (drivers, updates and options are then missing)?	O suporte ainda n&#xE3;o foi integrado. Criar a ISO mesmo assim (faltam ent&#xE3;o os controladores, as atualiza&#xE7;&#xF5;es e as op&#xE7;&#xF5;es)?
+Nothing to fix automatically - run the check first. Findings without a fix need a change on the page they mention.	Nada para corrigir automaticamente - execute primeiro a verifica&#xE7;&#xE3;o. Os resultados sem corre&#xE7;&#xE3;o precisam de uma altera&#xE7;&#xE3;o na p&#xE1;gina que indicam.
+Apply these fixes? They change the copies that go into the ISO, not your own files.	Aplicar estas corre&#xE7;&#xF5;es? Alteram as c&#xF3;pias que v&#xE3;o para a ISO, n&#xE3;o os seus ficheiros.
+Choose the source ISO on page 1 first.	Escolha primeiro a ISO de origem na p&#xE1;gina 1.
+yes	sim
+no	n&#xE3;o
+Source: {0}	Origem: {0}
+Editions: {0}	Edi&#xE7;&#xF5;es: {0}
+{0} ticked	{0} marcadas
+asked after unpacking	perguntado depois de extrair
+Drivers: {0}   Signed packages: {1}	Controladores: {0}   Pacotes assinados: {1}
+Answer file: {0}   $OEM$: {1}	Ficheiro de respostas: {0}   $OEM$: {1}
+Run everything now? It takes 30-90 minutes - the PC is kept awake until it is done.	Executar tudo agora? Demora 30-90 minutos - o PC fica acordado at&#xE9; terminar.
+While a job runs (unpack, download, sign, slipstream, build), Windows Defender does not scan the work folder ({0}). The exclusion is removed when the job ends, and at the next start if the program was closed during a job. Everything in there comes from Microsoft, your drivers and this tool - do not put other downloads in that folder.	Durante uma tarefa (extrair, transferir, assinar, integrar, criar), o Windows Defender n&#xE3;o analisa a pasta de trabalho ({0}). A exclus&#xE3;o &#xE9; removida quando a tarefa termina, e no pr&#xF3;ximo arranque se o programa tiver sido fechado durante uma tarefa. Tudo o que l&#xE1; est&#xE1; vem da Microsoft, dos seus controladores e desta ferramenta - n&#xE3;o coloque l&#xE1; outras transfer&#xEA;ncias.
+Use this only when the ISO is for this PC. INF files for other hardware are removed from the signed copy, so the driver installs only on hardware that matches this PC. NVIDIA's own setup.exe may refuse to run from that copy - pnputil installs the driver anyway. Sign the package again for it to take effect.	Use isto s&#xF3; quando a ISO &#xE9; para este PC. Os ficheiros INF de outro hardware s&#xE3;o removidos da c&#xF3;pia assinada, por isso o controlador s&#xF3; se instala em hardware igual ao deste PC. O pr&#xF3;prio setup.exe da NVIDIA pode recusar-se a correr a partir dessa c&#xF3;pia - o pnputil instala o controlador na mesma. Assine o pacote de novo para ter efeito.
+With Secure Boot on, this ISO only boots on PCs whose UEFI already trusts 'Windows UEFI CA 2023'. Older firmware needs that Secure Boot update first (or Secure Boot off). The image also needs a 2024-04 or newer update.	Com o Arranque Seguro ativo, esta ISO s&#xF3; arranca em PCs cujo UEFI j&#xE1; confia na 'Windows UEFI CA 2023'. Firmware mais antigo precisa primeiro dessa atualiza&#xE7;&#xE3;o do Arranque Seguro (ou do Arranque Seguro desligado). A imagem tamb&#xE9;m precisa de uma atualiza&#xE7;&#xE3;o de 2024-04 ou mais recente.
+Use the YYYY-MM format, e.g. 2025-10.	Use o formato AAAA-MM, p. ex. 2025-10.
+Use a number from 1 to 8 (or leave it empty for the number of processor cores, up to 8).	Use um n&#xFA;mero de 1 a 8 (ou deixe vazio para o n&#xFA;mero de n&#xFA;cleos do processador, at&#xE9; 8).
+Use a number from 1 to 4 (or leave it empty: 2 on 4+ processor cores, 3 on 8+).	Use um n&#xFA;mero de 1 a 4 (ou deixe vazio: 2 com 4+ n&#xFA;cleos, 3 com 8+).
+Select a Windows {0} ISO	Selecione uma ISO do Windows {0}
+ISO images	Imagens ISO
+Select the drivers to remove in the list first (Ctrl+click for several).	Selecione primeiro na lista os controladores a remover (Ctrl+clique para v&#xE1;rios).
+Remove every selected driver?	Remover todos os controladores selecionados?
+Pick the modded driver folder (e.g. the folder NVCleanstall extracted). All subfolders are scanned.	Escolha a pasta dos controladores modificados (p. ex. a pasta que o NVCleanstall extraiu). Todas as subpastas s&#xE3;o analisadas.
+Select a package in the list first.	Selecione primeiro um pacote na lista.
+Select your autounattend.xml	Selecione o seu autounattend.xml
+Answer files	Ficheiros de respostas
+Pick your $OEM$ folder (the one that contains $1 and/or $$)	Escolha a sua pasta $OEM$ (a que cont&#xE9;m $1 e/ou $$)
+ISO image	Imagem ISO
+Pick or create the work folder (NTFS, no spaces, ~30 GB free)	Escolha ou crie a pasta de trabalho (NTFS, sem espa&#xE7;os, ~30 GB livres)
+The path has spaces - a short path like D:\W10U is safer for DISM. Use it anyway?	O caminho tem espa&#xE7;os - um caminho curto como D:\W10U &#xE9; mais seguro para o DISM. Us&#xE1;-lo mesmo assim?
+downloaded updates	atualiza&#xE7;&#xF5;es transferidas
+unpacked media	suporte extra&#xED;do
+built ISOs	ISOs criadas
+re-signed driver copies	c&#xF3;pias de controladores assinados de novo
+copied drivers	controladores copiados
+answer file copy and check results	c&#xF3;pia do ficheiro de respostas e resultados da verifica&#xE7;&#xE3;o
+logs	registos
+EVERYTHING in the work folder	TUDO o que est&#xE1; na pasta de trabalho
+mounted images and temp files	imagens montadas e ficheiros tempor&#xE1;rios
+Delete: {0}?	Apagar: {0}?
+Restore the default options? The work folder is kept.	Repor as op&#xE7;&#xF5;es predefinidas? A pasta de trabalho &#xE9; mantida.
+There is no answer file yet (page 6).	Ainda n&#xE3;o h&#xE1; ficheiro de respostas (p&#xE1;gina 6).
+Answer file	Ficheiro de respostas
+No answer file fixes to undo.	N&#xE3;o h&#xE1; corre&#xE7;&#xF5;es do ficheiro de respostas para anular.
+Put the answer file back the way it was before the fixes?	Repor o ficheiro de respostas como estava antes das corre&#xE7;&#xF5;es?
+'{0}' is still running. Closing now can leave a mounted image behind (run Clean up next time). Close anyway?	'{0}' ainda est&#xE1; a decorrer. Fechar agora pode deixar uma imagem montada (execute a Limpeza da pr&#xF3;xima vez). Fechar mesmo assim?
+'@ }
+        'es' { return @'
+updates + drivers + signed NVIDIA mods + autounattend + $OEM$  ->  bootable ISO	actualizaciones + controladores + mods NVIDIA firmados + autounattend + $OEM$  ->  ISO de arranque
+Light theme	Tema claro
+Switch to the light theme	Cambiar al tema claro
+Display and accessibility: theme, text size, font	Pantalla y accesibilidad: tema, tama&#xF1;o del texto, fuente
+Display and accessibility settings	Configuraci&#xF3;n de pantalla y accesibilidad
+Minimize	Minimizar
+Maximize	Maximizar
+Close	Cerrar
+Display and accessibility	Pantalla y accesibilidad
+Theme	Tema
+Dark	Oscuro
+Light	Claro
+Like Windows	Como Windows
+Text size	Tama&#xF1;o del texto
+Font	Fuente
+Language	Idioma
+Ctrl + plus / Ctrl + minus / Ctrl + 0 change the text size anywhere in the window. Verdana and Tahoma have wider, more distinct letters. Saved for the next start.	Ctrl + m&#xE1;s / Ctrl + menos / Ctrl + 0 cambian el tama&#xF1;o del texto en cualquier parte de la ventana. Verdana y Tahoma tienen letras m&#xE1;s anchas y m&#xE1;s claras. Se guarda para el pr&#xF3;ximo inicio.
+The Activity log and the Install check findings stay in English - that is what a bug report or a search needs.	El registro de Actividad y los resultados de la Comprobaci&#xF3;n de la instalaci&#xF3;n se quedan en ingl&#xE9;s: es lo que necesita un informe de error o una b&#xFA;squeda.
+STEPS	PASOS
+Source ISO	ISO de origen
+to do	pendiente
+Editions	Ediciones
+Windows updates	Actualizaciones de Windows
+Drivers	Controladores
+optional	opcional
+Signed NVIDIA / modded	NVIDIA firmados / modificados
+Answer file + $OEM$	Archivo de respuesta + $OEM$
+Install check	Comprobaci&#xF3;n de la instalaci&#xF3;n
+not run yet	a&#xFA;n no ejecutada
+Slipstream + build ISO	Integrar + crear ISO
+MORE	M&#xC1;S
+Options and clean up	Opciones y limpieza
+Tools	Herramientas
+Run everything	Ejecutar todo
+unpack - updates - slipstream - ISO, using what you set on each page	extraer - actualizaciones - integrar - ISO, con lo que configure en cada p&#xE1;gina
+SOURCE	ORIGEN
+IMAGE	IMAGEN
+WORK FOLDER	CARPETA DE TRABAJO
+ACTIVITY	ACTIVIDAD
+Ready	Listo
+Logs folder	Carpeta de registros
+Clear	Borrar
+Choose Windows 10 or Windows 11 and pick its ISO. It is copied into the work folder and its build and editions are detected - the version follows the ISO you unpack.	Elija Windows 10 o Windows 11 y seleccione su ISO. Se copia en la carpeta de trabajo y se detectan su compilaci&#xF3;n y sus ediciones; la versi&#xF3;n sigue a la ISO que extraiga.
+Windows version	Versi&#xF3;n de Windows
+ISO file	Archivo ISO
+Browse...	Examinar...
+Unpack and analyze	Extraer y analizar
+Re-read image info	Volver a leer la imagen
+Download Windows 10 from Microsoft	Descargar Windows 10 de Microsoft
+Detected image	Imagen detectada
+Nothing unpacked yet.	Todav&#xED;a no se ha extra&#xED;do nada.
+Tick the editions to update. With the option below on, unticked editions are left out of the new ISO (smaller and faster).	Marque las ediciones que quiere actualizar. Con la opci&#xF3;n de abajo activada, las ediciones sin marcar se quedan fuera de la nueva ISO (m&#xE1;s peque&#xF1;a y m&#xE1;s r&#xE1;pida).
+Tick all	Marcar todas
+Tick none	Desmarcar todas
+Use	Usar
+Keep only the ticked editions in the new ISO	Conservar solo las ediciones marcadas en la nueva ISO
+Finds the newest cumulative update, servicing stack, Safe OS and Setup Dynamic Updates and .NET updates for this build in the Microsoft Update Catalog and downloads them (SHA-1 checked).	Busca en el Cat&#xE1;logo de Microsoft Update la actualizaci&#xF3;n acumulativa m&#xE1;s reciente, la pila de servicio, las Actualizaciones din&#xE1;micas de Safe OS y de instalaci&#xF3;n y las actualizaciones de .NET para esta compilaci&#xF3;n, y las descarga (comprobadas con SHA-1).
+What to integrate	Qu&#xE9; integrar
+Add .NET Framework 4.8.1 (Windows 10 2004-22H2 - Windows 11 has it built in)	A&#xF1;adir .NET Framework 4.8.1 (Windows 10 2004-22H2; Windows 11 ya lo incluye)
+Enable .NET Framework 3.5 (from the ISO's sources\sxs)	Activar .NET Framework 3.5 (desde sources\sxs de la ISO)
+Component cleanup /ResetBase (smaller image - updates can't be uninstalled)	Limpieza de componentes /ResetBase (imagen m&#xE1;s peque&#xF1;a; las actualizaciones ya no se pueden desinstalar)
+Newest month to integrate	Mes m&#xE1;s reciente que integrar
+YYYY-MM, for Windows 10 2004-22H2 / LTSC 2021	AAAA-MM, para Windows 10 2004-22H2 / LTSC 2021
+2025-10 is the last Windows 10 update Microsoft allows offline. ESU updates (Nov 2025+) come from Windows Update after setup on enrolled PCs.	2025-10 es la &#xFA;ltima actualizaci&#xF3;n de Windows 10 que Microsoft permite integrar sin conexi&#xF3;n. Las actualizaciones ESU (nov. 2025+) llegan por Windows Update despu&#xE9;s de la instalaci&#xF3;n, en los PC inscritos.
+Find and download updates	Buscar y descargar actualizaciones
+Downloaded	Descargadas
+Signed drivers are slipstreamed into install.wim with DISM, so Windows installs them on first boot. Storage and network drivers also go into boot.wim and WinRE, so Setup sees RAID / VMD disks. Modded drivers (edited INF) belong on the next page.	Los controladores firmados se integran en install.wim con DISM, para que Windows los instale en el primer arranque. Los controladores de almacenamiento y de red van tambi&#xE9;n a boot.wim y WinRE, para que el programa de instalaci&#xF3;n vea discos RAID / VMD. Los controladores modificados (INF editado) van en la p&#xE1;gina siguiente.
+Add drivers from this PC	A&#xF1;adir controladores de este PC
+Import a drivers folder	Importar una carpeta de controladores
+Remove selected	Quitar los seleccionados
+Clear all	Quitar todos
+Also put storage and network drivers into boot.wim and WinRE	Poner tambi&#xE9;n los controladores de almacenamiento y de red en boot.wim y WinRE
+Allow unsigned drivers in DISM (/ForceUnsigned)	Permitir controladores sin firmar en DISM (/ForceUnsigned)
+Signed NVIDIA / modded drivers	Controladores NVIDIA firmados / modificados
+For driver packages whose INF was edited - NVCleanstall hardware-ID mods for an unsupported GPU, custom INF files. The edit breaks the catalog signature, so Windows refuses them. Every subfolder is scanned; each modified package gets a new catalog (MakeCat by default, or the engine you pick below) signed with your own certificate. The package is added to the ISO through $OEM$ and installed by SetupComplete.cmd at the end of Windows setup, right after the certificate is trusted.	Para paquetes de controladores cuyo INF se ha editado: mods de ID de hardware de NVCleanstall para una GPU no compatible, archivos INF personalizados. La edici&#xF3;n rompe la firma del cat&#xE1;logo y Windows los rechaza. Se analizan todas las subcarpetas; cada paquete modificado recibe un cat&#xE1;logo nuevo (MakeCat de forma predeterminada, o el motor que elija abajo) firmado con su propio certificado. El paquete se a&#xF1;ade a la ISO mediante $OEM$ y lo instala SetupComplete.cmd al final de la instalaci&#xF3;n de Windows, justo despu&#xE9;s de que el certificado pase a ser de confianza.
+Driver package	Paquete de controladores
+Folder	Carpeta
+Name	Nombre
+installs from C:\Drivers\NVIDIA during setup	se instala desde C:\Drivers\NVIDIA durante la instalaci&#xF3;n
+Engine	Motor
+Signing engine: MakeCat	Motor de firma: MakeCat
+Signing engine: libwdi-style	Motor de firma: libwdi-style
+Signing engine: generate-cat-file in WSL	Motor de firma: generate-cat-file en WSL
+Signing engine: Inf2Cat	Motor de firma: Inf2Cat
+Re-sign every package, not only the modified ones	Volver a firmar todos los paquetes, no solo los modificados
+Delete the driver copy from C:\Drivers once it is installed	Eliminar la copia de los controladores de C:\Drivers una vez instalada
+Faster: new catalogs only for the INF files that need one	M&#xE1;s r&#xE1;pido: cat&#xE1;logos nuevos solo para los archivos INF que lo necesitan
+Every INF stays in the package, and the ones you did not edit keep their NVIDIA / Microsoft signature. MakeCat and the other folder engines point only the edited INF files at the folder's new catalog (off: every INF of the folder). Inf2Cat gets a copy of the folder with only the edited INF files (the driver files are hard links - no extra space), several at the same time; an edited INF whose catalog is shared with the others (nv_dispi.cat) gets a catalog file of its own. If Inf2Cat fails on that copy, the whole folder is catalogued as before.	Todos los INF se quedan en el paquete, y los que no ha editado conservan su firma de NVIDIA / Microsoft. MakeCat y los dem&#xE1;s motores por carpeta apuntan solo los INF editados al nuevo cat&#xE1;logo de la carpeta (desactivado: todos los INF de la carpeta). Inf2Cat recibe una copia de la carpeta solo con los INF editados (los archivos de los controladores son v&#xED;nculos f&#xED;sicos: sin espacio extra), varias a la vez; un INF editado cuyo cat&#xE1;logo se comparte con los dem&#xE1;s (nv_dispi.cat) recibe un archivo de cat&#xE1;logo propio. Si Inf2Cat falla con esa copia, la carpeta entera se cataloga como antes.
+Faster: only keep the INF files for this PC's hardware (when the ISO is for this PC)	M&#xE1;s r&#xE1;pido: conservar solo los archivos INF del hardware de este PC (cuando la ISO es para este PC)
+Mostly for Inf2Cat: NVIDIA's Display.Driver has one INF file per laptop and desktop maker, and Inf2Cat checks every one of them against the whole package - that can take up to an hour. With this on, only the INF files that list a device of this PC are signed (minutes instead), the others are removed from the copy. The original folder is not touched.	Sobre todo para Inf2Cat: el Display.Driver de NVIDIA tiene un archivo INF por cada fabricante de port&#xE1;tiles y de sobremesa, e Inf2Cat comprueba cada uno contra el paquete entero; puede tardar hasta una hora. Con esto activado, solo se firman los INF que indican un dispositivo de este PC (minutos en su lugar); los dem&#xE1;s se quitan de la copia. La carpeta original no se toca.
+Catalog runs at the same time	Catalogaciones a la vez
+1-8, empty = processor cores up to 8. Each Inf2Cat run uses one core; MakeCat does up to 4 folders at once.	1-8, vac&#xED;o = n&#xFA;cleos del procesador hasta 8. Cada ejecuci&#xF3;n de Inf2Cat usa un n&#xFA;cleo; MakeCat procesa hasta 4 carpetas a la vez.
+Sign and add to the ISO	Firmar y a&#xF1;adir a la ISO
+Open signing folder	Abrir la carpeta de firma
+Signing certificate	Certificado de firma
+DriverSigning.pfx (private key) stays in the signing folder next to this tool - back it up and never share or upload it. Only the public DriverSigning.cer goes into the ISO. Tools (makecat, Inf2Cat, signtool) are downloaded automatically.	DriverSigning.pfx (clave privada) se queda en la carpeta de firma junto a esta herramienta: haga una copia de seguridad y no lo comparta ni lo suba nunca. Solo el DriverSigning.cer p&#xFA;blico va a la ISO. Las herramientas (makecat, Inf2Cat, signtool) se descargan autom&#xE1;ticamente.
+Packages added to the ISO	Paquetes a&#xF1;adidos a la ISO
+Answer file and $OEM$	Archivo de respuesta y $OEM$
+Both are optional and copied into the media when the ISO is built.	Ambos son opcionales y se copian en el medio cuando se crea la ISO.
+none	ninguno
+Placed in the ISO root so Setup runs unattended. Create one with the autounattend generator.	Se coloca en la ra&#xED;z de la ISO para que la instalaci&#xF3;n sea desatendida. Cree uno con el generador de autounattend.
+Choose autounattend.xml	Elegir autounattend.xml
+Open the generator	Abrir el generador
+Remove	Quitar
+$OEM$ folder	Carpeta $OEM$
+Copied to sources\$OEM$: $OEM$\$1 lands in C:\ and $OEM$\$$ in C:\Windows (e.g. $$\Setup\Scripts\SetupComplete.cmd). Packages from the signed-drivers page are merged in, and your SetupComplete.cmd gets a call to SetupComplete-drivers.cmd as its first command.	Se copia en sources\$OEM$: $OEM$\$1 va a C:\ y $OEM$\$$ a C:\Windows (p. ej. $$\Setup\Scripts\SetupComplete.cmd). Los paquetes de la p&#xE1;gina de controladores firmados se a&#xF1;aden, y su SetupComplete.cmd recibe una llamada a SetupComplete-drivers.cmd como primer comando.
+Choose $OEM$ folder	Elegir la carpeta $OEM$
+Open	Abrir
+Slipstream and build	Integrar y crear
+Slipstream applies updates, drivers and options to WinRE, install.wim and boot.wim (30-90 minutes). Build writes the bootable BIOS + UEFI ISO with your answer file, $OEM$ and signed drivers.	La integraci&#xF3;n aplica actualizaciones, controladores y opciones a WinRE, install.wim y boot.wim (30-90 minutos). La creaci&#xF3;n escribe la ISO de arranque BIOS + UEFI con su archivo de respuesta, $OEM$ y controladores firmados.
+Boot options	Opciones de arranque
+UEFI boot without 'Press any key to boot from CD or DVD'	Arranque UEFI sin 'Presione cualquier tecla para arrancar desde el CD o DVD'
+Boot manager signed by Windows UEFI CA 2023 (needs firmware that trusts it)	Administrador de arranque firmado por Windows UEFI CA 2023 (necesita un firmware que conf&#xED;e en ella)
+Split install.wim into 3.8 GB parts (FAT32 USB sticks)	Dividir install.wim en partes de 3,8 GB (memorias USB FAT32)
+Speed	Velocidad
+Update boot.wim and WinRE at the same time as install.wim (faster, uses more CPU and disk)	Actualizar boot.wim y WinRE al mismo tiempo que install.wim (m&#xE1;s r&#xE1;pido, usa m&#xE1;s CPU y disco)
+Editions at the same time	Ediciones a la vez
+Editions updated at the same time	Ediciones actualizadas a la vez
+1-4, empty = automatic (2 on 4+ processor cores, 3 on 8+). Each one needs about 25 GB free on the work drive; fewer run at once when there is less. 1 = one after the other.	1-4, vac&#xED;o = autom&#xE1;tico (2 con 4+ n&#xFA;cleos, 3 con 8+). Cada una necesita unos 25 GB libres en la unidad de trabajo; con menos espacio se ejecutan menos a la vez. 1 = una tras otra.
+Let Windows Defender skip the work folder while a job runs (removed again afterwards)	Dejar que Windows Defender omita la carpeta de trabajo mientras se ejecuta una tarea (se quita despu&#xE9;s)
+Leave boot.wim index 1 (Windows PE for WDS servers) as it is - USB / DVD setup uses index 2	Dejar el &#xED;ndice 1 de boot.wim (Windows PE para servidores WDS) como est&#xE1;; la instalaci&#xF3;n desde USB / DVD usa el &#xED;ndice 2
+DISM applies each update with one process, so servicing one image cannot use more cores - updating boot.wim, WinRE and several editions side by side can. Defender scanning every file DISM writes is often the biggest slowdown. Storage / network drivers go into WinRE and boot.wim with one DISM call. The log ends with the time of every step.	DISM aplica cada actualizaci&#xF3;n con un solo proceso, as&#xED; que el mantenimiento de una imagen no aprovecha m&#xE1;s n&#xFA;cleos; actualizar boot.wim, WinRE y varias ediciones en paralelo s&#xED;. El an&#xE1;lisis de Defender de cada archivo que escribe DISM suele ser la mayor causa de lentitud. Los controladores de almacenamiento / red van a WinRE y boot.wim en una sola llamada a DISM. El registro termina con el tiempo de cada paso.
+Output ISO	ISO de salida
+Save as...	Guardar como...
+Empty = work folder\output\Win10_ or Win11_version_build_arch_date.iso	Vac&#xED;o = carpeta de trabajo\output\Win10_ o Win11_versi&#xF3;n_compilaci&#xF3;n_arquitectura_fecha.iso
+1 - Slipstream into the image	1 - Integrar en la imagen
+2 - Build the ISO	2 - Crear la ISO
+Open output folder	Abrir la carpeta de salida
+Result	Resultado
+No ISO built yet.	Todav&#xED;a no se ha creado ninguna ISO.
+Work folder	Carpeta de trabajo
+Apply	Aplicar
+Short NTFS path without spaces with about 30 GB free (e.g. D:\W10U). A new folder starts empty.	Ruta NTFS corta, sin espacios, con unos 30 GB libres (p. ej. D:\W10U). Una carpeta nueva empieza vac&#xED;a.
+Clean up	Limpieza
+Leftover mounted images and temporary files are always removed. Also delete:	Las im&#xE1;genes montadas que quedaron y los archivos temporales se eliminan siempre. Eliminar tambi&#xE9;n:
+Downloaded updates	Actualizaciones descargadas
+Unpacked media	Medio extra&#xED;do
+Built ISOs	ISO creadas
+Re-signed driver copies	Copias de controladores firmados de nuevo
+Copied drivers (this PC / imported folder)	Controladores copiados (este PC / carpeta importada)
+Answer file copy and install check results (the answer file must be chosen again)	Copia del archivo de respuesta y resultados de la comprobaci&#xF3;n (habr&#xE1; que elegir de nuevo el archivo de respuesta)
+Logs	Registros
+Everything - empty the work folder and start from scratch	Todo: vaciar la carpeta de trabajo y empezar de cero
+Clean up now	Limpiar ahora
+Defaults	Valores predeterminados
+Restore default options	Restaurar las opciones predeterminadas
+Open work folder	Abrir la carpeta de trabajo
+Everything missing is downloaded automatically when a step needs it, into the tools folder next to this file. oscdimg.exe comes from the Microsoft symbol server (SHA-256 checked) or the Windows ADK; makecat, Inf2Cat and signtool are extracted from Microsoft's NuGet packages (Windows SDK build tools / Windows Driver Kit) - only those tools are kept, nothing is installed.	Todo lo que falte se descarga autom&#xE1;ticamente cuando un paso lo necesita, en la carpeta tools junto a este archivo. oscdimg.exe viene del servidor de s&#xED;mbolos de Microsoft (comprobado con SHA-256) o del Windows ADK; makecat, Inf2Cat y signtool se extraen de los paquetes NuGet de Microsoft (Windows SDK build tools / Windows Driver Kit). Solo se guardan esas herramientas; no se instala nada.
+Download missing tools now	Descargar ahora las herramientas que faltan
+Open tools folder	Abrir la carpeta de herramientas
+Checks your autounattend.xml, $OEM$ folder and drivers against the ISO you are building and points out what would break or stall a clean install: wrong edition index or language, invalid computer / account names or time zone, duplicate command numbers, scripts that wait for a key, missing files, drivers that nothing installs or that Windows will refuse, and SetupComplete.cmd being skipped on PCs with an OEM key. Fixes change only the copies that go into the ISO - your own files stay as they are. The check also runs before every ISO build.	Comprueba su autounattend.xml, la carpeta $OEM$ y los controladores con la ISO que est&#xE1; creando e indica lo que estropear&#xED;a o detendr&#xED;a una instalaci&#xF3;n limpia: &#xED;ndice de edici&#xF3;n o idioma incorrectos, nombres de equipo / cuenta o zona horaria no v&#xE1;lidos, n&#xFA;meros de comando duplicados, scripts que esperan una tecla, archivos que faltan, controladores que nada instala o que Windows rechazar&#xE1;, y SetupComplete.cmd omitido en PC con clave OEM. Las correcciones solo cambian las copias que van a la ISO; sus propios archivos quedan como est&#xE1;n. La comprobaci&#xF3;n tambi&#xE9;n se ejecuta antes de cada creaci&#xF3;n de la ISO.
+Run the check	Ejecutar la comprobaci&#xF3;n
+Apply all fixes	Aplicar todas las correcciones
+Save fixed answer file as...	Guardar el archivo de respuesta corregido como...
+Undo answer file fixes	Deshacer las correcciones del archivo de respuesta
+Not run yet.	A&#xFA;n no ejecutada.
+Level	Nivel
+Area	&#xC1;rea
+Finding	Hallazgo
+Fix	Correcci&#xF3;n
+Also install the driver folders in my $OEM$\$1 with pnputil (from SetupComplete-drivers.cmd)	Instalar tambi&#xE9;n las carpetas de controladores de mi $OEM$\$1 con pnputil (desde SetupComplete-drivers.cmd)
+Filter	Filtrar
+Class, provider, INF or folder name	Clase, proveedor, INF o nombre de carpeta
+All that fit	Todos los compatibles
+Tick shown	Marcar los visibles
+None	Ninguno
+Add ticked drivers	A&#xF1;adir los controladores marcados
+Cancel	Cancelar
+Driver signing certificate	Certificado de firma de controladores
+Password	Contrase&#xF1;a
+Repeat the password	Repetir la contrase&#xF1;a
+Not there yet: {0}	Todav&#xED;a no existe: {0}
+Dark theme	Tema oscuro
+Switch to the dark theme	Cambiar al tema oscuro
+Another job is still running.	Todav&#xED;a se est&#xE1; ejecutando otra tarea.
+{0} finished in {1:mm\:ss}	{0} terminado en {1:mm\:ss}
+{0} stopped with an error - see the log	{0} se detuvo con un error; consulte el registro
+Unpack	Extraer
+Analyze	Analizar
+Download updates	Descargar actualizaciones
+Driver scan	B&#xFA;squeda de controladores
+Copy drivers	Copiar controladores
+Folder scan	An&#xE1;lisis de carpeta
+Import drivers	Importar controladores
+Re-sign drivers	Volver a firmar controladores
+Slipstream	Integraci&#xF3;n
+Build ISO	Crear ISO
+Apply fixes	Aplicar correcciones
+no ISO yet	a&#xFA;n sin ISO
+{0}  |  {1}  |  {2}  |  {3} edition(s)	{0}  |  {1}  |  {2}  |  {3} edici&#xF3;n(es)
+{0} free	{0} libres
+unpacked	extra&#xED;da
+{0} of {1} ticked	{0} de {1} marcadas
+tick at least one	marque al menos una
+not available for this build	no disponible para esta compilaci&#xF3;n
+{0} ({1}) + {2} more	{0} ({1}) + {2} m&#xE1;s
+{0} packages ({1} for boot)	{0} paquetes ({1} para el arranque)
+none (optional)	ninguno (opcional)
+{0} error(s), {1} warning(s)	{0} error(es), {1} advertencia(s)
+{0} warning(s)	{0} advertencia(s)
+all good	todo correcto
+ISO ready	ISO lista
+slipstreamed ({0}) - build the ISO	integrada ({0}); cree la ISO
+Updates for Windows 11 21H2, 22H2 / 23H2, 24H2 / LTSC 2024 and 25H2 (x64, ARM64). On a Windows 10 PC the slipstream uses the DISM of the Windows ADK Deployment Tools, installed from Microsoft when needed.	Actualizaciones para Windows 11 21H2, 22H2 / 23H2, 24H2 / LTSC 2024 y 25H2 (x64, ARM64). En un PC con Windows 10, la integraci&#xF3;n usa el DISM de las Herramientas de implementaci&#xF3;n del Windows ADK, que se instalan desde Microsoft cuando hace falta.
+Updates for Windows 10 1607 / LTSB 2016, 1809 / LTSC 2019, 2004-22H2 and LTSC 2021 (x64, x86, ARM64).	Actualizaciones para Windows 10 1607 / LTSB 2016, 1809 / LTSC 2019, 2004-22H2 y LTSC 2021 (x64, x86, ARM64).
+The unpacked ISO is Windows {0} - pick a Windows {1} ISO and unpack it to switch.	La ISO extra&#xED;da es Windows {0}; elija una ISO de Windows {1} y extr&#xE1;igala para cambiar.
+Download Windows {0} from Microsoft	Descargar Windows {0} de Microsoft
+Windows 11: the newest updates in the Microsoft Update Catalog are used (21H2, which is out of servicing: its last ones, 2024-10).	Windows 11: se usan las actualizaciones m&#xE1;s recientes del Cat&#xE1;logo de Microsoft Update (21H2, ya sin soporte: sus &#xFA;ltimas, 2024-10).
+{0}  -  build {1}  -  {2}  -  {3} edition(s)	{0}  -  compilaci&#xF3;n {1}  -  {2}  -  {3} edici&#xF3;n(es)
+No automatic updates for this build - drivers, signed packages, answer file and $OEM$ still work.	No hay actualizaciones autom&#xE1;ticas para esta compilaci&#xF3;n; los controladores, los paquetes firmados, el archivo de respuesta y $OEM$ siguen funcionando.
+Updates up to {0} (the last month Microsoft allows offline for Windows 10).	Actualizaciones hasta {0} (el &#xFA;ltimo mes que Microsoft permite integrar sin conexi&#xF3;n en Windows 10).
+Its last updates ({0}) - this version is out of servicing.	Sus &#xFA;ltimas actualizaciones ({0}); esta versi&#xF3;n ya no tiene soporte.
+Newest updates available in the Microsoft Update Catalog.	Actualizaciones m&#xE1;s recientes disponibles en el Cat&#xE1;logo de Microsoft Update.
+The {0} enablement package is added too.	Tambi&#xE9;n se a&#xF1;ade el paquete de habilitaci&#xF3;n {0}.
+{0} driver package(s), {1} storage/network for boot.wim and WinRE, about {2:N0} MB	{0} paquete(s) de controladores, {1} de almacenamiento/red para boot.wim y WinRE, unos {2:N0} MB
+No drivers selected.	No hay controladores seleccionados.
+this PC only ({0} kept)	solo este PC ({0} conservados)
+all	todos
+Ready - {0}, valid until {1:yyyy-MM-dd} (backed up as DriverSigning.pfx)	Listo: {0}, v&#xE1;lido hasta {1:yyyy-MM-dd} (copia de seguridad en DriverSigning.pfx)
+In this PC's certificate store, not backed up yet - you will be asked for a password to save DriverSigning.pfx.	En el almac&#xE9;n de certificados de este PC, todav&#xED;a sin copia de seguridad; se le pedir&#xE1; una contrase&#xF1;a para guardar DriverSigning.pfx.
+DriverSigning.pfx found - its password is asked when you sign.	DriverSigning.pfx encontrado; la contrase&#xF1;a se pide al firmar.
+None yet - one is created the first time you sign (you choose its password).	Todav&#xED;a ninguno; se crea la primera vez que firme (usted elige la contrase&#xF1;a).
+{0}   (added {1})	{0}   (a&#xF1;adido {1})
+Slipstreamed on {0} - build {1}. Build the ISO next.	Integrada el {0}, compilaci&#xF3;n {1}. Ahora cree la ISO.
+{0} error(s), {1} warning(s), {2} check(s) passed   -   {3}	{0} error(es), {1} advertencia(s), {2} comprobaci&#xF3;n(es) superada(s)   -   {3}
+Apply {0} fix(es)	Aplicar {0} correcci&#xF3;n(es)
+The ISO uses a fixed copy of your answer file (fixed {0}). Save it to update your own file too.	La ISO usa una copia corregida de su archivo de respuesta (corregida el {0}). Gu&#xE1;rdela para actualizar tambi&#xE9;n su propio archivo.
+folder not found	carpeta no encontrada
+{0} files, {1}   ({2})	{0} archivos, {1}   ({2})
+has SetupComplete.cmd	tiene SetupComplete.cmd
+missing - downloaded automatically when you build the ISO	falta: se descarga autom&#xE1;ticamente al crear la ISO
+missing - downloaded automatically when you sign drivers	falta: se descarga autom&#xE1;ticamente al firmar controladores
+missing - downloaded only if the signing engine needs Inf2Cat as fallback	falta: solo se descarga si el motor de firma necesita Inf2Cat como alternativa
+missing - only needed for the MakeCat signing engine	falta: solo se necesita para el motor de firma MakeCat
+missing - PowerShell / BITS downloads are used	falta: se usan descargas de PowerShell / BITS
+Default. makecat.exe (Windows SDK) builds one catalog per driver folder with the hash of every file in it, so each file is hashed once - about 20 s for NVIDIA's 3 GB Display.Driver instead of minutes. Compressed files (name.dl_) are hashed expanded, the way Windows checks them. MakeCat does not parse the INF: every catalog is checked with signtool afterwards, and a folder MakeCat cannot do goes to Inf2Cat.	Predeterminado. makecat.exe (Windows SDK) crea un cat&#xE1;logo por carpeta de controladores con el hash de todos sus archivos, as&#xED; que cada archivo se calcula una sola vez: unos 20 s para los 3 GB del Display.Driver de NVIDIA en lugar de minutos. Los archivos comprimidos (nombre.dl_) se calculan expandidos, como los comprueba Windows. MakeCat no analiza el INF: cada cat&#xE1;logo se comprueba despu&#xE9;s con signtool, y una carpeta que MakeCat no pueda procesar pasa a Inf2Cat.
+Experimental. The catalog is built with the CryptCAT API of Windows itself, the way libwdi (Zadig) does it - nothing to download. One catalog per driver folder with the hash of every file in it (SHA-1). Checked with signtool afterwards; a folder it cannot do goes to Inf2Cat.	Experimental. El cat&#xE1;logo se crea con la API CryptCAT del propio Windows, como hace libwdi (Zadig); no hay nada que descargar. Un cat&#xE1;logo por carpeta de controladores con el hash de todos sus archivos (SHA-1). Se comprueba despu&#xE9;s con signtool; una carpeta que no pueda procesar pasa a Inf2Cat.
+Experimental. LINBIT generate-cat-file (GPL-2.0): its source is downloaded from GitHub (one pinned commit, SHA-256 checked) and built inside WSL - needs WSL with a Linux distribution that has gcc and make. One catalog per driver folder; Inf2Cat signs when WSL or the build is missing.	Experimental. LINBIT generate-cat-file (GPL-2.0): su c&#xF3;digo fuente se descarga de GitHub (un commit fijo, comprobado con SHA-256) y se compila dentro de WSL; necesita WSL con una distribuci&#xF3;n Linux que tenga gcc y make. Un cat&#xE1;logo por carpeta de controladores; Inf2Cat firma cuando falta WSL o la compilaci&#xF3;n.
+Microsoft's standard tool from the Windows Driver Kit: it parses every INF and checks it against every file of the package. The proven choice, but slow on big packages - the options below make it faster.	La herramienta est&#xE1;ndar de Microsoft, del Windows Driver Kit: analiza cada INF y lo comprueba contra todos los archivos del paquete. La opci&#xF3;n probada, pero lenta con paquetes grandes; las opciones de abajo la aceleran.
+installs from {0} during Windows setup	se instala desde {0} durante la instalaci&#xF3;n de Windows
+{0} older version(s) of drivers that are here in a newer version too are unticked (column Older) - Windows uses the newest one.	{0} versi&#xF3;n(es) antigua(s) de controladores que tambi&#xE9;n est&#xE1;n aqu&#xED; en una versi&#xF3;n m&#xE1;s nueva quedan desmarcadas (columna Antigua); Windows usa la m&#xE1;s reciente.
+DriverSigning.pfx was found next to this tool. Enter its password to load your signing certificate.	Se encontr&#xF3; DriverSigning.pfx junto a esta herramienta. Escriba su contrase&#xF1;a para cargar su certificado de firma.
+Your signing certificate is in this PC's store but has no backup yet. Choose a password to save it as DriverSigning.pfx - you need it to sign again after reinstalling Windows.	Su certificado de firma est&#xE1; en el almac&#xE9;n de este PC pero todav&#xED;a no tiene copia de seguridad. Elija una contrase&#xF1;a para guardarlo como DriverSigning.pfx; lo necesitar&#xE1; para volver a firmar despu&#xE9;s de reinstalar Windows.
+A new self-signed code-signing certificate will be created. Choose a password for its backup file DriverSigning.pfx - you need it to sign again after reinstalling Windows.	Se crear&#xE1; un nuevo certificado de firma de c&#xF3;digo autofirmado. Elija una contrase&#xF1;a para su archivo de copia de seguridad DriverSigning.pfx; lo necesitar&#xE1; para volver a firmar despu&#xE9;s de reinstalar Windows.
+Enter a password.	Escriba una contrase&#xF1;a.
+The passwords do not match.	Las contrase&#xF1;as no coinciden.
+Index	&#xCD;ndice
+Edition	Edici&#xF3;n
+Build	Compilaci&#xF3;n
+Size	Tama&#xF1;o
+SizeGB	Tama&#xF1;o (GB)
+Kind	Tipo
+Date	Fecha
+Title	T&#xED;tulo
+No	N.&#xBA;
+Source	Origen
+Class	Clase
+Provider	Proveedor
+Version	Versi&#xF3;n
+SizeMB	Tama&#xF1;o (MB)
+InstallsFrom	Se instala desde
+Signed	Firmados
+Failed	Fallidos
+When	Cu&#xE1;ndo
+FixText	Correcci&#xF3;n
+Arch	Arquitectura
+Older	Antigua
+Unpack an ISO first (page 1).	Extraiga primero una ISO (p&#xE1;gina 1).
+Choose an existing .iso file first.	Elija primero un archivo .iso existente.
+The work folder already has unpacked media ({0}). Replace it with a fresh copy of this ISO?	La carpeta de trabajo ya tiene un medio extra&#xED;do ({0}). &#xBF;Reemplazarlo por una copia nueva de esta ISO?
+Drivers installed on this PC	Controladores instalados en este PC
+Third-party drivers exported from this PC. Ticked ones are slipstreamed into the ISO.	Controladores de terceros exportados de este PC. Los marcados se integran en la ISO.
+Pick the drivers folder - Drivers-Backup made by Drivers.cmd, a folder from another PC or a vendor pack. All subfolders are scanned.	Elija la carpeta de controladores: Drivers-Backup creada por Drivers.cmd, una carpeta de otro PC o un paquete del fabricante. Se analizan todas las subcarpetas.
+No .inf drivers in that folder.	No hay controladores .inf en esa carpeta.
+Drivers in {0}	Controladores en {0}
+Drivers built for another architecture than the ISO are unticked and left out.	Los controladores hechos para otra arquitectura distinta de la de la ISO quedan desmarcados y fuera.
+Choose the driver folder first (for example the folder NVCleanstall extracted).	Elija primero la carpeta de los controladores (por ejemplo, la carpeta que extrajo NVCleanstall).
+There are no .inf files in that folder or its subfolders.	No hay archivos .inf en esa carpeta ni en sus subcarpetas.
+Tick at least one edition first.	Marque primero al menos una edici&#xF3;n.
+This media was already slipstreamed on {0}. For a clean result unpack the ISO again (page 1). Slipstream again anyway?	Este medio ya se integr&#xF3; el {0}. Para un resultado limpio, vuelva a extraer la ISO (p&#xE1;gina 1). &#xBF;Integrar de nuevo de todos modos?
+No updates are downloaded (page 3). Continue with drivers and options only?	No hay actualizaciones descargadas (p&#xE1;gina 3). &#xBF;Continuar solo con controladores y opciones?
+The media has not been slipstreamed yet. Build the ISO anyway (drivers, updates and options are then missing)?	El medio todav&#xED;a no se ha integrado. &#xBF;Crear la ISO de todos modos (faltar&#xE1;n entonces los controladores, las actualizaciones y las opciones)?
+Nothing to fix automatically - run the check first. Findings without a fix need a change on the page they mention.	No hay nada que corregir autom&#xE1;ticamente: ejecute primero la comprobaci&#xF3;n. Los hallazgos sin correcci&#xF3;n necesitan un cambio en la p&#xE1;gina que mencionan.
+Apply these fixes? They change the copies that go into the ISO, not your own files.	&#xBF;Aplicar estas correcciones? Cambian las copias que van a la ISO, no sus propios archivos.
+Choose the source ISO on page 1 first.	Elija primero la ISO de origen en la p&#xE1;gina 1.
+yes	s&#xED;
+no	no
+Source: {0}	Origen: {0}
+Editions: {0}	Ediciones: {0}
+{0} ticked	{0} marcadas
+asked after unpacking	se pregunta despu&#xE9;s de extraer
+Drivers: {0}   Signed packages: {1}	Controladores: {0}   Paquetes firmados: {1}
+Answer file: {0}   $OEM$: {1}	Archivo de respuesta: {0}   $OEM$: {1}
+Run everything now? It takes 30-90 minutes - the PC is kept awake until it is done.	&#xBF;Ejecutar todo ahora? Tarda 30-90 minutos; el PC se mantiene despierto hasta que termine.
+While a job runs (unpack, download, sign, slipstream, build), Windows Defender does not scan the work folder ({0}). The exclusion is removed when the job ends, and at the next start if the program was closed during a job. Everything in there comes from Microsoft, your drivers and this tool - do not put other downloads in that folder.	Mientras se ejecuta una tarea (extraer, descargar, firmar, integrar, crear), Windows Defender no analiza la carpeta de trabajo ({0}). La exclusi&#xF3;n se quita cuando termina la tarea, y en el siguiente inicio si el programa se cerr&#xF3; durante una tarea. Todo lo que hay ah&#xED; viene de Microsoft, de sus controladores y de esta herramienta; no ponga otras descargas en esa carpeta.
+Use this only when the ISO is for this PC. INF files for other hardware are removed from the signed copy, so the driver installs only on hardware that matches this PC. NVIDIA's own setup.exe may refuse to run from that copy - pnputil installs the driver anyway. Sign the package again for it to take effect.	Use esto solo cuando la ISO sea para este PC. Los archivos INF de otro hardware se quitan de la copia firmada, as&#xED; que el controlador solo se instala en hardware igual al de este PC. El propio setup.exe de NVIDIA puede negarse a ejecutarse desde esa copia; pnputil instala el controlador de todos modos. Vuelva a firmar el paquete para que tenga efecto.
+With Secure Boot on, this ISO only boots on PCs whose UEFI already trusts 'Windows UEFI CA 2023'. Older firmware needs that Secure Boot update first (or Secure Boot off). The image also needs a 2024-04 or newer update.	Con el Arranque seguro activado, esta ISO solo arranca en PC cuyo UEFI ya conf&#xED;a en 'Windows UEFI CA 2023'. Los firmwares m&#xE1;s antiguos necesitan antes esa actualizaci&#xF3;n del Arranque seguro (o el Arranque seguro desactivado). La imagen tambi&#xE9;n necesita una actualizaci&#xF3;n de 2024-04 o m&#xE1;s reciente.
+Use the YYYY-MM format, e.g. 2025-10.	Use el formato AAAA-MM, p. ej. 2025-10.
+Use a number from 1 to 8 (or leave it empty for the number of processor cores, up to 8).	Use un n&#xFA;mero del 1 al 8 (o d&#xE9;jelo vac&#xED;o para usar el n&#xFA;mero de n&#xFA;cleos del procesador, hasta 8).
+Use a number from 1 to 4 (or leave it empty: 2 on 4+ processor cores, 3 on 8+).	Use un n&#xFA;mero del 1 al 4 (o d&#xE9;jelo vac&#xED;o: 2 con 4+ n&#xFA;cleos, 3 con 8+).
+Select a Windows {0} ISO	Seleccione una ISO de Windows {0}
+ISO images	Im&#xE1;genes ISO
+Select the drivers to remove in the list first (Ctrl+click for several).	Seleccione primero en la lista los controladores que quiere quitar (Ctrl+clic para varios).
+Remove every selected driver?	&#xBF;Quitar todos los controladores seleccionados?
+Pick the modded driver folder (e.g. the folder NVCleanstall extracted). All subfolders are scanned.	Elija la carpeta de los controladores modificados (p. ej. la carpeta que extrajo NVCleanstall). Se analizan todas las subcarpetas.
+Select a package in the list first.	Seleccione primero un paquete en la lista.
+Select your autounattend.xml	Seleccione su autounattend.xml
+Answer files	Archivos de respuesta
+Pick your $OEM$ folder (the one that contains $1 and/or $$)	Elija su carpeta $OEM$ (la que contiene $1 y/o $$)
+ISO image	Imagen ISO
+Pick or create the work folder (NTFS, no spaces, ~30 GB free)	Elija o cree la carpeta de trabajo (NTFS, sin espacios, ~30 GB libres)
+The path has spaces - a short path like D:\W10U is safer for DISM. Use it anyway?	La ruta tiene espacios; una ruta corta como D:\W10U es m&#xE1;s segura para DISM. &#xBF;Usarla de todos modos?
+downloaded updates	actualizaciones descargadas
+unpacked media	medio extra&#xED;do
+built ISOs	ISO creadas
+re-signed driver copies	copias de controladores firmados de nuevo
+copied drivers	controladores copiados
+answer file copy and check results	copia del archivo de respuesta y resultados de la comprobaci&#xF3;n
+logs	registros
+EVERYTHING in the work folder	TODO lo que hay en la carpeta de trabajo
+mounted images and temp files	im&#xE1;genes montadas y archivos temporales
+Delete: {0}?	&#xBF;Eliminar: {0}?
+Restore the default options? The work folder is kept.	&#xBF;Restaurar las opciones predeterminadas? La carpeta de trabajo se conserva.
+There is no answer file yet (page 6).	Todav&#xED;a no hay archivo de respuesta (p&#xE1;gina 6).
+Answer file	Archivo de respuesta
+No answer file fixes to undo.	No hay correcciones del archivo de respuesta que deshacer.
+Put the answer file back the way it was before the fixes?	&#xBF;Devolver el archivo de respuesta a como estaba antes de las correcciones?
+'{0}' is still running. Closing now can leave a mounted image behind (run Clean up next time). Close anyway?	'{0}' todav&#xED;a se est&#xE1; ejecutando. Cerrar ahora puede dejar una imagen montada (ejecute la Limpieza la pr&#xF3;xima vez). &#xBF;Cerrar de todos modos?
+'@ }
+        'fr' { return @'
+updates + drivers + signed NVIDIA mods + autounattend + $OEM$  ->  bootable ISO	mises &#xE0; jour + pilotes + mods NVIDIA sign&#xE9;s + autounattend + $OEM$  ->  ISO amor&#xE7;able
+Light theme	Th&#xE8;me clair
+Switch to the light theme	Passer au th&#xE8;me clair
+Display and accessibility: theme, text size, font	Affichage et accessibilit&#xE9; : th&#xE8;me, taille du texte, police
+Display and accessibility settings	Param&#xE8;tres d'affichage et d'accessibilit&#xE9;
+Minimize	R&#xE9;duire
+Maximize	Agrandir
+Close	Fermer
+Display and accessibility	Affichage et accessibilit&#xE9;
+Theme	Th&#xE8;me
+Dark	Sombre
+Light	Clair
+Like Windows	Comme Windows
+Text size	Taille du texte
+Font	Police
+Language	Langue
+Ctrl + plus / Ctrl + minus / Ctrl + 0 change the text size anywhere in the window. Verdana and Tahoma have wider, more distinct letters. Saved for the next start.	Ctrl + plus / Ctrl + moins / Ctrl + 0 changent la taille du texte partout dans la fen&#xEA;tre. Verdana et Tahoma ont des lettres plus larges et plus lisibles. Enregistr&#xE9; pour le prochain d&#xE9;marrage.
+The Activity log and the Install check findings stay in English - that is what a bug report or a search needs.	Le journal d'Activit&#xE9; et les r&#xE9;sultats de la V&#xE9;rification de l'installation restent en anglais : c'est ce dont un rapport de bug ou une recherche a besoin.
+STEPS	&#xC9;TAPES
+Source ISO	ISO source
+to do	&#xE0; faire
+Editions	&#xC9;ditions
+Windows updates	Mises &#xE0; jour Windows
+Drivers	Pilotes
+optional	facultatif
+Signed NVIDIA / modded	NVIDIA sign&#xE9;s / modifi&#xE9;s
+Answer file + $OEM$	Fichier de r&#xE9;ponses + $OEM$
+Install check	V&#xE9;rification de l'installation
+not run yet	pas encore lanc&#xE9;e
+Slipstream + build ISO	Int&#xE9;grer + cr&#xE9;er l'ISO
+MORE	PLUS
+Options and clean up	Options et nettoyage
+Tools	Outils
+Run everything	Tout ex&#xE9;cuter
+unpack - updates - slipstream - ISO, using what you set on each page	extraire - mises &#xE0; jour - int&#xE9;grer - ISO, avec ce que vous avez r&#xE9;gl&#xE9; sur chaque page
+SOURCE	SOURCE
+IMAGE	IMAGE
+WORK FOLDER	DOSSIER DE TRAVAIL
+ACTIVITY	ACTIVIT&#xC9;
+Ready	Pr&#xEA;t
+Logs folder	Dossier des journaux
+Clear	Effacer
+Choose Windows 10 or Windows 11 and pick its ISO. It is copied into the work folder and its build and editions are detected - the version follows the ISO you unpack.	Choisissez Windows 10 ou Windows 11 et s&#xE9;lectionnez son ISO. Elle est copi&#xE9;e dans le dossier de travail et sa build et ses &#xE9;ditions sont d&#xE9;tect&#xE9;es - la version suit l'ISO que vous extrayez.
+Windows version	Version de Windows
+ISO file	Fichier ISO
+Browse...	Parcourir...
+Unpack and analyze	Extraire et analyser
+Re-read image info	Relire l'image
+Download Windows 10 from Microsoft	T&#xE9;l&#xE9;charger Windows 10 chez Microsoft
+Detected image	Image d&#xE9;tect&#xE9;e
+Nothing unpacked yet.	Rien n'a encore &#xE9;t&#xE9; extrait.
+Tick the editions to update. With the option below on, unticked editions are left out of the new ISO (smaller and faster).	Cochez les &#xE9;ditions &#xE0; mettre &#xE0; jour. Avec l'option ci-dessous activ&#xE9;e, les &#xE9;ditions non coch&#xE9;es sont exclues de la nouvelle ISO (plus petite et plus rapide).
+Tick all	Tout cocher
+Tick none	Tout d&#xE9;cocher
+Use	Utiliser
+Keep only the ticked editions in the new ISO	Ne garder que les &#xE9;ditions coch&#xE9;es dans la nouvelle ISO
+Finds the newest cumulative update, servicing stack, Safe OS and Setup Dynamic Updates and .NET updates for this build in the Microsoft Update Catalog and downloads them (SHA-1 checked).	Cherche dans le Catalogue Microsoft Update la mise &#xE0; jour cumulative la plus r&#xE9;cente, la pile de maintenance, les mises &#xE0; jour dynamiques Safe OS et d'installation et les mises &#xE0; jour .NET pour cette build, et les t&#xE9;l&#xE9;charge (v&#xE9;rifi&#xE9;es par SHA-1).
+What to integrate	Quoi int&#xE9;grer
+Add .NET Framework 4.8.1 (Windows 10 2004-22H2 - Windows 11 has it built in)	Ajouter .NET Framework 4.8.1 (Windows 10 2004-22H2 - Windows 11 l'inclut d&#xE9;j&#xE0;)
+Enable .NET Framework 3.5 (from the ISO's sources\sxs)	Activer .NET Framework 3.5 (depuis sources\sxs de l'ISO)
+Component cleanup /ResetBase (smaller image - updates can't be uninstalled)	Nettoyage des composants /ResetBase (image plus petite - les mises &#xE0; jour ne peuvent plus &#xEA;tre d&#xE9;sinstall&#xE9;es)
+Newest month to integrate	Mois le plus r&#xE9;cent &#xE0; int&#xE9;grer
+YYYY-MM, for Windows 10 2004-22H2 / LTSC 2021	AAAA-MM, pour Windows 10 2004-22H2 / LTSC 2021
+2025-10 is the last Windows 10 update Microsoft allows offline. ESU updates (Nov 2025+) come from Windows Update after setup on enrolled PCs.	2025-10 est la derni&#xE8;re mise &#xE0; jour de Windows 10 que Microsoft permet d'int&#xE9;grer hors ligne. Les mises &#xE0; jour ESU (nov. 2025+) arrivent par Windows Update apr&#xE8;s l'installation, sur les PC inscrits.
+Find and download updates	Rechercher et t&#xE9;l&#xE9;charger les mises &#xE0; jour
+Downloaded	T&#xE9;l&#xE9;charg&#xE9;es
+Signed drivers are slipstreamed into install.wim with DISM, so Windows installs them on first boot. Storage and network drivers also go into boot.wim and WinRE, so Setup sees RAID / VMD disks. Modded drivers (edited INF) belong on the next page.	Les pilotes sign&#xE9;s sont int&#xE9;gr&#xE9;s dans install.wim avec DISM, pour que Windows les installe au premier d&#xE9;marrage. Les pilotes de stockage et r&#xE9;seau vont aussi dans boot.wim et WinRE, pour que l'installation voie les disques RAID / VMD. Les pilotes modifi&#xE9;s (INF &#xE9;dit&#xE9;) vont sur la page suivante.
+Add drivers from this PC	Ajouter les pilotes de ce PC
+Import a drivers folder	Importer un dossier de pilotes
+Remove selected	Retirer la s&#xE9;lection
+Clear all	Tout retirer
+Also put storage and network drivers into boot.wim and WinRE	Mettre aussi les pilotes de stockage et r&#xE9;seau dans boot.wim et WinRE
+Allow unsigned drivers in DISM (/ForceUnsigned)	Autoriser les pilotes non sign&#xE9;s dans DISM (/ForceUnsigned)
+Signed NVIDIA / modded drivers	Pilotes NVIDIA sign&#xE9;s / modifi&#xE9;s
+For driver packages whose INF was edited - NVCleanstall hardware-ID mods for an unsupported GPU, custom INF files. The edit breaks the catalog signature, so Windows refuses them. Every subfolder is scanned; each modified package gets a new catalog (MakeCat by default, or the engine you pick below) signed with your own certificate. The package is added to the ISO through $OEM$ and installed by SetupComplete.cmd at the end of Windows setup, right after the certificate is trusted.	Pour les paquets de pilotes dont l'INF a &#xE9;t&#xE9; modifi&#xE9; - mods d'ID mat&#xE9;riel de NVCleanstall pour un GPU non pris en charge, fichiers INF personnalis&#xE9;s. La modification casse la signature du catalogue et Windows les refuse. Tous les sous-dossiers sont analys&#xE9;s ; chaque paquet modifi&#xE9; re&#xE7;oit un nouveau catalogue (MakeCat par d&#xE9;faut, ou le moteur choisi ci-dessous) sign&#xE9; avec votre propre certificat. Le paquet est ajout&#xE9; &#xE0; l'ISO via $OEM$ et install&#xE9; par SetupComplete.cmd &#xE0; la fin de l'installation de Windows, juste apr&#xE8;s que le certificat a &#xE9;t&#xE9; approuv&#xE9;.
+Driver package	Paquet de pilotes
+Folder	Dossier
+Name	Nom
+installs from C:\Drivers\NVIDIA during setup	s'installe depuis C:\Drivers\NVIDIA pendant l'installation
+Engine	Moteur
+Signing engine: MakeCat	Moteur de signature : MakeCat
+Signing engine: libwdi-style	Moteur de signature : libwdi-style
+Signing engine: generate-cat-file in WSL	Moteur de signature : generate-cat-file dans WSL
+Signing engine: Inf2Cat	Moteur de signature : Inf2Cat
+Re-sign every package, not only the modified ones	Signer &#xE0; nouveau tous les paquets, pas seulement les modifi&#xE9;s
+Delete the driver copy from C:\Drivers once it is installed	Supprimer la copie des pilotes de C:\Drivers une fois install&#xE9;e
+Faster: new catalogs only for the INF files that need one	Plus rapide : nouveaux catalogues seulement pour les fichiers INF qui en ont besoin
+Every INF stays in the package, and the ones you did not edit keep their NVIDIA / Microsoft signature. MakeCat and the other folder engines point only the edited INF files at the folder's new catalog (off: every INF of the folder). Inf2Cat gets a copy of the folder with only the edited INF files (the driver files are hard links - no extra space), several at the same time; an edited INF whose catalog is shared with the others (nv_dispi.cat) gets a catalog file of its own. If Inf2Cat fails on that copy, the whole folder is catalogued as before.	Chaque INF reste dans le paquet, et ceux que vous n'avez pas modifi&#xE9;s gardent leur signature NVIDIA / Microsoft. MakeCat et les autres moteurs par dossier ne pointent que les INF modifi&#xE9;s vers le nouveau catalogue du dossier (d&#xE9;sactiv&#xE9; : tous les INF du dossier). Inf2Cat re&#xE7;oit une copie du dossier avec seulement les INF modifi&#xE9;s (les fichiers des pilotes sont des liens physiques - pas d'espace en plus), plusieurs &#xE0; la fois ; un INF modifi&#xE9; dont le catalogue est partag&#xE9; avec les autres (nv_dispi.cat) re&#xE7;oit son propre fichier catalogue. Si Inf2Cat &#xE9;choue sur cette copie, tout le dossier est catalogu&#xE9; comme avant.
+Faster: only keep the INF files for this PC's hardware (when the ISO is for this PC)	Plus rapide : ne garder que les fichiers INF du mat&#xE9;riel de ce PC (quand l'ISO est pour ce PC)
+Mostly for Inf2Cat: NVIDIA's Display.Driver has one INF file per laptop and desktop maker, and Inf2Cat checks every one of them against the whole package - that can take up to an hour. With this on, only the INF files that list a device of this PC are signed (minutes instead), the others are removed from the copy. The original folder is not touched.	Surtout pour Inf2Cat : le Display.Driver de NVIDIA a un fichier INF par fabricant de portables et de PC de bureau, et Inf2Cat v&#xE9;rifie chacun contre tout le paquet - cela peut prendre jusqu'&#xE0; une heure. Avec cette option, seuls les INF qui citent un p&#xE9;riph&#xE9;rique de ce PC sont sign&#xE9;s (quelques minutes &#xE0; la place), les autres sont retir&#xE9;s de la copie. Le dossier d'origine n'est pas modifi&#xE9;.
+Catalog runs at the same time	Catalogages simultan&#xE9;s
+1-8, empty = processor cores up to 8. Each Inf2Cat run uses one core; MakeCat does up to 4 folders at once.	1-8, vide = c&#x153;urs du processeur jusqu'&#xE0; 8. Chaque ex&#xE9;cution d'Inf2Cat utilise un c&#x153;ur ; MakeCat traite jusqu'&#xE0; 4 dossiers &#xE0; la fois.
+Sign and add to the ISO	Signer et ajouter &#xE0; l'ISO
+Open signing folder	Ouvrir le dossier de signature
+Signing certificate	Certificat de signature
+DriverSigning.pfx (private key) stays in the signing folder next to this tool - back it up and never share or upload it. Only the public DriverSigning.cer goes into the ISO. Tools (makecat, Inf2Cat, signtool) are downloaded automatically.	DriverSigning.pfx (cl&#xE9; priv&#xE9;e) reste dans le dossier de signature &#xE0; c&#xF4;t&#xE9; de cet outil - sauvegardez-le et ne le partagez ni ne l'envoyez jamais. Seul le DriverSigning.cer public va dans l'ISO. Les outils (makecat, Inf2Cat, signtool) sont t&#xE9;l&#xE9;charg&#xE9;s automatiquement.
+Packages added to the ISO	Paquets ajout&#xE9;s &#xE0; l'ISO
+Answer file and $OEM$	Fichier de r&#xE9;ponses et $OEM$
+Both are optional and copied into the media when the ISO is built.	Les deux sont facultatifs et copi&#xE9;s sur le support quand l'ISO est cr&#xE9;&#xE9;e.
+none	aucun
+Placed in the ISO root so Setup runs unattended. Create one with the autounattend generator.	Plac&#xE9; &#xE0; la racine de l'ISO pour une installation sans assistance. Cr&#xE9;ez-en un avec le g&#xE9;n&#xE9;rateur autounattend.
+Choose autounattend.xml	Choisir autounattend.xml
+Open the generator	Ouvrir le g&#xE9;n&#xE9;rateur
+Remove	Retirer
+$OEM$ folder	Dossier $OEM$
+Copied to sources\$OEM$: $OEM$\$1 lands in C:\ and $OEM$\$$ in C:\Windows (e.g. $$\Setup\Scripts\SetupComplete.cmd). Packages from the signed-drivers page are merged in, and your SetupComplete.cmd gets a call to SetupComplete-drivers.cmd as its first command.	Copi&#xE9; dans sources\$OEM$ : $OEM$\$1 arrive dans C:\ et $OEM$\$$ dans C:\Windows (p. ex. $$\Setup\Scripts\SetupComplete.cmd). Les paquets de la page des pilotes sign&#xE9;s y sont ajout&#xE9;s, et votre SetupComplete.cmd re&#xE7;oit un appel &#xE0; SetupComplete-drivers.cmd comme premi&#xE8;re commande.
+Choose $OEM$ folder	Choisir le dossier $OEM$
+Open	Ouvrir
+Slipstream and build	Int&#xE9;grer et cr&#xE9;er
+Slipstream applies updates, drivers and options to WinRE, install.wim and boot.wim (30-90 minutes). Build writes the bootable BIOS + UEFI ISO with your answer file, $OEM$ and signed drivers.	L'int&#xE9;gration applique les mises &#xE0; jour, pilotes et options &#xE0; WinRE, install.wim et boot.wim (30-90 minutes). La cr&#xE9;ation &#xE9;crit l'ISO amor&#xE7;able BIOS + UEFI avec votre fichier de r&#xE9;ponses, $OEM$ et les pilotes sign&#xE9;s.
+Boot options	Options de d&#xE9;marrage
+UEFI boot without 'Press any key to boot from CD or DVD'	D&#xE9;marrage UEFI sans 'Appuyez sur une touche pour d&#xE9;marrer &#xE0; partir du CD ou du DVD'
+Boot manager signed by Windows UEFI CA 2023 (needs firmware that trusts it)	Gestionnaire de d&#xE9;marrage sign&#xE9; par Windows UEFI CA 2023 (n&#xE9;cessite un firmware qui lui fait confiance)
+Split install.wim into 3.8 GB parts (FAT32 USB sticks)	Diviser install.wim en parties de 3,8 Go (cl&#xE9;s USB FAT32)
+Speed	Vitesse
+Update boot.wim and WinRE at the same time as install.wim (faster, uses more CPU and disk)	Mettre &#xE0; jour boot.wim et WinRE en m&#xEA;me temps qu'install.wim (plus rapide, utilise plus de processeur et de disque)
+Editions at the same time	&#xC9;ditions simultan&#xE9;es
+Editions updated at the same time	&#xC9;ditions mises &#xE0; jour simultan&#xE9;ment
+1-4, empty = automatic (2 on 4+ processor cores, 3 on 8+). Each one needs about 25 GB free on the work drive; fewer run at once when there is less. 1 = one after the other.	1-4, vide = automatique (2 avec 4+ c&#x153;urs, 3 avec 8+). Chacune a besoin d'environ 25 Go libres sur le lecteur de travail ; avec moins d'espace, moins tournent &#xE0; la fois. 1 = l'une apr&#xE8;s l'autre.
+Let Windows Defender skip the work folder while a job runs (removed again afterwards)	Laisser Windows Defender ignorer le dossier de travail pendant une t&#xE2;che (retir&#xE9; ensuite)
+Leave boot.wim index 1 (Windows PE for WDS servers) as it is - USB / DVD setup uses index 2	Laisser l'index 1 de boot.wim (Windows PE pour serveurs WDS) tel quel - l'installation par USB / DVD utilise l'index 2
+DISM applies each update with one process, so servicing one image cannot use more cores - updating boot.wim, WinRE and several editions side by side can. Defender scanning every file DISM writes is often the biggest slowdown. Storage / network drivers go into WinRE and boot.wim with one DISM call. The log ends with the time of every step.	DISM applique chaque mise &#xE0; jour avec un seul processus, donc la maintenance d'une image ne peut pas utiliser plus de c&#x153;urs - mettre &#xE0; jour boot.wim, WinRE et plusieurs &#xE9;ditions en parall&#xE8;le, si. L'analyse par Defender de chaque fichier &#xE9;crit par DISM est souvent le plus gros ralentissement. Les pilotes de stockage / r&#xE9;seau vont dans WinRE et boot.wim en un seul appel DISM. Le journal se termine par la dur&#xE9;e de chaque &#xE9;tape.
+Output ISO	ISO de sortie
+Save as...	Enregistrer sous...
+Empty = work folder\output\Win10_ or Win11_version_build_arch_date.iso	Vide = dossier de travail\output\Win10_ ou Win11_version_build_architecture_date.iso
+1 - Slipstream into the image	1 - Int&#xE9;grer dans l'image
+2 - Build the ISO	2 - Cr&#xE9;er l'ISO
+Open output folder	Ouvrir le dossier de sortie
+Result	R&#xE9;sultat
+No ISO built yet.	Aucune ISO cr&#xE9;&#xE9;e pour l'instant.
+Work folder	Dossier de travail
+Apply	Appliquer
+Short NTFS path without spaces with about 30 GB free (e.g. D:\W10U). A new folder starts empty.	Chemin NTFS court, sans espaces, avec environ 30 Go libres (p. ex. D:\W10U). Un nouveau dossier d&#xE9;marre vide.
+Clean up	Nettoyage
+Leftover mounted images and temporary files are always removed. Also delete:	Les images mont&#xE9;es restantes et les fichiers temporaires sont toujours supprim&#xE9;s. Supprimer aussi :
+Downloaded updates	Mises &#xE0; jour t&#xE9;l&#xE9;charg&#xE9;es
+Unpacked media	Support extrait
+Built ISOs	ISO cr&#xE9;&#xE9;es
+Re-signed driver copies	Copies des pilotes sign&#xE9;s &#xE0; nouveau
+Copied drivers (this PC / imported folder)	Pilotes copi&#xE9;s (ce PC / dossier import&#xE9;)
+Answer file copy and install check results (the answer file must be chosen again)	Copie du fichier de r&#xE9;ponses et r&#xE9;sultats de la v&#xE9;rification (il faudra choisir &#xE0; nouveau le fichier de r&#xE9;ponses)
+Logs	Journaux
+Everything - empty the work folder and start from scratch	Tout - vider le dossier de travail et repartir de z&#xE9;ro
+Clean up now	Nettoyer maintenant
+Defaults	Valeurs par d&#xE9;faut
+Restore default options	Restaurer les options par d&#xE9;faut
+Open work folder	Ouvrir le dossier de travail
+Everything missing is downloaded automatically when a step needs it, into the tools folder next to this file. oscdimg.exe comes from the Microsoft symbol server (SHA-256 checked) or the Windows ADK; makecat, Inf2Cat and signtool are extracted from Microsoft's NuGet packages (Windows SDK build tools / Windows Driver Kit) - only those tools are kept, nothing is installed.	Tout ce qui manque est t&#xE9;l&#xE9;charg&#xE9; automatiquement quand une &#xE9;tape en a besoin, dans le dossier tools &#xE0; c&#xF4;t&#xE9; de ce fichier. oscdimg.exe vient du serveur de symboles de Microsoft (v&#xE9;rifi&#xE9; par SHA-256) ou du Windows ADK ; makecat, Inf2Cat et signtool sont extraits des paquets NuGet de Microsoft (Windows SDK build tools / Windows Driver Kit) - seuls ces outils sont gard&#xE9;s, rien n'est install&#xE9;.
+Download missing tools now	T&#xE9;l&#xE9;charger maintenant les outils manquants
+Open tools folder	Ouvrir le dossier des outils
+Checks your autounattend.xml, $OEM$ folder and drivers against the ISO you are building and points out what would break or stall a clean install: wrong edition index or language, invalid computer / account names or time zone, duplicate command numbers, scripts that wait for a key, missing files, drivers that nothing installs or that Windows will refuse, and SetupComplete.cmd being skipped on PCs with an OEM key. Fixes change only the copies that go into the ISO - your own files stay as they are. The check also runs before every ISO build.	V&#xE9;rifie votre autounattend.xml, le dossier $OEM$ et les pilotes par rapport &#xE0; l'ISO que vous cr&#xE9;ez et signale ce qui ferait &#xE9;chouer ou bloquerait une installation propre : index d'&#xE9;dition ou langue erron&#xE9;s, noms d'ordinateur / de compte ou fuseau horaire non valides, num&#xE9;ros de commande en double, scripts qui attendent une touche, fichiers manquants, pilotes que rien n'installe ou que Windows refusera, et SetupComplete.cmd ignor&#xE9; sur les PC avec une cl&#xE9; OEM. Les corrections ne modifient que les copies qui vont dans l'ISO - vos propres fichiers restent tels quels. La v&#xE9;rification est aussi lanc&#xE9;e avant chaque cr&#xE9;ation d'ISO.
+Run the check	Lancer la v&#xE9;rification
+Apply all fixes	Appliquer toutes les corrections
+Save fixed answer file as...	Enregistrer le fichier de r&#xE9;ponses corrig&#xE9; sous...
+Undo answer file fixes	Annuler les corrections du fichier de r&#xE9;ponses
+Not run yet.	Pas encore lanc&#xE9;e.
+Level	Niveau
+Area	Domaine
+Finding	Constat
+Fix	Correction
+Also install the driver folders in my $OEM$\$1 with pnputil (from SetupComplete-drivers.cmd)	Installer aussi les dossiers de pilotes de mon $OEM$\$1 avec pnputil (depuis SetupComplete-drivers.cmd)
+Filter	Filtrer
+Class, provider, INF or folder name	Classe, fournisseur, INF ou nom de dossier
+All that fit	Tous ceux qui conviennent
+Tick shown	Cocher ceux affich&#xE9;s
+None	Aucun
+Add ticked drivers	Ajouter les pilotes coch&#xE9;s
+Cancel	Annuler
+Driver signing certificate	Certificat de signature des pilotes
+Password	Mot de passe
+Repeat the password	R&#xE9;p&#xE9;ter le mot de passe
+Not there yet: {0}	Pas encore l&#xE0; : {0}
+Dark theme	Th&#xE8;me sombre
+Switch to the dark theme	Passer au th&#xE8;me sombre
+Another job is still running.	Une autre t&#xE2;che est encore en cours.
+{0} finished in {1:mm\:ss}	{0} termin&#xE9; en {1:mm\:ss}
+{0} stopped with an error - see the log	{0} s'est arr&#xEA;t&#xE9; avec une erreur - voir le journal
+Unpack	Extraire
+Analyze	Analyser
+Download updates	T&#xE9;l&#xE9;charger les mises &#xE0; jour
+Driver scan	Recherche de pilotes
+Copy drivers	Copier les pilotes
+Folder scan	Analyse du dossier
+Import drivers	Importer les pilotes
+Re-sign drivers	Signer &#xE0; nouveau les pilotes
+Slipstream	Int&#xE9;gration
+Build ISO	Cr&#xE9;er l'ISO
+Apply fixes	Appliquer les corrections
+no ISO yet	pas encore d'ISO
+{0}  |  {1}  |  {2}  |  {3} edition(s)	{0}  |  {1}  |  {2}  |  {3} &#xE9;dition(s)
+{0} free	{0} libres
+unpacked	extraite
+{0} of {1} ticked	{0} sur {1} coch&#xE9;es
+tick at least one	cochez-en au moins une
+not available for this build	non disponible pour cette build
+{0} ({1}) + {2} more	{0} ({1}) + {2} autres
+{0} packages ({1} for boot)	{0} paquets ({1} pour le d&#xE9;marrage)
+none (optional)	aucun (facultatif)
+{0} error(s), {1} warning(s)	{0} erreur(s), {1} avertissement(s)
+{0} warning(s)	{0} avertissement(s)
+all good	tout est bon
+ISO ready	ISO pr&#xEA;te
+slipstreamed ({0}) - build the ISO	int&#xE9;gr&#xE9;e ({0}) - cr&#xE9;ez l'ISO
+Updates for Windows 11 21H2, 22H2 / 23H2, 24H2 / LTSC 2024 and 25H2 (x64, ARM64). On a Windows 10 PC the slipstream uses the DISM of the Windows ADK Deployment Tools, installed from Microsoft when needed.	Mises &#xE0; jour pour Windows 11 21H2, 22H2 / 23H2, 24H2 / LTSC 2024 et 25H2 (x64, ARM64). Sur un PC sous Windows 10, l'int&#xE9;gration utilise le DISM des outils de d&#xE9;ploiement du Windows ADK, install&#xE9;s depuis Microsoft si besoin.
+Updates for Windows 10 1607 / LTSB 2016, 1809 / LTSC 2019, 2004-22H2 and LTSC 2021 (x64, x86, ARM64).	Mises &#xE0; jour pour Windows 10 1607 / LTSB 2016, 1809 / LTSC 2019, 2004-22H2 et LTSC 2021 (x64, x86, ARM64).
+The unpacked ISO is Windows {0} - pick a Windows {1} ISO and unpack it to switch.	L'ISO extraite est Windows {0} - choisissez une ISO de Windows {1} et extrayez-la pour changer.
+Download Windows {0} from Microsoft	T&#xE9;l&#xE9;charger Windows {0} chez Microsoft
+Windows 11: the newest updates in the Microsoft Update Catalog are used (21H2, which is out of servicing: its last ones, 2024-10).	Windows 11 : les mises &#xE0; jour les plus r&#xE9;centes du Catalogue Microsoft Update sont utilis&#xE9;es (21H2, qui n'est plus pris en charge : ses derni&#xE8;res, 2024-10).
+{0}  -  build {1}  -  {2}  -  {3} edition(s)	{0}  -  build {1}  -  {2}  -  {3} &#xE9;dition(s)
+No automatic updates for this build - drivers, signed packages, answer file and $OEM$ still work.	Pas de mises &#xE0; jour automatiques pour cette build - les pilotes, les paquets sign&#xE9;s, le fichier de r&#xE9;ponses et $OEM$ fonctionnent quand m&#xEA;me.
+Updates up to {0} (the last month Microsoft allows offline for Windows 10).	Mises &#xE0; jour jusqu'&#xE0; {0} (le dernier mois que Microsoft permet d'int&#xE9;grer hors ligne pour Windows 10).
+Its last updates ({0}) - this version is out of servicing.	Ses derni&#xE8;res mises &#xE0; jour ({0}) - cette version n'est plus prise en charge.
+Newest updates available in the Microsoft Update Catalog.	Mises &#xE0; jour les plus r&#xE9;centes du Catalogue Microsoft Update.
+The {0} enablement package is added too.	Le paquet d'activation {0} est aussi ajout&#xE9;.
+{0} driver package(s), {1} storage/network for boot.wim and WinRE, about {2:N0} MB	{0} paquet(s) de pilotes, {1} de stockage/r&#xE9;seau pour boot.wim et WinRE, environ {2:N0} Mo
+No drivers selected.	Aucun pilote s&#xE9;lectionn&#xE9;.
+this PC only ({0} kept)	ce PC seulement ({0} gard&#xE9;s)
+all	tous
+Ready - {0}, valid until {1:yyyy-MM-dd} (backed up as DriverSigning.pfx)	Pr&#xEA;t - {0}, valide jusqu'au {1:yyyy-MM-dd} (sauvegard&#xE9; dans DriverSigning.pfx)
+In this PC's certificate store, not backed up yet - you will be asked for a password to save DriverSigning.pfx.	Dans le magasin de certificats de ce PC, pas encore sauvegard&#xE9; - un mot de passe vous sera demand&#xE9; pour enregistrer DriverSigning.pfx.
+DriverSigning.pfx found - its password is asked when you sign.	DriverSigning.pfx trouv&#xE9; - son mot de passe est demand&#xE9; quand vous signez.
+None yet - one is created the first time you sign (you choose its password).	Aucun pour l'instant - il est cr&#xE9;&#xE9; la premi&#xE8;re fois que vous signez (vous choisissez son mot de passe).
+{0}   (added {1})	{0}   (ajout&#xE9; le {1})
+Slipstreamed on {0} - build {1}. Build the ISO next.	Int&#xE9;gr&#xE9;e le {0} - build {1}. Cr&#xE9;ez ensuite l'ISO.
+{0} error(s), {1} warning(s), {2} check(s) passed   -   {3}	{0} erreur(s), {1} avertissement(s), {2} v&#xE9;rification(s) r&#xE9;ussie(s)   -   {3}
+Apply {0} fix(es)	Appliquer {0} correction(s)
+The ISO uses a fixed copy of your answer file (fixed {0}). Save it to update your own file too.	L'ISO utilise une copie corrig&#xE9;e de votre fichier de r&#xE9;ponses (corrig&#xE9;e le {0}). Enregistrez-la pour mettre aussi &#xE0; jour votre propre fichier.
+folder not found	dossier introuvable
+{0} files, {1}   ({2})	{0} fichiers, {1}   ({2})
+has SetupComplete.cmd	contient SetupComplete.cmd
+missing - downloaded automatically when you build the ISO	manquant - t&#xE9;l&#xE9;charg&#xE9; automatiquement quand vous cr&#xE9;ez l'ISO
+missing - downloaded automatically when you sign drivers	manquant - t&#xE9;l&#xE9;charg&#xE9; automatiquement quand vous signez des pilotes
+missing - downloaded only if the signing engine needs Inf2Cat as fallback	manquant - t&#xE9;l&#xE9;charg&#xE9; seulement si le moteur de signature a besoin d'Inf2Cat en secours
+missing - only needed for the MakeCat signing engine	manquant - n&#xE9;cessaire seulement pour le moteur de signature MakeCat
+missing - PowerShell / BITS downloads are used	manquant - les t&#xE9;l&#xE9;chargements PowerShell / BITS sont utilis&#xE9;s
+Default. makecat.exe (Windows SDK) builds one catalog per driver folder with the hash of every file in it, so each file is hashed once - about 20 s for NVIDIA's 3 GB Display.Driver instead of minutes. Compressed files (name.dl_) are hashed expanded, the way Windows checks them. MakeCat does not parse the INF: every catalog is checked with signtool afterwards, and a folder MakeCat cannot do goes to Inf2Cat.	Par d&#xE9;faut. makecat.exe (Windows SDK) cr&#xE9;e un catalogue par dossier de pilotes avec le hachage de chaque fichier qu'il contient, donc chaque fichier n'est hach&#xE9; qu'une fois - environ 20 s pour les 3 Go du Display.Driver de NVIDIA au lieu de plusieurs minutes. Les fichiers compress&#xE9;s (nom.dl_) sont hach&#xE9;s d&#xE9;compress&#xE9;s, comme Windows les v&#xE9;rifie. MakeCat n'analyse pas l'INF : chaque catalogue est v&#xE9;rifi&#xE9; ensuite avec signtool, et un dossier que MakeCat ne peut pas traiter passe &#xE0; Inf2Cat.
+Experimental. The catalog is built with the CryptCAT API of Windows itself, the way libwdi (Zadig) does it - nothing to download. One catalog per driver folder with the hash of every file in it (SHA-1). Checked with signtool afterwards; a folder it cannot do goes to Inf2Cat.	Exp&#xE9;rimental. Le catalogue est cr&#xE9;&#xE9; avec l'API CryptCAT de Windows lui-m&#xEA;me, comme le fait libwdi (Zadig) - rien &#xE0; t&#xE9;l&#xE9;charger. Un catalogue par dossier de pilotes avec le hachage de chaque fichier qu'il contient (SHA-1). V&#xE9;rifi&#xE9; ensuite avec signtool ; un dossier qu'il ne peut pas traiter passe &#xE0; Inf2Cat.
+Experimental. LINBIT generate-cat-file (GPL-2.0): its source is downloaded from GitHub (one pinned commit, SHA-256 checked) and built inside WSL - needs WSL with a Linux distribution that has gcc and make. One catalog per driver folder; Inf2Cat signs when WSL or the build is missing.	Exp&#xE9;rimental. LINBIT generate-cat-file (GPL-2.0) : son code source est t&#xE9;l&#xE9;charg&#xE9; depuis GitHub (un commit fix&#xE9;, v&#xE9;rifi&#xE9; par SHA-256) et compil&#xE9; dans WSL - n&#xE9;cessite WSL avec une distribution Linux qui a gcc et make. Un catalogue par dossier de pilotes ; Inf2Cat signe quand WSL ou la compilation manque.
+Microsoft's standard tool from the Windows Driver Kit: it parses every INF and checks it against every file of the package. The proven choice, but slow on big packages - the options below make it faster.	L'outil standard de Microsoft, du Windows Driver Kit : il analyse chaque INF et le v&#xE9;rifie contre tous les fichiers du paquet. Le choix &#xE9;prouv&#xE9;, mais lent sur les gros paquets - les options ci-dessous l'acc&#xE9;l&#xE8;rent.
+installs from {0} during Windows setup	s'installe depuis {0} pendant l'installation de Windows
+{0} older version(s) of drivers that are here in a newer version too are unticked (column Older) - Windows uses the newest one.	{0} ancienne(s) version(s) de pilotes qui sont aussi ici dans une version plus r&#xE9;cente sont d&#xE9;coch&#xE9;es (colonne Ancienne) - Windows utilise la plus r&#xE9;cente.
+DriverSigning.pfx was found next to this tool. Enter its password to load your signing certificate.	DriverSigning.pfx a &#xE9;t&#xE9; trouv&#xE9; &#xE0; c&#xF4;t&#xE9; de cet outil. Entrez son mot de passe pour charger votre certificat de signature.
+Your signing certificate is in this PC's store but has no backup yet. Choose a password to save it as DriverSigning.pfx - you need it to sign again after reinstalling Windows.	Votre certificat de signature est dans le magasin de ce PC mais n'a pas encore de sauvegarde. Choisissez un mot de passe pour l'enregistrer sous DriverSigning.pfx - il vous faudra pour signer &#xE0; nouveau apr&#xE8;s avoir r&#xE9;install&#xE9; Windows.
+A new self-signed code-signing certificate will be created. Choose a password for its backup file DriverSigning.pfx - you need it to sign again after reinstalling Windows.	Un nouveau certificat de signature de code auto-sign&#xE9; va &#xEA;tre cr&#xE9;&#xE9;. Choisissez un mot de passe pour son fichier de sauvegarde DriverSigning.pfx - il vous faudra pour signer &#xE0; nouveau apr&#xE8;s avoir r&#xE9;install&#xE9; Windows.
+Enter a password.	Entrez un mot de passe.
+The passwords do not match.	Les mots de passe ne correspondent pas.
+Index	Index
+Edition	&#xC9;dition
+Build	Build
+Size	Taille
+SizeGB	Taille (Go)
+Kind	Type
+Date	Date
+Title	Titre
+No	N&#xB0;
+Source	Source
+Class	Classe
+Provider	Fournisseur
+Version	Version
+SizeMB	Taille (Mo)
+InstallsFrom	S'installe depuis
+Signed	Sign&#xE9;s
+Failed	&#xC9;chou&#xE9;s
+When	Quand
+FixText	Correction
+Arch	Architecture
+Older	Ancienne
+Unpack an ISO first (page 1).	Extrayez d'abord une ISO (page 1).
+Choose an existing .iso file first.	Choisissez d'abord un fichier .iso existant.
+The work folder already has unpacked media ({0}). Replace it with a fresh copy of this ISO?	Le dossier de travail contient d&#xE9;j&#xE0; un support extrait ({0}). Le remplacer par une nouvelle copie de cette ISO ?
+Drivers installed on this PC	Pilotes install&#xE9;s sur ce PC
+Third-party drivers exported from this PC. Ticked ones are slipstreamed into the ISO.	Pilotes tiers export&#xE9;s de ce PC. Ceux qui sont coch&#xE9;s sont int&#xE9;gr&#xE9;s &#xE0; l'ISO.
+Pick the drivers folder - Drivers-Backup made by Drivers.cmd, a folder from another PC or a vendor pack. All subfolders are scanned.	Choisissez le dossier de pilotes - Drivers-Backup cr&#xE9;&#xE9; par Drivers.cmd, un dossier d'un autre PC ou un pack du fabricant. Tous les sous-dossiers sont analys&#xE9;s.
+No .inf drivers in that folder.	Aucun pilote .inf dans ce dossier.
+Drivers in {0}	Pilotes dans {0}
+Drivers built for another architecture than the ISO are unticked and left out.	Les pilotes con&#xE7;us pour une autre architecture que celle de l'ISO sont d&#xE9;coch&#xE9;s et laiss&#xE9;s de c&#xF4;t&#xE9;.
+Choose the driver folder first (for example the folder NVCleanstall extracted).	Choisissez d'abord le dossier des pilotes (par exemple le dossier extrait par NVCleanstall).
+There are no .inf files in that folder or its subfolders.	Il n'y a pas de fichiers .inf dans ce dossier ni dans ses sous-dossiers.
+Tick at least one edition first.	Cochez d'abord au moins une &#xE9;dition.
+This media was already slipstreamed on {0}. For a clean result unpack the ISO again (page 1). Slipstream again anyway?	Ce support a d&#xE9;j&#xE0; &#xE9;t&#xE9; int&#xE9;gr&#xE9; le {0}. Pour un r&#xE9;sultat propre, extrayez &#xE0; nouveau l'ISO (page 1). Int&#xE9;grer &#xE0; nouveau quand m&#xEA;me ?
+No updates are downloaded (page 3). Continue with drivers and options only?	Aucune mise &#xE0; jour t&#xE9;l&#xE9;charg&#xE9;e (page 3). Continuer seulement avec les pilotes et les options ?
+The media has not been slipstreamed yet. Build the ISO anyway (drivers, updates and options are then missing)?	Le support n'a pas encore &#xE9;t&#xE9; int&#xE9;gr&#xE9;. Cr&#xE9;er l'ISO quand m&#xEA;me (les pilotes, mises &#xE0; jour et options manqueront alors) ?
+Nothing to fix automatically - run the check first. Findings without a fix need a change on the page they mention.	Rien &#xE0; corriger automatiquement - lancez d'abord la v&#xE9;rification. Les constats sans correction demandent une modification sur la page qu'ils mentionnent.
+Apply these fixes? They change the copies that go into the ISO, not your own files.	Appliquer ces corrections ? Elles modifient les copies qui vont dans l'ISO, pas vos propres fichiers.
+Choose the source ISO on page 1 first.	Choisissez d'abord l'ISO source &#xE0; la page 1.
+yes	oui
+no	non
+Source: {0}	Source : {0}
+Editions: {0}	&#xC9;ditions : {0}
+{0} ticked	{0} coch&#xE9;es
+asked after unpacking	demand&#xE9; apr&#xE8;s l'extraction
+Drivers: {0}   Signed packages: {1}	Pilotes : {0}   Paquets sign&#xE9;s : {1}
+Answer file: {0}   $OEM$: {1}	Fichier de r&#xE9;ponses : {0}   $OEM$ : {1}
+Run everything now? It takes 30-90 minutes - the PC is kept awake until it is done.	Tout ex&#xE9;cuter maintenant ? Cela prend 30-90 minutes - le PC reste &#xE9;veill&#xE9; jusqu'&#xE0; la fin.
+While a job runs (unpack, download, sign, slipstream, build), Windows Defender does not scan the work folder ({0}). The exclusion is removed when the job ends, and at the next start if the program was closed during a job. Everything in there comes from Microsoft, your drivers and this tool - do not put other downloads in that folder.	Pendant une t&#xE2;che (extraire, t&#xE9;l&#xE9;charger, signer, int&#xE9;grer, cr&#xE9;er), Windows Defender n'analyse pas le dossier de travail ({0}). L'exclusion est retir&#xE9;e &#xE0; la fin de la t&#xE2;che, et au prochain d&#xE9;marrage si le programme a &#xE9;t&#xE9; ferm&#xE9; pendant une t&#xE2;che. Tout ce qu'il contient vient de Microsoft, de vos pilotes et de cet outil - n'y mettez pas d'autres t&#xE9;l&#xE9;chargements.
+Use this only when the ISO is for this PC. INF files for other hardware are removed from the signed copy, so the driver installs only on hardware that matches this PC. NVIDIA's own setup.exe may refuse to run from that copy - pnputil installs the driver anyway. Sign the package again for it to take effect.	N'utilisez cette option que si l'ISO est pour ce PC. Les fichiers INF d'autres mat&#xE9;riels sont retir&#xE9;s de la copie sign&#xE9;e, donc le pilote ne s'installe que sur du mat&#xE9;riel identique &#xE0; ce PC. Le setup.exe de NVIDIA peut refuser de s'ex&#xE9;cuter depuis cette copie - pnputil installe le pilote quand m&#xEA;me. Signez &#xE0; nouveau le paquet pour que cela prenne effet.
+With Secure Boot on, this ISO only boots on PCs whose UEFI already trusts 'Windows UEFI CA 2023'. Older firmware needs that Secure Boot update first (or Secure Boot off). The image also needs a 2024-04 or newer update.	Avec le D&#xE9;marrage s&#xE9;curis&#xE9; activ&#xE9;, cette ISO ne d&#xE9;marre que sur les PC dont l'UEFI fait d&#xE9;j&#xE0; confiance &#xE0; 'Windows UEFI CA 2023'. Les firmwares plus anciens ont d'abord besoin de cette mise &#xE0; jour du D&#xE9;marrage s&#xE9;curis&#xE9; (ou du D&#xE9;marrage s&#xE9;curis&#xE9; d&#xE9;sactiv&#xE9;). L'image a aussi besoin d'une mise &#xE0; jour de 2024-04 ou plus r&#xE9;cente.
+Use the YYYY-MM format, e.g. 2025-10.	Utilisez le format AAAA-MM, p. ex. 2025-10.
+Use a number from 1 to 8 (or leave it empty for the number of processor cores, up to 8).	Utilisez un nombre de 1 &#xE0; 8 (ou laissez vide pour le nombre de c&#x153;urs du processeur, jusqu'&#xE0; 8).
+Use a number from 1 to 4 (or leave it empty: 2 on 4+ processor cores, 3 on 8+).	Utilisez un nombre de 1 &#xE0; 4 (ou laissez vide : 2 avec 4+ c&#x153;urs, 3 avec 8+).
+Select a Windows {0} ISO	S&#xE9;lectionnez une ISO de Windows {0}
+ISO images	Images ISO
+Select the drivers to remove in the list first (Ctrl+click for several).	S&#xE9;lectionnez d'abord dans la liste les pilotes &#xE0; retirer (Ctrl+clic pour plusieurs).
+Remove every selected driver?	Retirer tous les pilotes s&#xE9;lectionn&#xE9;s ?
+Pick the modded driver folder (e.g. the folder NVCleanstall extracted). All subfolders are scanned.	Choisissez le dossier des pilotes modifi&#xE9;s (p. ex. le dossier extrait par NVCleanstall). Tous les sous-dossiers sont analys&#xE9;s.
+Select a package in the list first.	S&#xE9;lectionnez d'abord un paquet dans la liste.
+Select your autounattend.xml	S&#xE9;lectionnez votre autounattend.xml
+Answer files	Fichiers de r&#xE9;ponses
+Pick your $OEM$ folder (the one that contains $1 and/or $$)	Choisissez votre dossier $OEM$ (celui qui contient $1 et/ou $$)
+ISO image	Image ISO
+Pick or create the work folder (NTFS, no spaces, ~30 GB free)	Choisissez ou cr&#xE9;ez le dossier de travail (NTFS, sans espaces, ~30 Go libres)
+The path has spaces - a short path like D:\W10U is safer for DISM. Use it anyway?	Le chemin contient des espaces - un chemin court comme D:\W10U est plus s&#xFB;r pour DISM. L'utiliser quand m&#xEA;me ?
+downloaded updates	mises &#xE0; jour t&#xE9;l&#xE9;charg&#xE9;es
+unpacked media	support extrait
+built ISOs	ISO cr&#xE9;&#xE9;es
+re-signed driver copies	copies des pilotes sign&#xE9;s &#xE0; nouveau
+copied drivers	pilotes copi&#xE9;s
+answer file copy and check results	copie du fichier de r&#xE9;ponses et r&#xE9;sultats de la v&#xE9;rification
+logs	journaux
+EVERYTHING in the work folder	TOUT le contenu du dossier de travail
+mounted images and temp files	images mont&#xE9;es et fichiers temporaires
+Delete: {0}?	Supprimer : {0} ?
+Restore the default options? The work folder is kept.	Restaurer les options par d&#xE9;faut ? Le dossier de travail est conserv&#xE9;.
+There is no answer file yet (page 6).	Il n'y a pas encore de fichier de r&#xE9;ponses (page 6).
+Answer file	Fichier de r&#xE9;ponses
+No answer file fixes to undo.	Aucune correction du fichier de r&#xE9;ponses &#xE0; annuler.
+Put the answer file back the way it was before the fixes?	Remettre le fichier de r&#xE9;ponses tel qu'il &#xE9;tait avant les corrections ?
+'{0}' is still running. Closing now can leave a mounted image behind (run Clean up next time). Close anyway?	'{0}' est encore en cours. Fermer maintenant peut laisser une image mont&#xE9;e (lancez le Nettoyage la prochaine fois). Fermer quand m&#xEA;me ?
+'@ }
+        'de' { return @'
+updates + drivers + signed NVIDIA mods + autounattend + $OEM$  ->  bootable ISO	Updates + Treiber + signierte NVIDIA-Mods + autounattend + $OEM$  ->  bootf&#xE4;hige ISO
+Light theme	Helles Design
+Switch to the light theme	Zum hellen Design wechseln
+Display and accessibility: theme, text size, font	Anzeige und Barrierefreiheit: Design, Textgr&#xF6;&#xDF;e, Schriftart
+Display and accessibility settings	Einstellungen f&#xFC;r Anzeige und Barrierefreiheit
+Minimize	Minimieren
+Maximize	Maximieren
+Close	Schlie&#xDF;en
+Display and accessibility	Anzeige und Barrierefreiheit
+Theme	Design
+Dark	Dunkel
+Light	Hell
+Like Windows	Wie Windows
+Text size	Textgr&#xF6;&#xDF;e
+Font	Schriftart
+Language	Sprache
+Ctrl + plus / Ctrl + minus / Ctrl + 0 change the text size anywhere in the window. Verdana and Tahoma have wider, more distinct letters. Saved for the next start.	Strg + Plus / Strg + Minus / Strg + 0 &#xE4;ndern die Textgr&#xF6;&#xDF;e &#xFC;berall im Fenster. Verdana und Tahoma haben breitere, besser unterscheidbare Buchstaben. Wird f&#xFC;r den n&#xE4;chsten Start gespeichert.
+The Activity log and the Install check findings stay in English - that is what a bug report or a search needs.	Das Aktivit&#xE4;tsprotokoll und die Ergebnisse der Installationspr&#xFC;fung bleiben auf Englisch - das braucht ein Fehlerbericht oder eine Suche.
+STEPS	SCHRITTE
+Source ISO	Quell-ISO
+to do	offen
+Editions	Editionen
+Windows updates	Windows-Updates
+Drivers	Treiber
+optional	optional
+Signed NVIDIA / modded	Signierte NVIDIA- / Mod-Treiber
+Answer file + $OEM$	Antwortdatei + $OEM$
+Install check	Installationspr&#xFC;fung
+not run yet	noch nicht ausgef&#xFC;hrt
+Slipstream + build ISO	Integrieren + ISO erstellen
+MORE	MEHR
+Options and clean up	Optionen und Bereinigen
+Tools	Werkzeuge
+Run everything	Alles ausf&#xFC;hren
+unpack - updates - slipstream - ISO, using what you set on each page	entpacken - Updates - integrieren - ISO, mit dem, was Sie auf jeder Seite eingestellt haben
+SOURCE	QUELLE
+IMAGE	ABBILD
+WORK FOLDER	ARBEITSORDNER
+ACTIVITY	AKTIVIT&#xC4;T
+Ready	Bereit
+Logs folder	Protokollordner
+Clear	Leeren
+Choose Windows 10 or Windows 11 and pick its ISO. It is copied into the work folder and its build and editions are detected - the version follows the ISO you unpack.	W&#xE4;hlen Sie Windows 10 oder Windows 11 und dessen ISO. Sie wird in den Arbeitsordner kopiert, Build und Editionen werden erkannt - die Version richtet sich nach der ISO, die Sie entpacken.
+Windows version	Windows-Version
+ISO file	ISO-Datei
+Browse...	Durchsuchen...
+Unpack and analyze	Entpacken und analysieren
+Re-read image info	Abbild neu einlesen
+Download Windows 10 from Microsoft	Windows 10 bei Microsoft herunterladen
+Detected image	Erkanntes Abbild
+Nothing unpacked yet.	Noch nichts entpackt.
+Tick the editions to update. With the option below on, unticked editions are left out of the new ISO (smaller and faster).	Haken Sie die Editionen an, die aktualisiert werden sollen. Mit der Option unten bleiben nicht angehakte Editionen aus der neuen ISO drau&#xDF;en (kleiner und schneller).
+Tick all	Alle anhaken
+Tick none	Keine anhaken
+Use	Verwenden
+Keep only the ticked editions in the new ISO	Nur die angehakten Editionen in der neuen ISO behalten
+Finds the newest cumulative update, servicing stack, Safe OS and Setup Dynamic Updates and .NET updates for this build in the Microsoft Update Catalog and downloads them (SHA-1 checked).	Sucht im Microsoft Update-Katalog das neueste kumulative Update, den Servicing Stack, die dynamischen Safe-OS- und Setup-Updates und die .NET-Updates f&#xFC;r diesen Build und l&#xE4;dt sie herunter (per SHA-1 gepr&#xFC;ft).
+What to integrate	Was integriert wird
+Add .NET Framework 4.8.1 (Windows 10 2004-22H2 - Windows 11 has it built in)	.NET Framework 4.8.1 hinzuf&#xFC;gen (Windows 10 2004-22H2 - Windows 11 hat es bereits)
+Enable .NET Framework 3.5 (from the ISO's sources\sxs)	.NET Framework 3.5 aktivieren (aus sources\sxs der ISO)
+Component cleanup /ResetBase (smaller image - updates can't be uninstalled)	Komponentenbereinigung /ResetBase (kleineres Abbild - Updates lassen sich nicht mehr deinstallieren)
+Newest month to integrate	Neuester zu integrierender Monat
+YYYY-MM, for Windows 10 2004-22H2 / LTSC 2021	JJJJ-MM, f&#xFC;r Windows 10 2004-22H2 / LTSC 2021
+2025-10 is the last Windows 10 update Microsoft allows offline. ESU updates (Nov 2025+) come from Windows Update after setup on enrolled PCs.	2025-10 ist das letzte Windows 10-Update, das Microsoft offline integrieren l&#xE4;sst. ESU-Updates (ab Nov. 2025) kommen nach der Installation &#xFC;ber Windows Update auf angemeldete PCs.
+Find and download updates	Updates suchen und herunterladen
+Downloaded	Heruntergeladen
+Signed drivers are slipstreamed into install.wim with DISM, so Windows installs them on first boot. Storage and network drivers also go into boot.wim and WinRE, so Setup sees RAID / VMD disks. Modded drivers (edited INF) belong on the next page.	Signierte Treiber werden mit DISM in install.wim integriert, damit Windows sie beim ersten Start installiert. Speicher- und Netzwerktreiber kommen auch in boot.wim und WinRE, damit das Setup RAID-/VMD-Datentr&#xE4;ger sieht. Modifizierte Treiber (bearbeitete INF) geh&#xF6;ren auf die n&#xE4;chste Seite.
+Add drivers from this PC	Treiber dieses PCs hinzuf&#xFC;gen
+Import a drivers folder	Treiberordner importieren
+Remove selected	Auswahl entfernen
+Clear all	Alle entfernen
+Also put storage and network drivers into boot.wim and WinRE	Speicher- und Netzwerktreiber auch in boot.wim und WinRE aufnehmen
+Allow unsigned drivers in DISM (/ForceUnsigned)	Unsignierte Treiber in DISM erlauben (/ForceUnsigned)
+Signed NVIDIA / modded drivers	Signierte NVIDIA- / Mod-Treiber
+For driver packages whose INF was edited - NVCleanstall hardware-ID mods for an unsupported GPU, custom INF files. The edit breaks the catalog signature, so Windows refuses them. Every subfolder is scanned; each modified package gets a new catalog (MakeCat by default, or the engine you pick below) signed with your own certificate. The package is added to the ISO through $OEM$ and installed by SetupComplete.cmd at the end of Windows setup, right after the certificate is trusted.	F&#xFC;r Treiberpakete, deren INF bearbeitet wurde - Hardware-ID-Mods von NVCleanstall f&#xFC;r eine nicht unterst&#xFC;tzte GPU, eigene INF-Dateien. Die Bearbeitung bricht die Katalogsignatur, deshalb lehnt Windows sie ab. Alle Unterordner werden durchsucht; jedes ge&#xE4;nderte Paket erh&#xE4;lt einen neuen Katalog (standardm&#xE4;&#xDF;ig MakeCat oder das unten gew&#xE4;hlte Modul), signiert mit Ihrem eigenen Zertifikat. Das Paket kommt &#xFC;ber $OEM$ in die ISO und wird am Ende der Windows-Installation von SetupComplete.cmd installiert, direkt nachdem dem Zertifikat vertraut wurde.
+Driver package	Treiberpaket
+Folder	Ordner
+Name	Name
+installs from C:\Drivers\NVIDIA during setup	wird w&#xE4;hrend des Setups aus C:\Drivers\NVIDIA installiert
+Engine	Modul
+Signing engine: MakeCat	Signaturmodul: MakeCat
+Signing engine: libwdi-style	Signaturmodul: libwdi-style
+Signing engine: generate-cat-file in WSL	Signaturmodul: generate-cat-file in WSL
+Signing engine: Inf2Cat	Signaturmodul: Inf2Cat
+Re-sign every package, not only the modified ones	Alle Pakete neu signieren, nicht nur die ge&#xE4;nderten
+Delete the driver copy from C:\Drivers once it is installed	Treiberkopie aus C:\Drivers l&#xF6;schen, sobald sie installiert ist
+Faster: new catalogs only for the INF files that need one	Schneller: neue Kataloge nur f&#xFC;r die INF-Dateien, die einen brauchen
+Every INF stays in the package, and the ones you did not edit keep their NVIDIA / Microsoft signature. MakeCat and the other folder engines point only the edited INF files at the folder's new catalog (off: every INF of the folder). Inf2Cat gets a copy of the folder with only the edited INF files (the driver files are hard links - no extra space), several at the same time; an edited INF whose catalog is shared with the others (nv_dispi.cat) gets a catalog file of its own. If Inf2Cat fails on that copy, the whole folder is catalogued as before.	Jede INF bleibt im Paket, und die nicht bearbeiteten behalten ihre NVIDIA-/Microsoft-Signatur. MakeCat und die anderen Ordner-Module verweisen nur die bearbeiteten INF-Dateien auf den neuen Katalog des Ordners (aus: jede INF des Ordners). Inf2Cat erh&#xE4;lt eine Kopie des Ordners mit nur den bearbeiteten INF-Dateien (die Treiberdateien sind feste Links - kein zus&#xE4;tzlicher Platz), mehrere gleichzeitig; eine bearbeitete INF, deren Katalog mit den anderen geteilt wird (nv_dispi.cat), erh&#xE4;lt eine eigene Katalogdatei. Scheitert Inf2Cat an dieser Kopie, wird der ganze Ordner wie bisher katalogisiert.
+Faster: only keep the INF files for this PC's hardware (when the ISO is for this PC)	Schneller: nur die INF-Dateien f&#xFC;r die Hardware dieses PCs behalten (wenn die ISO f&#xFC;r diesen PC ist)
+Mostly for Inf2Cat: NVIDIA's Display.Driver has one INF file per laptop and desktop maker, and Inf2Cat checks every one of them against the whole package - that can take up to an hour. With this on, only the INF files that list a device of this PC are signed (minutes instead), the others are removed from the copy. The original folder is not touched.	Vor allem f&#xFC;r Inf2Cat: NVIDIAs Display.Driver hat eine INF-Datei pro Laptop- und Desktop-Hersteller, und Inf2Cat pr&#xFC;ft jede gegen das ganze Paket - das kann bis zu einer Stunde dauern. Damit werden nur die INF-Dateien signiert, die ein Ger&#xE4;t dieses PCs nennen (stattdessen Minuten), die anderen werden aus der Kopie entfernt. Der Originalordner bleibt unver&#xE4;ndert.
+Catalog runs at the same time	Gleichzeitige Katalogl&#xE4;ufe
+1-8, empty = processor cores up to 8. Each Inf2Cat run uses one core; MakeCat does up to 4 folders at once.	1-8, leer = Prozessorkerne bis 8. Jeder Inf2Cat-Lauf nutzt einen Kern; MakeCat verarbeitet bis zu 4 Ordner gleichzeitig.
+Sign and add to the ISO	Signieren und zur ISO hinzuf&#xFC;gen
+Open signing folder	Signaturordner &#xF6;ffnen
+Signing certificate	Signaturzertifikat
+DriverSigning.pfx (private key) stays in the signing folder next to this tool - back it up and never share or upload it. Only the public DriverSigning.cer goes into the ISO. Tools (makecat, Inf2Cat, signtool) are downloaded automatically.	DriverSigning.pfx (privater Schl&#xFC;ssel) bleibt im Signaturordner neben diesem Werkzeug - sichern Sie es und geben Sie es nie weiter oder laden es hoch. Nur das &#xF6;ffentliche DriverSigning.cer kommt in die ISO. Die Werkzeuge (makecat, Inf2Cat, signtool) werden automatisch heruntergeladen.
+Packages added to the ISO	Zur ISO hinzugef&#xFC;gte Pakete
+Answer file and $OEM$	Antwortdatei und $OEM$
+Both are optional and copied into the media when the ISO is built.	Beide sind optional und werden beim Erstellen der ISO auf das Medium kopiert.
+none	keine
+Placed in the ISO root so Setup runs unattended. Create one with the autounattend generator.	Liegt im Stammverzeichnis der ISO, damit das Setup unbeaufsichtigt l&#xE4;uft. Erstellen Sie eine mit dem autounattend-Generator.
+Choose autounattend.xml	autounattend.xml ausw&#xE4;hlen
+Open the generator	Generator &#xF6;ffnen
+Remove	Entfernen
+$OEM$ folder	$OEM$-Ordner
+Copied to sources\$OEM$: $OEM$\$1 lands in C:\ and $OEM$\$$ in C:\Windows (e.g. $$\Setup\Scripts\SetupComplete.cmd). Packages from the signed-drivers page are merged in, and your SetupComplete.cmd gets a call to SetupComplete-drivers.cmd as its first command.	Wird nach sources\$OEM$ kopiert: $OEM$\$1 landet in C:\ und $OEM$\$$ in C:\Windows (z. B. $$\Setup\Scripts\SetupComplete.cmd). Die Pakete der Seite mit signierten Treibern werden hinzugef&#xFC;gt, und Ihre SetupComplete.cmd erh&#xE4;lt als ersten Befehl einen Aufruf von SetupComplete-drivers.cmd.
+Choose $OEM$ folder	$OEM$-Ordner ausw&#xE4;hlen
+Open	&#xD6;ffnen
+Slipstream and build	Integrieren und erstellen
+Slipstream applies updates, drivers and options to WinRE, install.wim and boot.wim (30-90 minutes). Build writes the bootable BIOS + UEFI ISO with your answer file, $OEM$ and signed drivers.	Integrieren wendet Updates, Treiber und Optionen auf WinRE, install.wim und boot.wim an (30-90 Minuten). Erstellen schreibt die bootf&#xE4;hige BIOS- + UEFI-ISO mit Ihrer Antwortdatei, $OEM$ und den signierten Treibern.
+Boot options	Startoptionen
+UEFI boot without 'Press any key to boot from CD or DVD'	UEFI-Start ohne 'Dr&#xFC;cken Sie eine beliebige Taste, um von CD oder DVD zu starten'
+Boot manager signed by Windows UEFI CA 2023 (needs firmware that trusts it)	Start-Manager signiert von Windows UEFI CA 2023 (braucht Firmware, die ihr vertraut)
+Split install.wim into 3.8 GB parts (FAT32 USB sticks)	install.wim in Teile zu 3,8 GB aufteilen (FAT32-USB-Sticks)
+Speed	Geschwindigkeit
+Update boot.wim and WinRE at the same time as install.wim (faster, uses more CPU and disk)	boot.wim und WinRE gleichzeitig mit install.wim aktualisieren (schneller, braucht mehr CPU und Datentr&#xE4;ger)
+Editions at the same time	Gleichzeitige Editionen
+Editions updated at the same time	Gleichzeitig aktualisierte Editionen
+1-4, empty = automatic (2 on 4+ processor cores, 3 on 8+). Each one needs about 25 GB free on the work drive; fewer run at once when there is less. 1 = one after the other.	1-4, leer = automatisch (2 bei 4+ Kernen, 3 bei 8+). Jede braucht etwa 25 GB frei auf dem Arbeitslaufwerk; mit weniger Platz laufen weniger gleichzeitig. 1 = eine nach der anderen.
+Let Windows Defender skip the work folder while a job runs (removed again afterwards)	Windows Defender den Arbeitsordner w&#xE4;hrend eines Auftrags &#xFC;berspringen lassen (danach wieder entfernt)
+Leave boot.wim index 1 (Windows PE for WDS servers) as it is - USB / DVD setup uses index 2	boot.wim-Index 1 (Windows PE f&#xFC;r WDS-Server) unver&#xE4;ndert lassen - Setup von USB / DVD nutzt Index 2
+DISM applies each update with one process, so servicing one image cannot use more cores - updating boot.wim, WinRE and several editions side by side can. Defender scanning every file DISM writes is often the biggest slowdown. Storage / network drivers go into WinRE and boot.wim with one DISM call. The log ends with the time of every step.	DISM wendet jedes Update mit einem einzigen Prozess an, die Wartung eines Abbilds kann also nicht mehr Kerne nutzen - boot.wim, WinRE und mehrere Editionen nebeneinander zu aktualisieren schon. Der Defender-Scan jeder Datei, die DISM schreibt, ist oft die gr&#xF6;&#xDF;te Bremse. Speicher-/Netzwerktreiber kommen mit einem DISM-Aufruf in WinRE und boot.wim. Das Protokoll endet mit der Dauer jedes Schritts.
+Output ISO	Ausgabe-ISO
+Save as...	Speichern unter...
+Empty = work folder\output\Win10_ or Win11_version_build_arch_date.iso	Leer = Arbeitsordner\output\Win10_ oder Win11_Version_Build_Architektur_Datum.iso
+1 - Slipstream into the image	1 - In das Abbild integrieren
+2 - Build the ISO	2 - ISO erstellen
+Open output folder	Ausgabeordner &#xF6;ffnen
+Result	Ergebnis
+No ISO built yet.	Noch keine ISO erstellt.
+Work folder	Arbeitsordner
+Apply	&#xDC;bernehmen
+Short NTFS path without spaces with about 30 GB free (e.g. D:\W10U). A new folder starts empty.	Kurzer NTFS-Pfad ohne Leerzeichen mit etwa 30 GB frei (z. B. D:\W10U). Ein neuer Ordner beginnt leer.
+Clean up	Bereinigen
+Leftover mounted images and temporary files are always removed. Also delete:	&#xDC;brig gebliebene eingebundene Abbilder und tempor&#xE4;re Dateien werden immer entfernt. Au&#xDF;erdem l&#xF6;schen:
+Downloaded updates	Heruntergeladene Updates
+Unpacked media	Entpacktes Medium
+Built ISOs	Erstellte ISOs
+Re-signed driver copies	Kopien neu signierter Treiber
+Copied drivers (this PC / imported folder)	Kopierte Treiber (dieser PC / importierter Ordner)
+Answer file copy and install check results (the answer file must be chosen again)	Kopie der Antwortdatei und Pr&#xFC;fergebnisse (die Antwortdatei muss neu ausgew&#xE4;hlt werden)
+Logs	Protokolle
+Everything - empty the work folder and start from scratch	Alles - den Arbeitsordner leeren und von vorn beginnen
+Clean up now	Jetzt bereinigen
+Defaults	Standardwerte
+Restore default options	Standardoptionen wiederherstellen
+Open work folder	Arbeitsordner &#xF6;ffnen
+Everything missing is downloaded automatically when a step needs it, into the tools folder next to this file. oscdimg.exe comes from the Microsoft symbol server (SHA-256 checked) or the Windows ADK; makecat, Inf2Cat and signtool are extracted from Microsoft's NuGet packages (Windows SDK build tools / Windows Driver Kit) - only those tools are kept, nothing is installed.	Alles Fehlende wird automatisch heruntergeladen, wenn ein Schritt es braucht, in den Ordner tools neben dieser Datei. oscdimg.exe kommt vom Symbolserver von Microsoft (per SHA-256 gepr&#xFC;ft) oder aus dem Windows ADK; makecat, Inf2Cat und signtool werden aus den NuGet-Paketen von Microsoft entnommen (Windows SDK build tools / Windows Driver Kit) - nur diese Werkzeuge werden behalten, nichts wird installiert.
+Download missing tools now	Fehlende Werkzeuge jetzt herunterladen
+Open tools folder	Werkzeugordner &#xF6;ffnen
+Checks your autounattend.xml, $OEM$ folder and drivers against the ISO you are building and points out what would break or stall a clean install: wrong edition index or language, invalid computer / account names or time zone, duplicate command numbers, scripts that wait for a key, missing files, drivers that nothing installs or that Windows will refuse, and SetupComplete.cmd being skipped on PCs with an OEM key. Fixes change only the copies that go into the ISO - your own files stay as they are. The check also runs before every ISO build.	Pr&#xFC;ft Ihre autounattend.xml, den $OEM$-Ordner und die Treiber gegen die ISO, die Sie erstellen, und zeigt, was eine saubere Installation st&#xF6;ren oder anhalten w&#xFC;rde: falscher Editionsindex oder falsche Sprache, ung&#xFC;ltige Computer-/Kontonamen oder Zeitzone, doppelte Befehlsnummern, Skripte, die auf eine Taste warten, fehlende Dateien, Treiber, die nichts installiert oder die Windows ablehnt, und SetupComplete.cmd, das auf PCs mit OEM-Schl&#xFC;ssel &#xFC;bersprungen wird. Korrekturen &#xE4;ndern nur die Kopien, die in die ISO kommen - Ihre eigenen Dateien bleiben, wie sie sind. Die Pr&#xFC;fung l&#xE4;uft auch vor jedem ISO-Build.
+Run the check	Pr&#xFC;fung ausf&#xFC;hren
+Apply all fixes	Alle Korrekturen anwenden
+Save fixed answer file as...	Korrigierte Antwortdatei speichern unter...
+Undo answer file fixes	Korrekturen der Antwortdatei r&#xFC;ckg&#xE4;ngig machen
+Not run yet.	Noch nicht ausgef&#xFC;hrt.
+Level	Stufe
+Area	Bereich
+Finding	Befund
+Fix	Korrektur
+Also install the driver folders in my $OEM$\$1 with pnputil (from SetupComplete-drivers.cmd)	Auch die Treiberordner in meinem $OEM$\$1 mit pnputil installieren (aus SetupComplete-drivers.cmd)
+Filter	Filter
+Class, provider, INF or folder name	Klasse, Anbieter, INF oder Ordnername
+All that fit	Alle passenden
+Tick shown	Angezeigte anhaken
+None	Keine
+Add ticked drivers	Angehakte Treiber hinzuf&#xFC;gen
+Cancel	Abbrechen
+Driver signing certificate	Treibersignatur-Zertifikat
+Password	Kennwort
+Repeat the password	Kennwort wiederholen
+Not there yet: {0}	Noch nicht vorhanden: {0}
+Dark theme	Dunkles Design
+Switch to the dark theme	Zum dunklen Design wechseln
+Another job is still running.	Ein anderer Auftrag l&#xE4;uft noch.
+{0} finished in {1:mm\:ss}	{0} fertig in {1:mm\:ss}
+{0} stopped with an error - see the log	{0} mit einem Fehler beendet - siehe Protokoll
+Unpack	Entpacken
+Analyze	Analysieren
+Download updates	Updates herunterladen
+Driver scan	Treibersuche
+Copy drivers	Treiber kopieren
+Folder scan	Ordnersuche
+Import drivers	Treiber importieren
+Re-sign drivers	Treiber neu signieren
+Slipstream	Integrieren
+Build ISO	ISO erstellen
+Apply fixes	Korrekturen anwenden
+no ISO yet	noch keine ISO
+{0}  |  {1}  |  {2}  |  {3} edition(s)	{0}  |  {1}  |  {2}  |  {3} Edition(en)
+{0} free	{0} frei
+unpacked	entpackt
+{0} of {1} ticked	{0} von {1} angehakt
+tick at least one	mindestens eine anhaken
+not available for this build	f&#xFC;r diesen Build nicht verf&#xFC;gbar
+{0} ({1}) + {2} more	{0} ({1}) + {2} weitere
+{0} packages ({1} for boot)	{0} Pakete ({1} f&#xFC;r den Start)
+none (optional)	keine (optional)
+{0} error(s), {1} warning(s)	{0} Fehler, {1} Warnung(en)
+{0} warning(s)	{0} Warnung(en)
+all good	alles in Ordnung
+ISO ready	ISO fertig
+slipstreamed ({0}) - build the ISO	integriert ({0}) - ISO erstellen
+Updates for Windows 11 21H2, 22H2 / 23H2, 24H2 / LTSC 2024 and 25H2 (x64, ARM64). On a Windows 10 PC the slipstream uses the DISM of the Windows ADK Deployment Tools, installed from Microsoft when needed.	Updates f&#xFC;r Windows 11 21H2, 22H2 / 23H2, 24H2 / LTSC 2024 und 25H2 (x64, ARM64). Auf einem Windows 10-PC nutzt das Integrieren das DISM der Bereitstellungstools des Windows ADK, die bei Bedarf von Microsoft installiert werden.
+Updates for Windows 10 1607 / LTSB 2016, 1809 / LTSC 2019, 2004-22H2 and LTSC 2021 (x64, x86, ARM64).	Updates f&#xFC;r Windows 10 1607 / LTSB 2016, 1809 / LTSC 2019, 2004-22H2 und LTSC 2021 (x64, x86, ARM64).
+The unpacked ISO is Windows {0} - pick a Windows {1} ISO and unpack it to switch.	Die entpackte ISO ist Windows {0} - w&#xE4;hlen Sie eine Windows {1}-ISO und entpacken Sie sie, um zu wechseln.
+Download Windows {0} from Microsoft	Windows {0} bei Microsoft herunterladen
+Windows 11: the newest updates in the Microsoft Update Catalog are used (21H2, which is out of servicing: its last ones, 2024-10).	Windows 11: die neuesten Updates aus dem Microsoft Update-Katalog werden verwendet (21H2, das keinen Support mehr hat: seine letzten, 2024-10).
+{0}  -  build {1}  -  {2}  -  {3} edition(s)	{0}  -  Build {1}  -  {2}  -  {3} Edition(en)
+No automatic updates for this build - drivers, signed packages, answer file and $OEM$ still work.	Keine automatischen Updates f&#xFC;r diesen Build - Treiber, signierte Pakete, Antwortdatei und $OEM$ funktionieren weiterhin.
+Updates up to {0} (the last month Microsoft allows offline for Windows 10).	Updates bis {0} (der letzte Monat, den Microsoft f&#xFC;r Windows 10 offline zul&#xE4;sst).
+Its last updates ({0}) - this version is out of servicing.	Seine letzten Updates ({0}) - diese Version hat keinen Support mehr.
+Newest updates available in the Microsoft Update Catalog.	Neueste Updates aus dem Microsoft Update-Katalog.
+The {0} enablement package is added too.	Das Aktivierungspaket {0} wird ebenfalls hinzugef&#xFC;gt.
+{0} driver package(s), {1} storage/network for boot.wim and WinRE, about {2:N0} MB	{0} Treiberpaket(e), {1} Speicher/Netzwerk f&#xFC;r boot.wim und WinRE, etwa {2:N0} MB
+No drivers selected.	Keine Treiber ausgew&#xE4;hlt.
+this PC only ({0} kept)	nur dieser PC ({0} behalten)
+all	alle
+Ready - {0}, valid until {1:yyyy-MM-dd} (backed up as DriverSigning.pfx)	Bereit - {0}, g&#xFC;ltig bis {1:yyyy-MM-dd} (gesichert als DriverSigning.pfx)
+In this PC's certificate store, not backed up yet - you will be asked for a password to save DriverSigning.pfx.	Im Zertifikatspeicher dieses PCs, noch nicht gesichert - Sie werden nach einem Kennwort gefragt, um DriverSigning.pfx zu speichern.
+DriverSigning.pfx found - its password is asked when you sign.	DriverSigning.pfx gefunden - das Kennwort wird beim Signieren abgefragt.
+None yet - one is created the first time you sign (you choose its password).	Noch keins - es wird beim ersten Signieren erstellt (Sie w&#xE4;hlen das Kennwort).
+{0}   (added {1})	{0}   (hinzugef&#xFC;gt {1})
+Slipstreamed on {0} - build {1}. Build the ISO next.	Integriert am {0} - Build {1}. Als N&#xE4;chstes die ISO erstellen.
+{0} error(s), {1} warning(s), {2} check(s) passed   -   {3}	{0} Fehler, {1} Warnung(en), {2} Pr&#xFC;fung(en) bestanden   -   {3}
+Apply {0} fix(es)	{0} Korrektur(en) anwenden
+The ISO uses a fixed copy of your answer file (fixed {0}). Save it to update your own file too.	Die ISO nutzt eine korrigierte Kopie Ihrer Antwortdatei (korrigiert {0}). Speichern Sie sie, um auch Ihre eigene Datei zu aktualisieren.
+folder not found	Ordner nicht gefunden
+{0} files, {1}   ({2})	{0} Dateien, {1}   ({2})
+has SetupComplete.cmd	enth&#xE4;lt SetupComplete.cmd
+missing - downloaded automatically when you build the ISO	fehlt - wird beim Erstellen der ISO automatisch heruntergeladen
+missing - downloaded automatically when you sign drivers	fehlt - wird beim Signieren von Treibern automatisch heruntergeladen
+missing - downloaded only if the signing engine needs Inf2Cat as fallback	fehlt - wird nur heruntergeladen, wenn das Signaturmodul Inf2Cat als Ausweichl&#xF6;sung braucht
+missing - only needed for the MakeCat signing engine	fehlt - nur f&#xFC;r das Signaturmodul MakeCat n&#xF6;tig
+missing - PowerShell / BITS downloads are used	fehlt - Downloads &#xFC;ber PowerShell / BITS werden verwendet
+Default. makecat.exe (Windows SDK) builds one catalog per driver folder with the hash of every file in it, so each file is hashed once - about 20 s for NVIDIA's 3 GB Display.Driver instead of minutes. Compressed files (name.dl_) are hashed expanded, the way Windows checks them. MakeCat does not parse the INF: every catalog is checked with signtool afterwards, and a folder MakeCat cannot do goes to Inf2Cat.	Standard. makecat.exe (Windows SDK) erstellt einen Katalog pro Treiberordner mit dem Hash jeder Datei darin, jede Datei wird also nur einmal gehasht - etwa 20 s f&#xFC;r NVIDIAs 3 GB Display.Driver statt Minuten. Komprimierte Dateien (name.dl_) werden entpackt gehasht, so wie Windows sie pr&#xFC;ft. MakeCat liest die INF nicht: jeder Katalog wird danach mit signtool gepr&#xFC;ft, und ein Ordner, den MakeCat nicht schafft, geht an Inf2Cat.
+Experimental. The catalog is built with the CryptCAT API of Windows itself, the way libwdi (Zadig) does it - nothing to download. One catalog per driver folder with the hash of every file in it (SHA-1). Checked with signtool afterwards; a folder it cannot do goes to Inf2Cat.	Experimentell. Der Katalog wird mit der CryptCAT-API von Windows selbst erstellt, so wie libwdi (Zadig) es macht - nichts herunterzuladen. Ein Katalog pro Treiberordner mit dem Hash jeder Datei darin (SHA-1). Danach mit signtool gepr&#xFC;ft; ein Ordner, den es nicht schafft, geht an Inf2Cat.
+Experimental. LINBIT generate-cat-file (GPL-2.0): its source is downloaded from GitHub (one pinned commit, SHA-256 checked) and built inside WSL - needs WSL with a Linux distribution that has gcc and make. One catalog per driver folder; Inf2Cat signs when WSL or the build is missing.	Experimentell. LINBIT generate-cat-file (GPL-2.0): der Quellcode wird von GitHub geladen (ein fester Commit, per SHA-256 gepr&#xFC;ft) und in WSL gebaut - braucht WSL mit einer Linux-Distribution, die gcc und make hat. Ein Katalog pro Treiberordner; Inf2Cat signiert, wenn WSL oder der Build fehlt.
+Microsoft's standard tool from the Windows Driver Kit: it parses every INF and checks it against every file of the package. The proven choice, but slow on big packages - the options below make it faster.	Das Standardwerkzeug von Microsoft aus dem Windows Driver Kit: es liest jede INF und pr&#xFC;ft sie gegen jede Datei des Pakets. Die bew&#xE4;hrte Wahl, aber langsam bei gro&#xDF;en Paketen - die Optionen unten machen es schneller.
+installs from {0} during Windows setup	wird w&#xE4;hrend der Windows-Installation aus {0} installiert
+{0} older version(s) of drivers that are here in a newer version too are unticked (column Older) - Windows uses the newest one.	{0} &#xE4;ltere Version(en) von Treibern, die hier auch in einer neueren Version vorliegen, sind nicht angehakt (Spalte &#xC4;lter) - Windows nutzt die neueste.
+DriverSigning.pfx was found next to this tool. Enter its password to load your signing certificate.	DriverSigning.pfx wurde neben diesem Werkzeug gefunden. Geben Sie das Kennwort ein, um Ihr Signaturzertifikat zu laden.
+Your signing certificate is in this PC's store but has no backup yet. Choose a password to save it as DriverSigning.pfx - you need it to sign again after reinstalling Windows.	Ihr Signaturzertifikat ist im Speicher dieses PCs, hat aber noch keine Sicherung. W&#xE4;hlen Sie ein Kennwort, um es als DriverSigning.pfx zu speichern - Sie brauchen es, um nach einer Neuinstallation von Windows erneut zu signieren.
+A new self-signed code-signing certificate will be created. Choose a password for its backup file DriverSigning.pfx - you need it to sign again after reinstalling Windows.	Ein neues selbstsigniertes Codesignaturzertifikat wird erstellt. W&#xE4;hlen Sie ein Kennwort f&#xFC;r die Sicherungsdatei DriverSigning.pfx - Sie brauchen sie, um nach einer Neuinstallation von Windows erneut zu signieren.
+Enter a password.	Geben Sie ein Kennwort ein.
+The passwords do not match.	Die Kennw&#xF6;rter stimmen nicht &#xFC;berein.
+Index	Index
+Edition	Edition
+Build	Build
+Size	Gr&#xF6;&#xDF;e
+SizeGB	Gr&#xF6;&#xDF;e (GB)
+Kind	Art
+Date	Datum
+Title	Titel
+No	Nr.
+Source	Quelle
+Class	Klasse
+Provider	Anbieter
+Version	Version
+SizeMB	Gr&#xF6;&#xDF;e (MB)
+InstallsFrom	Installiert aus
+Signed	Signiert
+Failed	Fehlgeschlagen
+When	Wann
+FixText	Korrektur
+Arch	Architektur
+Older	&#xC4;lter
+Unpack an ISO first (page 1).	Entpacken Sie zuerst eine ISO (Seite 1).
+Choose an existing .iso file first.	W&#xE4;hlen Sie zuerst eine vorhandene .iso-Datei.
+The work folder already has unpacked media ({0}). Replace it with a fresh copy of this ISO?	Der Arbeitsordner enth&#xE4;lt bereits ein entpacktes Medium ({0}). Durch eine frische Kopie dieser ISO ersetzen?
+Drivers installed on this PC	Auf diesem PC installierte Treiber
+Third-party drivers exported from this PC. Ticked ones are slipstreamed into the ISO.	Von diesem PC exportierte Treiber von Drittanbietern. Die angehakten werden in die ISO integriert.
+Pick the drivers folder - Drivers-Backup made by Drivers.cmd, a folder from another PC or a vendor pack. All subfolders are scanned.	W&#xE4;hlen Sie den Treiberordner - Drivers-Backup von Drivers.cmd, ein Ordner von einem anderen PC oder ein Herstellerpaket. Alle Unterordner werden durchsucht.
+No .inf drivers in that folder.	Keine .inf-Treiber in diesem Ordner.
+Drivers in {0}	Treiber in {0}
+Drivers built for another architecture than the ISO are unticked and left out.	Treiber f&#xFC;r eine andere Architektur als die der ISO sind nicht angehakt und bleiben drau&#xDF;en.
+Choose the driver folder first (for example the folder NVCleanstall extracted).	W&#xE4;hlen Sie zuerst den Treiberordner (zum Beispiel den Ordner, den NVCleanstall entpackt hat).
+There are no .inf files in that folder or its subfolders.	In diesem Ordner und seinen Unterordnern gibt es keine .inf-Dateien.
+Tick at least one edition first.	Haken Sie zuerst mindestens eine Edition an.
+This media was already slipstreamed on {0}. For a clean result unpack the ISO again (page 1). Slipstream again anyway?	Dieses Medium wurde bereits am {0} integriert. F&#xFC;r ein sauberes Ergebnis entpacken Sie die ISO erneut (Seite 1). Trotzdem erneut integrieren?
+No updates are downloaded (page 3). Continue with drivers and options only?	Keine Updates heruntergeladen (Seite 3). Nur mit Treibern und Optionen fortfahren?
+The media has not been slipstreamed yet. Build the ISO anyway (drivers, updates and options are then missing)?	Das Medium wurde noch nicht integriert. Die ISO trotzdem erstellen (dann fehlen Treiber, Updates und Optionen)?
+Nothing to fix automatically - run the check first. Findings without a fix need a change on the page they mention.	Nichts automatisch zu korrigieren - f&#xFC;hren Sie zuerst die Pr&#xFC;fung aus. Befunde ohne Korrektur brauchen eine &#xC4;nderung auf der genannten Seite.
+Apply these fixes? They change the copies that go into the ISO, not your own files.	Diese Korrekturen anwenden? Sie &#xE4;ndern die Kopien, die in die ISO kommen, nicht Ihre eigenen Dateien.
+Choose the source ISO on page 1 first.	W&#xE4;hlen Sie zuerst die Quell-ISO auf Seite 1.
+yes	ja
+no	nein
+Source: {0}	Quelle: {0}
+Editions: {0}	Editionen: {0}
+{0} ticked	{0} angehakt
+asked after unpacking	wird nach dem Entpacken gefragt
+Drivers: {0}   Signed packages: {1}	Treiber: {0}   Signierte Pakete: {1}
+Answer file: {0}   $OEM$: {1}	Antwortdatei: {0}   $OEM$: {1}
+Run everything now? It takes 30-90 minutes - the PC is kept awake until it is done.	Jetzt alles ausf&#xFC;hren? Es dauert 30-90 Minuten - der PC bleibt wach, bis es fertig ist.
+While a job runs (unpack, download, sign, slipstream, build), Windows Defender does not scan the work folder ({0}). The exclusion is removed when the job ends, and at the next start if the program was closed during a job. Everything in there comes from Microsoft, your drivers and this tool - do not put other downloads in that folder.	W&#xE4;hrend ein Auftrag l&#xE4;uft (entpacken, herunterladen, signieren, integrieren, erstellen), scannt Windows Defender den Arbeitsordner ({0}) nicht. Die Ausnahme wird entfernt, wenn der Auftrag endet, und beim n&#xE4;chsten Start, falls das Programm w&#xE4;hrend eines Auftrags geschlossen wurde. Alles darin stammt von Microsoft, Ihren Treibern und diesem Werkzeug - legen Sie keine anderen Downloads in diesen Ordner.
+Use this only when the ISO is for this PC. INF files for other hardware are removed from the signed copy, so the driver installs only on hardware that matches this PC. NVIDIA's own setup.exe may refuse to run from that copy - pnputil installs the driver anyway. Sign the package again for it to take effect.	Nutzen Sie das nur, wenn die ISO f&#xFC;r diesen PC ist. INF-Dateien f&#xFC;r andere Hardware werden aus der signierten Kopie entfernt, der Treiber installiert sich also nur auf Hardware wie in diesem PC. NVIDIAs eigenes setup.exe startet aus dieser Kopie eventuell nicht - pnputil installiert den Treiber trotzdem. Signieren Sie das Paket erneut, damit es wirkt.
+With Secure Boot on, this ISO only boots on PCs whose UEFI already trusts 'Windows UEFI CA 2023'. Older firmware needs that Secure Boot update first (or Secure Boot off). The image also needs a 2024-04 or newer update.	Mit aktiviertem Secure Boot startet diese ISO nur auf PCs, deren UEFI 'Windows UEFI CA 2023' bereits vertraut. &#xC4;ltere Firmware braucht zuerst dieses Secure-Boot-Update (oder Secure Boot aus). Das Abbild braucht au&#xDF;erdem ein Update von 2024-04 oder neuer.
+Use the YYYY-MM format, e.g. 2025-10.	Verwenden Sie das Format JJJJ-MM, z. B. 2025-10.
+Use a number from 1 to 8 (or leave it empty for the number of processor cores, up to 8).	Verwenden Sie eine Zahl von 1 bis 8 (oder lassen Sie das Feld leer f&#xFC;r die Zahl der Prozessorkerne, bis 8).
+Use a number from 1 to 4 (or leave it empty: 2 on 4+ processor cores, 3 on 8+).	Verwenden Sie eine Zahl von 1 bis 4 (oder lassen Sie das Feld leer: 2 bei 4+ Kernen, 3 bei 8+).
+Select a Windows {0} ISO	Eine Windows {0}-ISO ausw&#xE4;hlen
+ISO images	ISO-Abbilder
+Select the drivers to remove in the list first (Ctrl+click for several).	W&#xE4;hlen Sie zuerst in der Liste die zu entfernenden Treiber (Strg+Klick f&#xFC;r mehrere).
+Remove every selected driver?	Alle ausgew&#xE4;hlten Treiber entfernen?
+Pick the modded driver folder (e.g. the folder NVCleanstall extracted). All subfolders are scanned.	W&#xE4;hlen Sie den Ordner mit den modifizierten Treibern (z. B. den Ordner, den NVCleanstall entpackt hat). Alle Unterordner werden durchsucht.
+Select a package in the list first.	W&#xE4;hlen Sie zuerst ein Paket in der Liste.
+Select your autounattend.xml	Ihre autounattend.xml ausw&#xE4;hlen
+Answer files	Antwortdateien
+Pick your $OEM$ folder (the one that contains $1 and/or $$)	W&#xE4;hlen Sie Ihren $OEM$-Ordner (den, der $1 und/oder $$ enth&#xE4;lt)
+ISO image	ISO-Abbild
+Pick or create the work folder (NTFS, no spaces, ~30 GB free)	Arbeitsordner w&#xE4;hlen oder anlegen (NTFS, ohne Leerzeichen, ~30 GB frei)
+The path has spaces - a short path like D:\W10U is safer for DISM. Use it anyway?	Der Pfad enth&#xE4;lt Leerzeichen - ein kurzer Pfad wie D:\W10U ist f&#xFC;r DISM sicherer. Trotzdem verwenden?
+downloaded updates	heruntergeladene Updates
+unpacked media	entpacktes Medium
+built ISOs	erstellte ISOs
+re-signed driver copies	Kopien neu signierter Treiber
+copied drivers	kopierte Treiber
+answer file copy and check results	Kopie der Antwortdatei und Pr&#xFC;fergebnisse
+logs	Protokolle
+EVERYTHING in the work folder	ALLES im Arbeitsordner
+mounted images and temp files	eingebundene Abbilder und tempor&#xE4;re Dateien
+Delete: {0}?	L&#xF6;schen: {0}?
+Restore the default options? The work folder is kept.	Standardoptionen wiederherstellen? Der Arbeitsordner bleibt.
+There is no answer file yet (page 6).	Es gibt noch keine Antwortdatei (Seite 6).
+Answer file	Antwortdatei
+No answer file fixes to undo.	Keine Korrekturen der Antwortdatei zum R&#xFC;ckg&#xE4;ngigmachen.
+Put the answer file back the way it was before the fixes?	Die Antwortdatei wieder so herstellen, wie sie vor den Korrekturen war?
+'{0}' is still running. Closing now can leave a mounted image behind (run Clean up next time). Close anyway?	'{0}' l&#xE4;uft noch. Wenn Sie jetzt schlie&#xDF;en, kann ein eingebundenes Abbild zur&#xFC;ckbleiben (beim n&#xE4;chsten Mal Bereinigen ausf&#xFC;hren). Trotzdem schlie&#xDF;en?
+'@ }
+        'it' { return @'
+updates + drivers + signed NVIDIA mods + autounattend + $OEM$  ->  bootable ISO	aggiornamenti + driver + mod NVIDIA firmati + autounattend + $OEM$  ->  ISO avviabile
+Light theme	Tema chiaro
+Switch to the light theme	Passa al tema chiaro
+Display and accessibility: theme, text size, font	Schermo e accessibilit&#xE0;: tema, dimensione del testo, carattere
+Display and accessibility settings	Impostazioni di schermo e accessibilit&#xE0;
+Minimize	Riduci a icona
+Maximize	Ingrandisci
+Close	Chiudi
+Display and accessibility	Schermo e accessibilit&#xE0;
+Theme	Tema
+Dark	Scuro
+Light	Chiaro
+Like Windows	Come Windows
+Text size	Dimensione del testo
+Font	Carattere
+Language	Lingua
+Ctrl + plus / Ctrl + minus / Ctrl + 0 change the text size anywhere in the window. Verdana and Tahoma have wider, more distinct letters. Saved for the next start.	Ctrl + pi&#xF9; / Ctrl + meno / Ctrl + 0 cambiano la dimensione del testo in qualsiasi punto della finestra. Verdana e Tahoma hanno lettere pi&#xF9; larghe e pi&#xF9; distinte. Salvato per il prossimo avvio.
+The Activity log and the Install check findings stay in English - that is what a bug report or a search needs.	Il registro Attivit&#xE0; e i risultati del Controllo dell'installazione restano in inglese: &#xE8; ci&#xF2; che serve a una segnalazione di bug o a una ricerca.
+STEPS	PASSAGGI
+Source ISO	ISO di origine
+to do	da fare
+Editions	Edizioni
+Windows updates	Aggiornamenti di Windows
+Drivers	Driver
+optional	facoltativo
+Signed NVIDIA / modded	NVIDIA firmati / modificati
+Answer file + $OEM$	File di risposta + $OEM$
+Install check	Controllo dell'installazione
+not run yet	non ancora eseguito
+Slipstream + build ISO	Integra + crea ISO
+MORE	ALTRO
+Options and clean up	Opzioni e pulizia
+Tools	Strumenti
+Run everything	Esegui tutto
+unpack - updates - slipstream - ISO, using what you set on each page	estrai - aggiornamenti - integra - ISO, con ci&#xF2; che hai impostato in ogni pagina
+SOURCE	ORIGINE
+IMAGE	IMMAGINE
+WORK FOLDER	CARTELLA DI LAVORO
+ACTIVITY	ATTIVIT&#xC0;
+Ready	Pronto
+Logs folder	Cartella dei registri
+Clear	Cancella
+Choose Windows 10 or Windows 11 and pick its ISO. It is copied into the work folder and its build and editions are detected - the version follows the ISO you unpack.	Scegli Windows 10 o Windows 11 e seleziona la sua ISO. Viene copiata nella cartella di lavoro e ne vengono rilevate build ed edizioni - la versione segue la ISO che estrai.
+Windows version	Versione di Windows
+ISO file	File ISO
+Browse...	Sfoglia...
+Unpack and analyze	Estrai e analizza
+Re-read image info	Rileggi l'immagine
+Download Windows 10 from Microsoft	Scarica Windows 10 da Microsoft
+Detected image	Immagine rilevata
+Nothing unpacked yet.	Ancora niente estratto.
+Tick the editions to update. With the option below on, unticked editions are left out of the new ISO (smaller and faster).	Spunta le edizioni da aggiornare. Con l'opzione qui sotto attiva, le edizioni non spuntate restano fuori dalla nuova ISO (pi&#xF9; piccola e pi&#xF9; veloce).
+Tick all	Spunta tutte
+Tick none	Togli tutte
+Use	Usa
+Keep only the ticked editions in the new ISO	Tieni solo le edizioni spuntate nella nuova ISO
+Finds the newest cumulative update, servicing stack, Safe OS and Setup Dynamic Updates and .NET updates for this build in the Microsoft Update Catalog and downloads them (SHA-1 checked).	Cerca nel Catalogo di Microsoft Update l'aggiornamento cumulativo pi&#xF9; recente, lo stack di manutenzione, gli aggiornamenti dinamici Safe OS e di installazione e gli aggiornamenti .NET per questa build e li scarica (controllati con SHA-1).
+What to integrate	Cosa integrare
+Add .NET Framework 4.8.1 (Windows 10 2004-22H2 - Windows 11 has it built in)	Aggiungi .NET Framework 4.8.1 (Windows 10 2004-22H2 - Windows 11 lo include gi&#xE0;)
+Enable .NET Framework 3.5 (from the ISO's sources\sxs)	Attiva .NET Framework 3.5 (da sources\sxs della ISO)
+Component cleanup /ResetBase (smaller image - updates can't be uninstalled)	Pulizia dei componenti /ResetBase (immagine pi&#xF9; piccola - gli aggiornamenti non si possono pi&#xF9; disinstallare)
+Newest month to integrate	Mese pi&#xF9; recente da integrare
+YYYY-MM, for Windows 10 2004-22H2 / LTSC 2021	AAAA-MM, per Windows 10 2004-22H2 / LTSC 2021
+2025-10 is the last Windows 10 update Microsoft allows offline. ESU updates (Nov 2025+) come from Windows Update after setup on enrolled PCs.	2025-10 &#xE8; l'ultimo aggiornamento di Windows 10 che Microsoft consente di integrare offline. Gli aggiornamenti ESU (nov. 2025+) arrivano da Windows Update dopo l'installazione, sui PC iscritti.
+Find and download updates	Cerca e scarica gli aggiornamenti
+Downloaded	Scaricati
+Signed drivers are slipstreamed into install.wim with DISM, so Windows installs them on first boot. Storage and network drivers also go into boot.wim and WinRE, so Setup sees RAID / VMD disks. Modded drivers (edited INF) belong on the next page.	I driver firmati vengono integrati in install.wim con DISM, cos&#xEC; Windows li installa al primo avvio. I driver di archiviazione e di rete vanno anche in boot.wim e WinRE, cos&#xEC; il programma di installazione vede i dischi RAID / VMD. I driver modificati (INF modificato) vanno nella pagina successiva.
+Add drivers from this PC	Aggiungi i driver di questo PC
+Import a drivers folder	Importa una cartella di driver
+Remove selected	Rimuovi selezionati
+Clear all	Rimuovi tutti
+Also put storage and network drivers into boot.wim and WinRE	Metti anche i driver di archiviazione e di rete in boot.wim e WinRE
+Allow unsigned drivers in DISM (/ForceUnsigned)	Consenti driver non firmati in DISM (/ForceUnsigned)
+Signed NVIDIA / modded drivers	Driver NVIDIA firmati / modificati
+For driver packages whose INF was edited - NVCleanstall hardware-ID mods for an unsupported GPU, custom INF files. The edit breaks the catalog signature, so Windows refuses them. Every subfolder is scanned; each modified package gets a new catalog (MakeCat by default, or the engine you pick below) signed with your own certificate. The package is added to the ISO through $OEM$ and installed by SetupComplete.cmd at the end of Windows setup, right after the certificate is trusted.	Per pacchetti di driver il cui INF &#xE8; stato modificato - mod di ID hardware di NVCleanstall per una GPU non supportata, file INF personalizzati. La modifica rompe la firma del catalogo e Windows li rifiuta. Tutte le sottocartelle vengono analizzate; ogni pacchetto modificato riceve un nuovo catalogo (MakeCat come impostazione predefinita, o il motore che scegli qui sotto) firmato con il tuo certificato. Il pacchetto viene aggiunto alla ISO tramite $OEM$ e installato da SetupComplete.cmd alla fine dell'installazione di Windows, subito dopo che il certificato &#xE8; diventato attendibile.
+Driver package	Pacchetto di driver
+Folder	Cartella
+Name	Nome
+installs from C:\Drivers\NVIDIA during setup	si installa da C:\Drivers\NVIDIA durante l'installazione
+Engine	Motore
+Signing engine: MakeCat	Motore di firma: MakeCat
+Signing engine: libwdi-style	Motore di firma: libwdi-style
+Signing engine: generate-cat-file in WSL	Motore di firma: generate-cat-file in WSL
+Signing engine: Inf2Cat	Motore di firma: Inf2Cat
+Re-sign every package, not only the modified ones	Firma di nuovo tutti i pacchetti, non solo quelli modificati
+Delete the driver copy from C:\Drivers once it is installed	Elimina la copia dei driver da C:\Drivers dopo l'installazione
+Faster: new catalogs only for the INF files that need one	Pi&#xF9; veloce: nuovi cataloghi solo per i file INF che ne hanno bisogno
+Every INF stays in the package, and the ones you did not edit keep their NVIDIA / Microsoft signature. MakeCat and the other folder engines point only the edited INF files at the folder's new catalog (off: every INF of the folder). Inf2Cat gets a copy of the folder with only the edited INF files (the driver files are hard links - no extra space), several at the same time; an edited INF whose catalog is shared with the others (nv_dispi.cat) gets a catalog file of its own. If Inf2Cat fails on that copy, the whole folder is catalogued as before.	Ogni INF resta nel pacchetto, e quelli che non hai modificato mantengono la firma NVIDIA / Microsoft. MakeCat e gli altri motori per cartella collegano solo gli INF modificati al nuovo catalogo della cartella (disattivato: tutti gli INF della cartella). Inf2Cat riceve una copia della cartella con solo gli INF modificati (i file dei driver sono collegamenti fisici - nessuno spazio in pi&#xF9;), pi&#xF9; copie insieme; un INF modificato il cui catalogo &#xE8; condiviso con gli altri (nv_dispi.cat) riceve un file di catalogo proprio. Se Inf2Cat non riesce su quella copia, l'intera cartella viene catalogata come prima.
+Faster: only keep the INF files for this PC's hardware (when the ISO is for this PC)	Pi&#xF9; veloce: tieni solo i file INF per l'hardware di questo PC (quando la ISO &#xE8; per questo PC)
+Mostly for Inf2Cat: NVIDIA's Display.Driver has one INF file per laptop and desktop maker, and Inf2Cat checks every one of them against the whole package - that can take up to an hour. With this on, only the INF files that list a device of this PC are signed (minutes instead), the others are removed from the copy. The original folder is not touched.	Soprattutto per Inf2Cat: il Display.Driver di NVIDIA ha un file INF per ogni produttore di portatili e desktop, e Inf2Cat controlla ciascuno sull'intero pacchetto - pu&#xF2; richiedere fino a un'ora. Con questa opzione vengono firmati solo gli INF che indicano un dispositivo di questo PC (minuti invece), gli altri vengono rimossi dalla copia. La cartella originale non viene toccata.
+Catalog runs at the same time	Catalogazioni contemporanee
+1-8, empty = processor cores up to 8. Each Inf2Cat run uses one core; MakeCat does up to 4 folders at once.	1-8, vuoto = core del processore fino a 8. Ogni esecuzione di Inf2Cat usa un core; MakeCat elabora fino a 4 cartelle insieme.
+Sign and add to the ISO	Firma e aggiungi alla ISO
+Open signing folder	Apri la cartella di firma
+Signing certificate	Certificato di firma
+DriverSigning.pfx (private key) stays in the signing folder next to this tool - back it up and never share or upload it. Only the public DriverSigning.cer goes into the ISO. Tools (makecat, Inf2Cat, signtool) are downloaded automatically.	DriverSigning.pfx (chiave privata) resta nella cartella di firma accanto a questo strumento - fanne un backup e non condividerlo n&#xE9; caricarlo mai. Solo il DriverSigning.cer pubblico va nella ISO. Gli strumenti (makecat, Inf2Cat, signtool) vengono scaricati automaticamente.
+Packages added to the ISO	Pacchetti aggiunti alla ISO
+Answer file and $OEM$	File di risposta e $OEM$
+Both are optional and copied into the media when the ISO is built.	Entrambi sono facoltativi e vengono copiati nel supporto quando si crea la ISO.
+none	nessuno
+Placed in the ISO root so Setup runs unattended. Create one with the autounattend generator.	Messo nella radice della ISO perch&#xE9; l'installazione sia automatica. Creane uno con il generatore autounattend.
+Choose autounattend.xml	Scegli autounattend.xml
+Open the generator	Apri il generatore
+Remove	Rimuovi
+$OEM$ folder	Cartella $OEM$
+Copied to sources\$OEM$: $OEM$\$1 lands in C:\ and $OEM$\$$ in C:\Windows (e.g. $$\Setup\Scripts\SetupComplete.cmd). Packages from the signed-drivers page are merged in, and your SetupComplete.cmd gets a call to SetupComplete-drivers.cmd as its first command.	Copiata in sources\$OEM$: $OEM$\$1 finisce in C:\ e $OEM$\$$ in C:\Windows (es. $$\Setup\Scripts\SetupComplete.cmd). I pacchetti della pagina dei driver firmati vengono aggiunti, e il tuo SetupComplete.cmd riceve una chiamata a SetupComplete-drivers.cmd come primo comando.
+Choose $OEM$ folder	Scegli la cartella $OEM$
+Open	Apri
+Slipstream and build	Integra e crea
+Slipstream applies updates, drivers and options to WinRE, install.wim and boot.wim (30-90 minutes). Build writes the bootable BIOS + UEFI ISO with your answer file, $OEM$ and signed drivers.	L'integrazione applica aggiornamenti, driver e opzioni a WinRE, install.wim e boot.wim (30-90 minuti). La creazione scrive la ISO avviabile BIOS + UEFI con il tuo file di risposta, $OEM$ e i driver firmati.
+Boot options	Opzioni di avvio
+UEFI boot without 'Press any key to boot from CD or DVD'	Avvio UEFI senza 'Premere un tasto per avviare da CD o DVD'
+Boot manager signed by Windows UEFI CA 2023 (needs firmware that trusts it)	Boot manager firmato da Windows UEFI CA 2023 (serve un firmware che lo consideri attendibile)
+Split install.wim into 3.8 GB parts (FAT32 USB sticks)	Dividi install.wim in parti da 3,8 GB (chiavette USB FAT32)
+Speed	Velocit&#xE0;
+Update boot.wim and WinRE at the same time as install.wim (faster, uses more CPU and disk)	Aggiorna boot.wim e WinRE insieme a install.wim (pi&#xF9; veloce, usa pi&#xF9; CPU e disco)
+Editions at the same time	Edizioni contemporanee
+Editions updated at the same time	Edizioni aggiornate contemporaneamente
+1-4, empty = automatic (2 on 4+ processor cores, 3 on 8+). Each one needs about 25 GB free on the work drive; fewer run at once when there is less. 1 = one after the other.	1-4, vuoto = automatico (2 con 4+ core, 3 con 8+). Ognuna richiede circa 25 GB liberi sull'unit&#xE0; di lavoro; con meno spazio ne girano meno insieme. 1 = una dopo l'altra.
+Let Windows Defender skip the work folder while a job runs (removed again afterwards)	Lascia che Windows Defender salti la cartella di lavoro mentre un'operazione &#xE8; in corso (rimosso dopo)
+Leave boot.wim index 1 (Windows PE for WDS servers) as it is - USB / DVD setup uses index 2	Lascia l'indice 1 di boot.wim (Windows PE per server WDS) com'&#xE8; - l'installazione da USB / DVD usa l'indice 2
+DISM applies each update with one process, so servicing one image cannot use more cores - updating boot.wim, WinRE and several editions side by side can. Defender scanning every file DISM writes is often the biggest slowdown. Storage / network drivers go into WinRE and boot.wim with one DISM call. The log ends with the time of every step.	DISM applica ogni aggiornamento con un solo processo, quindi la manutenzione di un'immagine non pu&#xF2; usare pi&#xF9; core - aggiornare boot.wim, WinRE e pi&#xF9; edizioni affiancate s&#xEC;. La scansione di Defender di ogni file scritto da DISM &#xE8; spesso il rallentamento maggiore. I driver di archiviazione / rete vanno in WinRE e boot.wim con una sola chiamata DISM. Il registro termina con la durata di ogni passaggio.
+Output ISO	ISO di output
+Save as...	Salva con nome...
+Empty = work folder\output\Win10_ or Win11_version_build_arch_date.iso	Vuoto = cartella di lavoro\output\Win10_ o Win11_versione_build_architettura_data.iso
+1 - Slipstream into the image	1 - Integra nell'immagine
+2 - Build the ISO	2 - Crea la ISO
+Open output folder	Apri la cartella di output
+Result	Risultato
+No ISO built yet.	Nessuna ISO ancora creata.
+Work folder	Cartella di lavoro
+Apply	Applica
+Short NTFS path without spaces with about 30 GB free (e.g. D:\W10U). A new folder starts empty.	Percorso NTFS corto, senza spazi, con circa 30 GB liberi (es. D:\W10U). Una nuova cartella parte vuota.
+Clean up	Pulizia
+Leftover mounted images and temporary files are always removed. Also delete:	Le immagini montate rimaste e i file temporanei vengono sempre rimossi. Elimina anche:
+Downloaded updates	Aggiornamenti scaricati
+Unpacked media	Supporto estratto
+Built ISOs	ISO create
+Re-signed driver copies	Copie dei driver firmati di nuovo
+Copied drivers (this PC / imported folder)	Driver copiati (questo PC / cartella importata)
+Answer file copy and install check results (the answer file must be chosen again)	Copia del file di risposta e risultati del controllo (il file di risposta va scelto di nuovo)
+Logs	Registri
+Everything - empty the work folder and start from scratch	Tutto - svuota la cartella di lavoro e ricomincia da zero
+Clean up now	Pulisci ora
+Defaults	Impostazioni predefinite
+Restore default options	Ripristina le opzioni predefinite
+Open work folder	Apri la cartella di lavoro
+Everything missing is downloaded automatically when a step needs it, into the tools folder next to this file. oscdimg.exe comes from the Microsoft symbol server (SHA-256 checked) or the Windows ADK; makecat, Inf2Cat and signtool are extracted from Microsoft's NuGet packages (Windows SDK build tools / Windows Driver Kit) - only those tools are kept, nothing is installed.	Tutto ci&#xF2; che manca viene scaricato automaticamente quando un passaggio ne ha bisogno, nella cartella tools accanto a questo file. oscdimg.exe viene dal server dei simboli di Microsoft (controllato con SHA-256) o dal Windows ADK; makecat, Inf2Cat e signtool vengono estratti dai pacchetti NuGet di Microsoft (Windows SDK build tools / Windows Driver Kit) - vengono tenuti solo questi strumenti, non viene installato nulla.
+Download missing tools now	Scarica ora gli strumenti mancanti
+Open tools folder	Apri la cartella degli strumenti
+Checks your autounattend.xml, $OEM$ folder and drivers against the ISO you are building and points out what would break or stall a clean install: wrong edition index or language, invalid computer / account names or time zone, duplicate command numbers, scripts that wait for a key, missing files, drivers that nothing installs or that Windows will refuse, and SetupComplete.cmd being skipped on PCs with an OEM key. Fixes change only the copies that go into the ISO - your own files stay as they are. The check also runs before every ISO build.	Controlla il tuo autounattend.xml, la cartella $OEM$ e i driver rispetto alla ISO che stai creando e indica cosa romperebbe o bloccherebbe un'installazione pulita: indice di edizione o lingua errati, nomi di computer / account o fuso orario non validi, numeri di comando duplicati, script che aspettano un tasto, file mancanti, driver che nulla installa o che Windows rifiuter&#xE0;, e SetupComplete.cmd saltato sui PC con chiave OEM. Le correzioni cambiano solo le copie che vanno nella ISO - i tuoi file restano come sono. Il controllo viene eseguito anche prima di ogni creazione della ISO.
+Run the check	Esegui il controllo
+Apply all fixes	Applica tutte le correzioni
+Save fixed answer file as...	Salva il file di risposta corretto con nome...
+Undo answer file fixes	Annulla le correzioni del file di risposta
+Not run yet.	Non ancora eseguito.
+Level	Livello
+Area	Area
+Finding	Rilievo
+Fix	Correzione
+Also install the driver folders in my $OEM$\$1 with pnputil (from SetupComplete-drivers.cmd)	Installa anche le cartelle di driver nel mio $OEM$\$1 con pnputil (da SetupComplete-drivers.cmd)
+Filter	Filtro
+Class, provider, INF or folder name	Classe, fornitore, INF o nome della cartella
+All that fit	Tutti quelli adatti
+Tick shown	Spunta quelli visibili
+None	Nessuno
+Add ticked drivers	Aggiungi i driver spuntati
+Cancel	Annulla
+Driver signing certificate	Certificato di firma dei driver
+Password	Password
+Repeat the password	Ripeti la password
+Not there yet: {0}	Non c'&#xE8; ancora: {0}
+Dark theme	Tema scuro
+Switch to the dark theme	Passa al tema scuro
+Another job is still running.	Un'altra operazione &#xE8; ancora in corso.
+{0} finished in {1:mm\:ss}	{0} terminato in {1:mm\:ss}
+{0} stopped with an error - see the log	{0} si &#xE8; fermato con un errore - vedi il registro
+Unpack	Estrai
+Analyze	Analizza
+Download updates	Scarica aggiornamenti
+Driver scan	Ricerca driver
+Copy drivers	Copia driver
+Folder scan	Analisi cartella
+Import drivers	Importa driver
+Re-sign drivers	Firma di nuovo i driver
+Slipstream	Integrazione
+Build ISO	Crea ISO
+Apply fixes	Applica correzioni
+no ISO yet	ancora nessuna ISO
+{0}  |  {1}  |  {2}  |  {3} edition(s)	{0}  |  {1}  |  {2}  |  {3} edizione/i
+{0} free	{0} liberi
+unpacked	estratta
+{0} of {1} ticked	{0} di {1} spuntate
+tick at least one	spuntane almeno una
+not available for this build	non disponibile per questa build
+{0} ({1}) + {2} more	{0} ({1}) + altri {2}
+{0} packages ({1} for boot)	{0} pacchetti ({1} per l'avvio)
+none (optional)	nessuno (facoltativo)
+{0} error(s), {1} warning(s)	{0} errore/i, {1} avviso/i
+{0} warning(s)	{0} avviso/i
+all good	tutto a posto
+ISO ready	ISO pronta
+slipstreamed ({0}) - build the ISO	integrata ({0}) - crea la ISO
+Updates for Windows 11 21H2, 22H2 / 23H2, 24H2 / LTSC 2024 and 25H2 (x64, ARM64). On a Windows 10 PC the slipstream uses the DISM of the Windows ADK Deployment Tools, installed from Microsoft when needed.	Aggiornamenti per Windows 11 21H2, 22H2 / 23H2, 24H2 / LTSC 2024 e 25H2 (x64, ARM64). Su un PC con Windows 10 l'integrazione usa il DISM degli Strumenti di distribuzione del Windows ADK, installati da Microsoft quando serve.
+Updates for Windows 10 1607 / LTSB 2016, 1809 / LTSC 2019, 2004-22H2 and LTSC 2021 (x64, x86, ARM64).	Aggiornamenti per Windows 10 1607 / LTSB 2016, 1809 / LTSC 2019, 2004-22H2 e LTSC 2021 (x64, x86, ARM64).
+The unpacked ISO is Windows {0} - pick a Windows {1} ISO and unpack it to switch.	La ISO estratta &#xE8; Windows {0} - scegli una ISO di Windows {1} ed estraila per cambiare.
+Download Windows {0} from Microsoft	Scarica Windows {0} da Microsoft
+Windows 11: the newest updates in the Microsoft Update Catalog are used (21H2, which is out of servicing: its last ones, 2024-10).	Windows 11: vengono usati gli aggiornamenti pi&#xF9; recenti del Catalogo di Microsoft Update (21H2, non pi&#xF9; supportato: i suoi ultimi, 2024-10).
+{0}  -  build {1}  -  {2}  -  {3} edition(s)	{0}  -  build {1}  -  {2}  -  {3} edizione/i
+No automatic updates for this build - drivers, signed packages, answer file and $OEM$ still work.	Nessun aggiornamento automatico per questa build - driver, pacchetti firmati, file di risposta e $OEM$ funzionano comunque.
+Updates up to {0} (the last month Microsoft allows offline for Windows 10).	Aggiornamenti fino a {0} (l'ultimo mese che Microsoft consente offline per Windows 10).
+Its last updates ({0}) - this version is out of servicing.	I suoi ultimi aggiornamenti ({0}) - questa versione non &#xE8; pi&#xF9; supportata.
+Newest updates available in the Microsoft Update Catalog.	Aggiornamenti pi&#xF9; recenti disponibili nel Catalogo di Microsoft Update.
+The {0} enablement package is added too.	Viene aggiunto anche il pacchetto di abilitazione {0}.
+{0} driver package(s), {1} storage/network for boot.wim and WinRE, about {2:N0} MB	{0} pacchetto/i di driver, {1} di archiviazione/rete per boot.wim e WinRE, circa {2:N0} MB
+No drivers selected.	Nessun driver selezionato.
+this PC only ({0} kept)	solo questo PC ({0} tenuti)
+all	tutti
+Ready - {0}, valid until {1:yyyy-MM-dd} (backed up as DriverSigning.pfx)	Pronto - {0}, valido fino al {1:yyyy-MM-dd} (backup in DriverSigning.pfx)
+In this PC's certificate store, not backed up yet - you will be asked for a password to save DriverSigning.pfx.	Nell'archivio certificati di questo PC, ancora senza backup - ti verr&#xE0; chiesta una password per salvare DriverSigning.pfx.
+DriverSigning.pfx found - its password is asked when you sign.	DriverSigning.pfx trovato - la password viene chiesta quando firmi.
+None yet - one is created the first time you sign (you choose its password).	Ancora nessuno - viene creato la prima volta che firmi (scegli tu la password).
+{0}   (added {1})	{0}   (aggiunto il {1})
+Slipstreamed on {0} - build {1}. Build the ISO next.	Integrata il {0} - build {1}. Ora crea la ISO.
+{0} error(s), {1} warning(s), {2} check(s) passed   -   {3}	{0} errore/i, {1} avviso/i, {2} controllo/i superato/i   -   {3}
+Apply {0} fix(es)	Applica {0} correzione/i
+The ISO uses a fixed copy of your answer file (fixed {0}). Save it to update your own file too.	La ISO usa una copia corretta del tuo file di risposta (corretta il {0}). Salvala per aggiornare anche il tuo file.
+folder not found	cartella non trovata
+{0} files, {1}   ({2})	{0} file, {1}   ({2})
+has SetupComplete.cmd	contiene SetupComplete.cmd
+missing - downloaded automatically when you build the ISO	manca - viene scaricato automaticamente quando crei la ISO
+missing - downloaded automatically when you sign drivers	manca - viene scaricato automaticamente quando firmi i driver
+missing - downloaded only if the signing engine needs Inf2Cat as fallback	manca - viene scaricato solo se il motore di firma ha bisogno di Inf2Cat come riserva
+missing - only needed for the MakeCat signing engine	manca - serve solo per il motore di firma MakeCat
+missing - PowerShell / BITS downloads are used	manca - vengono usati i download di PowerShell / BITS
+Default. makecat.exe (Windows SDK) builds one catalog per driver folder with the hash of every file in it, so each file is hashed once - about 20 s for NVIDIA's 3 GB Display.Driver instead of minutes. Compressed files (name.dl_) are hashed expanded, the way Windows checks them. MakeCat does not parse the INF: every catalog is checked with signtool afterwards, and a folder MakeCat cannot do goes to Inf2Cat.	Predefinito. makecat.exe (Windows SDK) crea un catalogo per cartella di driver con l'hash di ogni file al suo interno, cos&#xEC; ogni file viene calcolato una sola volta - circa 20 s per i 3 GB del Display.Driver di NVIDIA invece di minuti. I file compressi (nome.dl_) vengono calcolati espansi, come li controlla Windows. MakeCat non analizza l'INF: ogni catalogo viene poi controllato con signtool, e una cartella che MakeCat non riesce a gestire passa a Inf2Cat.
+Experimental. The catalog is built with the CryptCAT API of Windows itself, the way libwdi (Zadig) does it - nothing to download. One catalog per driver folder with the hash of every file in it (SHA-1). Checked with signtool afterwards; a folder it cannot do goes to Inf2Cat.	Sperimentale. Il catalogo viene creato con l'API CryptCAT di Windows stesso, come fa libwdi (Zadig) - niente da scaricare. Un catalogo per cartella di driver con l'hash di ogni file al suo interno (SHA-1). Controllato poi con signtool; una cartella che non riesce a gestire passa a Inf2Cat.
+Experimental. LINBIT generate-cat-file (GPL-2.0): its source is downloaded from GitHub (one pinned commit, SHA-256 checked) and built inside WSL - needs WSL with a Linux distribution that has gcc and make. One catalog per driver folder; Inf2Cat signs when WSL or the build is missing.	Sperimentale. LINBIT generate-cat-file (GPL-2.0): il codice sorgente viene scaricato da GitHub (un commit fisso, controllato con SHA-256) e compilato dentro WSL - serve WSL con una distribuzione Linux che abbia gcc e make. Un catalogo per cartella di driver; Inf2Cat firma quando mancano WSL o la compilazione.
+Microsoft's standard tool from the Windows Driver Kit: it parses every INF and checks it against every file of the package. The proven choice, but slow on big packages - the options below make it faster.	Lo strumento standard di Microsoft, dal Windows Driver Kit: analizza ogni INF e lo controlla su ogni file del pacchetto. La scelta collaudata, ma lenta con pacchetti grandi - le opzioni qui sotto la rendono pi&#xF9; veloce.
+installs from {0} during Windows setup	si installa da {0} durante l'installazione di Windows
+{0} older version(s) of drivers that are here in a newer version too are unticked (column Older) - Windows uses the newest one.	{0} versione/i pi&#xF9; vecchia/e di driver presenti qui anche in una versione pi&#xF9; nuova non sono spuntate (colonna Pi&#xF9; vecchio) - Windows usa la pi&#xF9; recente.
+DriverSigning.pfx was found next to this tool. Enter its password to load your signing certificate.	DriverSigning.pfx &#xE8; stato trovato accanto a questo strumento. Inserisci la sua password per caricare il tuo certificato di firma.
+Your signing certificate is in this PC's store but has no backup yet. Choose a password to save it as DriverSigning.pfx - you need it to sign again after reinstalling Windows.	Il tuo certificato di firma &#xE8; nell'archivio di questo PC ma non ha ancora un backup. Scegli una password per salvarlo come DriverSigning.pfx - ti serve per firmare di nuovo dopo aver reinstallato Windows.
+A new self-signed code-signing certificate will be created. Choose a password for its backup file DriverSigning.pfx - you need it to sign again after reinstalling Windows.	Verr&#xE0; creato un nuovo certificato di firma del codice autofirmato. Scegli una password per il suo file di backup DriverSigning.pfx - ti serve per firmare di nuovo dopo aver reinstallato Windows.
+Enter a password.	Inserisci una password.
+The passwords do not match.	Le password non coincidono.
+Index	Indice
+Edition	Edizione
+Build	Build
+Size	Dimensione
+SizeGB	Dimensione (GB)
+Kind	Tipo
+Date	Data
+Title	Titolo
+No	N.
+Source	Origine
+Class	Classe
+Provider	Fornitore
+Version	Versione
+SizeMB	Dimensione (MB)
+InstallsFrom	Si installa da
+Signed	Firmati
+Failed	Non riusciti
+When	Quando
+FixText	Correzione
+Arch	Architettura
+Older	Pi&#xF9; vecchio
+Unpack an ISO first (page 1).	Estrai prima una ISO (pagina 1).
+Choose an existing .iso file first.	Scegli prima un file .iso esistente.
+The work folder already has unpacked media ({0}). Replace it with a fresh copy of this ISO?	La cartella di lavoro contiene gi&#xE0; un supporto estratto ({0}). Sostituirlo con una nuova copia di questa ISO?
+Drivers installed on this PC	Driver installati su questo PC
+Third-party drivers exported from this PC. Ticked ones are slipstreamed into the ISO.	Driver di terze parti esportati da questo PC. Quelli spuntati vengono integrati nella ISO.
+Pick the drivers folder - Drivers-Backup made by Drivers.cmd, a folder from another PC or a vendor pack. All subfolders are scanned.	Scegli la cartella dei driver - Drivers-Backup creata da Drivers.cmd, una cartella di un altro PC o un pacchetto del produttore. Tutte le sottocartelle vengono analizzate.
+No .inf drivers in that folder.	Nessun driver .inf in quella cartella.
+Drivers in {0}	Driver in {0}
+Drivers built for another architecture than the ISO are unticked and left out.	I driver fatti per un'architettura diversa da quella della ISO non sono spuntati e restano fuori.
+Choose the driver folder first (for example the folder NVCleanstall extracted).	Scegli prima la cartella dei driver (per esempio la cartella estratta da NVCleanstall).
+There are no .inf files in that folder or its subfolders.	Non ci sono file .inf in quella cartella n&#xE9; nelle sue sottocartelle.
+Tick at least one edition first.	Spunta prima almeno un'edizione.
+This media was already slipstreamed on {0}. For a clean result unpack the ISO again (page 1). Slipstream again anyway?	Questo supporto &#xE8; gi&#xE0; stato integrato il {0}. Per un risultato pulito estrai di nuovo la ISO (pagina 1). Integrare di nuovo comunque?
+No updates are downloaded (page 3). Continue with drivers and options only?	Nessun aggiornamento scaricato (pagina 3). Continuare solo con driver e opzioni?
+The media has not been slipstreamed yet. Build the ISO anyway (drivers, updates and options are then missing)?	Il supporto non &#xE8; ancora stato integrato. Creare comunque la ISO (mancheranno driver, aggiornamenti e opzioni)?
+Nothing to fix automatically - run the check first. Findings without a fix need a change on the page they mention.	Niente da correggere automaticamente - esegui prima il controllo. I rilievi senza correzione richiedono una modifica nella pagina che indicano.
+Apply these fixes? They change the copies that go into the ISO, not your own files.	Applicare queste correzioni? Cambiano le copie che vanno nella ISO, non i tuoi file.
+Choose the source ISO on page 1 first.	Scegli prima la ISO di origine nella pagina 1.
+yes	s&#xEC;
+no	no
+Source: {0}	Origine: {0}
+Editions: {0}	Edizioni: {0}
+{0} ticked	{0} spuntate
+asked after unpacking	chiesto dopo l'estrazione
+Drivers: {0}   Signed packages: {1}	Driver: {0}   Pacchetti firmati: {1}
+Answer file: {0}   $OEM$: {1}	File di risposta: {0}   $OEM$: {1}
+Run everything now? It takes 30-90 minutes - the PC is kept awake until it is done.	Eseguire tutto ora? Richiede 30-90 minuti - il PC resta acceso finch&#xE9; non ha finito.
+While a job runs (unpack, download, sign, slipstream, build), Windows Defender does not scan the work folder ({0}). The exclusion is removed when the job ends, and at the next start if the program was closed during a job. Everything in there comes from Microsoft, your drivers and this tool - do not put other downloads in that folder.	Mentre un'operazione &#xE8; in corso (estrai, scarica, firma, integra, crea), Windows Defender non analizza la cartella di lavoro ({0}). L'esclusione viene rimossa al termine dell'operazione, e al prossimo avvio se il programma &#xE8; stato chiuso durante un'operazione. Tutto ci&#xF2; che contiene viene da Microsoft, dai tuoi driver e da questo strumento - non metterci altri download.
+Use this only when the ISO is for this PC. INF files for other hardware are removed from the signed copy, so the driver installs only on hardware that matches this PC. NVIDIA's own setup.exe may refuse to run from that copy - pnputil installs the driver anyway. Sign the package again for it to take effect.	Usalo solo quando la ISO &#xE8; per questo PC. I file INF per altro hardware vengono rimossi dalla copia firmata, quindi il driver si installa solo su hardware uguale a quello di questo PC. Il setup.exe di NVIDIA potrebbe rifiutarsi di partire da quella copia - pnputil installa comunque il driver. Firma di nuovo il pacchetto perch&#xE9; abbia effetto.
+With Secure Boot on, this ISO only boots on PCs whose UEFI already trusts 'Windows UEFI CA 2023'. Older firmware needs that Secure Boot update first (or Secure Boot off). The image also needs a 2024-04 or newer update.	Con l'Avvio protetto attivo, questa ISO si avvia solo sui PC il cui UEFI considera gi&#xE0; attendibile 'Windows UEFI CA 2023'. I firmware pi&#xF9; vecchi hanno bisogno prima di quell'aggiornamento dell'Avvio protetto (o dell'Avvio protetto disattivato). L'immagine ha bisogno anche di un aggiornamento del 2024-04 o pi&#xF9; recente.
+Use the YYYY-MM format, e.g. 2025-10.	Usa il formato AAAA-MM, es. 2025-10.
+Use a number from 1 to 8 (or leave it empty for the number of processor cores, up to 8).	Usa un numero da 1 a 8 (o lascia vuoto per il numero di core del processore, fino a 8).
+Use a number from 1 to 4 (or leave it empty: 2 on 4+ processor cores, 3 on 8+).	Usa un numero da 1 a 4 (o lascia vuoto: 2 con 4+ core, 3 con 8+).
+Select a Windows {0} ISO	Seleziona una ISO di Windows {0}
+ISO images	Immagini ISO
+Select the drivers to remove in the list first (Ctrl+click for several).	Seleziona prima nell'elenco i driver da rimuovere (Ctrl+clic per pi&#xF9; di uno).
+Remove every selected driver?	Rimuovere tutti i driver selezionati?
+Pick the modded driver folder (e.g. the folder NVCleanstall extracted). All subfolders are scanned.	Scegli la cartella dei driver modificati (es. la cartella estratta da NVCleanstall). Tutte le sottocartelle vengono analizzate.
+Select a package in the list first.	Seleziona prima un pacchetto nell'elenco.
+Select your autounattend.xml	Seleziona il tuo autounattend.xml
+Answer files	File di risposta
+Pick your $OEM$ folder (the one that contains $1 and/or $$)	Scegli la tua cartella $OEM$ (quella che contiene $1 e/o $$)
+ISO image	Immagine ISO
+Pick or create the work folder (NTFS, no spaces, ~30 GB free)	Scegli o crea la cartella di lavoro (NTFS, senza spazi, ~30 GB liberi)
+The path has spaces - a short path like D:\W10U is safer for DISM. Use it anyway?	Il percorso contiene spazi - un percorso corto come D:\W10U &#xE8; pi&#xF9; sicuro per DISM. Usarlo comunque?
+downloaded updates	aggiornamenti scaricati
+unpacked media	supporto estratto
+built ISOs	ISO create
+re-signed driver copies	copie dei driver firmati di nuovo
+copied drivers	driver copiati
+answer file copy and check results	copia del file di risposta e risultati del controllo
+logs	registri
+EVERYTHING in the work folder	TUTTO il contenuto della cartella di lavoro
+mounted images and temp files	immagini montate e file temporanei
+Delete: {0}?	Eliminare: {0}?
+Restore the default options? The work folder is kept.	Ripristinare le opzioni predefinite? La cartella di lavoro viene mantenuta.
+There is no answer file yet (page 6).	Non c'&#xE8; ancora un file di risposta (pagina 6).
+Answer file	File di risposta
+No answer file fixes to undo.	Nessuna correzione del file di risposta da annullare.
+Put the answer file back the way it was before the fixes?	Riportare il file di risposta com'era prima delle correzioni?
+'{0}' is still running. Closing now can leave a mounted image behind (run Clean up next time). Close anyway?	'{0}' &#xE8; ancora in corso. Chiudere ora pu&#xF2; lasciare un'immagine montata (esegui la Pulizia la prossima volta). Chiudere comunque?
+'@ }
+    }
+    return ''
+}
 
 #region ---------------------------------------------------------------- GUI helpers
 function New-Xaml([string]$Text) {
@@ -5618,7 +7381,11 @@ function New-Xaml([string]$Text) {
         $o = $win.FindName($m.Groups[1].Value)
         if ($o) { $names[$m.Groups[1].Value] = $o }
     }
-    return @{ W = $win; U = $names }
+    # the texts in the language in use (English in the XAML); list columns get theirs when they are made
+    $texts = Get-UiTexts $win
+    Set-UiTexts $texts
+    Add-GridHeaderTranslation $texts
+    return @{ W = $win; U = $names; Texts = $texts }
 }
 function New-Brush([string]$Hex) {
     $b = New-Object Windows.Media.SolidColorBrush ([Windows.Media.ColorConverter]::ConvertFromString((Get-ThemeHex $Hex)))
@@ -5669,7 +7436,7 @@ function Select-File([string]$Title, [string]$Filter, [string]$Start) {
     return $null
 }
 function Open-Path([string]$Path) {
-    if ($Path -and (Test-Path -LiteralPath $Path)) { Start-Process explorer.exe "`"$Path`"" } else { Show-Msg "Not there yet: $Path" }
+    if ($Path -and (Test-Path -LiteralPath $Path)) { Start-Process explorer.exe "`"$Path`"" } else { Show-Msg ((T 'Not there yet: {0}') -f $Path) }
 }
 function Get-LogBrush([string]$Color) {
     if (-not $Script:LogBrushes) {
@@ -5792,10 +7559,14 @@ function Update-A11yUi {
     foreach ($n in 100, 115, 130, 150) { $U["Zoom$n"].IsChecked = ($z -eq $n) }
     $f = Get-UiFont
     $U.FontSegoe.IsChecked = ($f -eq 'Segoe UI'); $U.FontVerdana.IsChecked = ($f -eq 'Verdana'); $U.FontTahoma.IsChecked = ($f -eq 'Tahoma'); $U.FontArial.IsChecked = ($f -eq 'Arial')
+    $lc = ([string]$Script:Cfg.UiLanguage).ToLowerInvariant()
+    if (-not $lc) { $lc = 'auto' }
+    $U.LangAuto.IsChecked = ($lc -eq 'auto')
+    foreach ($l in (Get-LanguageList)) { $U[$l.Button].IsChecked = ($lc -eq $l.Code) }
     $light = $Script:ThemeNow -eq 'Light'
     $U.ThemeBtn.Content = if ($light) { [string][char]0xE708 } else { [string][char]0xE706 }      # moon / sun
-    $U.ThemeBtn.ToolTip = if ($light) { 'Dark theme' } else { 'Light theme' }
-    try { [Windows.Automation.AutomationProperties]::SetName($U.ThemeBtn, $(if ($light) { 'Switch to the dark theme' } else { 'Switch to the light theme' })) } catch { }
+    $U.ThemeBtn.ToolTip = if ($light) { T 'Dark theme' } else { T 'Light theme' }
+    try { [Windows.Automation.AutomationProperties]::SetName($U.ThemeBtn, $(if ($light) { T 'Switch to the dark theme' } else { T 'Switch to the light theme' })) } catch { }
 }
 function Set-Theme {
     $Script:ThemeNow = Get-ThemeName
@@ -5846,7 +7617,7 @@ function Request-Attention {
     } catch { }
 }
 function Start-Work([string]$Job, $A = @{}, [scriptblock]$Then) {
-    if ($Script:Busy) { Show-Msg 'Another job is still running.'; return }
+    if ($Script:Busy) { Show-Msg (T 'Another job is still running.'); return }
     try { Save-Settings } catch { }
     $Script:Busy = $true
     $Script:JobName = $Job
@@ -5871,11 +7642,11 @@ function Complete-Work {
     $Script:Cfg = Import-Settings; Initialize-Paths; $Script:S = Import-State
     Set-Busy $false
     if ($ok) {
-        $Script:U.BusyText.Text = ('{0} finished in {1:mm\:ss}' -f $Script:JobLabel, $took)
+        $Script:U.BusyText.Text = ((T '{0} finished in {1:mm\:ss}') -f $Script:JobLabel, $took)
         Set-BusyDot '#3DDC97'
         Set-TaskbarState 'None'
     } else {
-        $Script:U.BusyText.Text = "$($Script:JobLabel) stopped with an error - see the log"
+        $Script:U.BusyText.Text = (T '{0} stopped with an error - see the log') -f $Script:JobLabel
         Set-BusyDot '#FF5C7A'
         Set-TaskbarState 'Error' 1      # red until the window is in front again
     }
@@ -5886,9 +7657,9 @@ function Complete-Work {
     if ($ok -and $then) { & $then }
 }
 function Set-Busy([bool]$On) {
-    $labels = @{ Unpack = 'Unpack'; Analyze = 'Analyze'; Download = 'Download updates'; ScanHost = 'Driver scan'; CommitHost = 'Copy drivers'
-                 ScanFolder = 'Folder scan'; CommitImport = 'Import drivers'; Sign = 'Re-sign drivers'; Service = 'Slipstream'; Build = 'Build ISO'
-                 All = 'Run everything'; Tools = 'Tools'; Clean = 'Clean up'; Check = 'Install check'; Fix = 'Apply fixes' }
+    $labels = @{ Unpack = (T 'Unpack'); Analyze = (T 'Analyze'); Download = (T 'Download updates'); ScanHost = (T 'Driver scan'); CommitHost = (T 'Copy drivers')
+                 ScanFolder = (T 'Folder scan'); CommitImport = (T 'Import drivers'); Sign = (T 'Re-sign drivers'); Service = (T 'Slipstream'); Build = (T 'Build ISO')
+                 All = (T 'Run everything'); Tools = (T 'Tools'); Clean = (T 'Clean up'); Check = (T 'Install check'); Fix = (T 'Apply fixes') }
     $Script:JobLabel = $labels[$Script:JobName]
     if (-not $Script:JobLabel) { $Script:JobLabel = $Script:JobName }
     $Script:U.Pages.IsEnabled = -not $On
@@ -5942,38 +7713,38 @@ function Set-Step([int]$N, [string]$Text, [string]$Kind) {
 }
 function Update-Status {
     $S = $Script:S; $U = $Script:U
-    $U.HdrIso.Text = if ($S.SourceIso) { Split-Path $S.SourceIso -Leaf } else { 'no ISO yet' }
-    $U.HdrImg.Text = if ($S.Family -and @($S.Images).Count -gt 0) { '{0}  |  {1}  |  {2}  |  {3} edition(s)' -f $S.Family.Name, $S.Images[0].Version, $S.Family.Arch, @($S.Images).Count } else { '-' }
+    $U.HdrIso.Text = if ($S.SourceIso) { Split-Path $S.SourceIso -Leaf } else { T 'no ISO yet' }
+    $U.HdrImg.Text = if ($S.Family -and @($S.Images).Count -gt 0) { (T '{0}  |  {1}  |  {2}  |  {3} edition(s)') -f $S.Family.Name, $S.Images[0].Version, $S.Family.Arch, @($S.Images).Count } else { '-' }
     $free = ''
-    try { $free = '  (' + (Format-Size (New-Object IO.DriveInfo([IO.Path]::GetPathRoot([IO.Path]::GetFullPath($Script:P.Work)))).AvailableFreeSpace) + ' free)' } catch { }
+    try { $free = '  (' + ((T '{0} free') -f (Format-Size (New-Object IO.DriveInfo([IO.Path]::GetPathRoot([IO.Path]::GetFullPath($Script:P.Work)))).AvailableFreeSpace)) + ')' } catch { }
     $U.HdrWork.Text = $Script:P.Work + $free
 
-    if ($S.Unpacked) { Set-Step 1 'unpacked' 'ok' } else { Set-Step 1 'to do' 'todo' }
+    if ($S.Unpacked) { Set-Step 1 (T 'unpacked') 'ok' } else { Set-Step 1 (T 'to do') 'todo' }
     $ns = @($S.Selected).Count
-    if ($ns -gt 0) { Set-Step 2 "$ns of $(@($S.Images).Count) ticked" 'ok' } elseif ($S.Unpacked) { Set-Step 2 'tick at least one' 'todo' } else { Set-Step 2 'to do' 'todo' }
+    if ($ns -gt 0) { Set-Step 2 ((T '{0} of {1} ticked') -f $ns, @($S.Images).Count) 'ok' } elseif ($S.Unpacked) { Set-Step 2 (T 'tick at least one') 'todo' } else { Set-Step 2 (T 'to do') 'todo' }
     $lcu = @($S.Updates | Where-Object { $_.Kind -eq 'LCU' }) | Select-Object -First 1
-    if ($S.Family -and -not $S.Family.Supported) { Set-Step 3 'not available for this build' 'warn' }
-    elseif ($lcu) { Set-Step 3 ('{0} ({1}) + {2} more' -f $lcu.KB, $lcu.Date.Substring(0, 7), (@($S.Updates).Count - 1)) 'ok' }
-    else { Set-Step 3 'to do' 'todo' }
+    if ($S.Family -and -not $S.Family.Supported) { Set-Step 3 (T 'not available for this build') 'warn' }
+    elseif ($lcu) { Set-Step 3 ((T '{0} ({1}) + {2} more') -f $lcu.KB, $lcu.Date.Substring(0, 7), (@($S.Updates).Count - 1)) 'ok' }
+    else { Set-Step 3 (T 'to do') 'todo' }
     $nd = @($S.Drivers).Count
-    if ($nd -gt 0) { Set-Step 4 ('{0} packages ({1} for boot)' -f $nd, @($S.Drivers | Where-Object { $Script:BootClasses -contains $_.Class }).Count) 'ok' } else { Set-Step 4 'none (optional)' 'opt' }
+    if ($nd -gt 0) { Set-Step 4 ((T '{0} packages ({1} for boot)') -f $nd, @($S.Drivers | Where-Object { $Script:BootClasses -contains $_.Class }).Count) 'ok' } else { Set-Step 4 (T 'none (optional)') 'opt' }
     $sg = @($S.Signed | Where-Object { $_ })
     if ($sg.Count -gt 0) {
         $kind = if (@($sg | Where-Object { [int]$_.Failed -gt 0 }).Count) { 'warn' } else { 'ok' }
         Set-Step 5 (($sg | ForEach-Object { $_.Name }) -join ', ') $kind
-    } else { Set-Step 5 'none (optional)' 'opt' }
+    } else { Set-Step 5 (T 'none (optional)') 'opt' }
     $p6 = @()
     if ($S.Unattend) { $p6 += 'autounattend' }
     if ($S.Oem) { $p6 += '$OEM$' }
-    if ($p6.Count) { Set-Step 6 ($p6 -join ' + ') 'ok' } else { Set-Step 6 'none (optional)' 'opt' }
+    if ($p6.Count) { Set-Step 6 ($p6 -join ' + ') 'ok' } else { Set-Step 6 (T 'none (optional)') 'opt' }
     if ($S.Check) {
-        if ([int]$S.Check.Errors -gt 0) { Set-Step 8 ('{0} error(s), {1} warning(s)' -f $S.Check.Errors, $S.Check.Warnings) 'warn' }
-        elseif ([int]$S.Check.Warnings -gt 0) { Set-Step 8 ('{0} warning(s)' -f $S.Check.Warnings) 'todo' }
-        else { Set-Step 8 'all good' 'ok' }
-    } else { Set-Step 8 'not run yet' 'opt' }
-    if ($S.Iso -and (Test-Path -LiteralPath $S.Iso)) { Set-Step 7 'ISO ready' 'ok' }
-    elseif ($S.Serviced) { Set-Step 7 "slipstreamed ($($S.Serviced.Build)) - build the ISO" 'todo' }
-    else { Set-Step 7 'to do' 'todo' }
+        if ([int]$S.Check.Errors -gt 0) { Set-Step 8 ((T '{0} error(s), {1} warning(s)') -f $S.Check.Errors, $S.Check.Warnings) 'warn' }
+        elseif ([int]$S.Check.Warnings -gt 0) { Set-Step 8 ((T '{0} warning(s)') -f $S.Check.Warnings) 'todo' }
+        else { Set-Step 8 (T 'all good') 'ok' }
+    } else { Set-Step 8 (T 'not run yet') 'opt' }
+    if ($S.Iso -and (Test-Path -LiteralPath $S.Iso)) { Set-Step 7 (T 'ISO ready') 'ok' }
+    elseif ($S.Serviced) { Set-Step 7 ((T 'slipstreamed ({0}) - build the ISO') -f $S.Serviced.Build) 'todo' }
+    else { Set-Step 7 (T 'to do') 'todo' }
 }
 # Windows 10 / 11 on page 1: follows a newly unpacked ISO, otherwise the choice made there.
 function Update-WinVersion {
@@ -5984,14 +7755,14 @@ function Update-WinVersion {
     $Script:WinVerKey = $key
     $os = if ([string]$Cfg.WinVersion -eq '11') { '11' } else { '10' }
     $U.WinVer10.IsChecked = ($os -eq '10'); $U.WinVer11.IsChecked = ($os -eq '11')
-    $note = if ($os -eq '11') { 'Updates for Windows 11 21H2, 22H2 / 23H2, 24H2 / LTSC 2024 and 25H2 (x64, ARM64). On a Windows 10 PC the slipstream uses the DISM of the Windows ADK Deployment Tools, installed from Microsoft when needed.' }
-            else { 'Updates for Windows 10 1607 / LTSB 2016, 1809 / LTSC 2019, 2004-22H2 and LTSC 2021 (x64, x86, ARM64).' }
-    if ($isoOs -and $isoOs -ne $os) { $note += " The unpacked ISO is Windows $isoOs - pick a Windows $os ISO and unpack it to switch." }
+    $note = if ($os -eq '11') { T 'Updates for Windows 11 21H2, 22H2 / 23H2, 24H2 / LTSC 2024 and 25H2 (x64, ARM64). On a Windows 10 PC the slipstream uses the DISM of the Windows ADK Deployment Tools, installed from Microsoft when needed.' }
+            else { T 'Updates for Windows 10 1607 / LTSB 2016, 1809 / LTSC 2019, 2004-22H2 and LTSC 2021 (x64, x86, ARM64).' }
+    if ($isoOs -and $isoOs -ne $os) { $note += ' ' + ((T 'The unpacked ISO is Windows {0} - pick a Windows {1} ISO and unpack it to switch.') -f $isoOs, $os) }
     $U.WinVerNote.Text = $note
-    $U.GetIsoBtn.Content = "Download Windows $os from Microsoft"
+    $U.GetIsoBtn.Content = (T 'Download Windows {0} from Microsoft') -f $os
     $U.CutoffRow.Visibility = if ($os -eq '10') { 'Visible' } else { 'Collapsed' }
-    $U.CutoffNote.Text = if ($os -eq '10') { '2025-10 is the last Windows 10 update Microsoft allows offline. ESU updates (Nov 2025+) come from Windows Update after setup on enrolled PCs.' }
-                         else { 'Windows 11: the newest updates in the Microsoft Update Catalog are used (21H2, which is out of servicing: its last ones, 2024-10).' }
+    $U.CutoffNote.Text = if ($os -eq '10') { T '2025-10 is the last Windows 10 update Microsoft allows offline. ESU updates (Nov 2025+) come from Windows Update after setup on enrolled PCs.' }
+                         else { T 'Windows 11: the newest updates in the Microsoft Update Catalog are used (21H2, which is out of servicing: its last ones, 2024-10).' }
 }
 function Update-Ui {
     $Script:Loading = $true
@@ -6009,13 +7780,13 @@ function Update-Ui {
         # 1 source
         $imgs = @($S.Images)
         if ($S.Family -and $imgs.Count) {
-            $U.ImgInfo.Text = '{0}  -  build {1}  -  {2}  -  {3} edition(s)' -f $S.Family.Name, $imgs[0].Version, $S.Family.Arch, $imgs.Count
-            $U.ImgNote.Text = if (-not $S.Family.Supported) { 'No automatic updates for this build - drivers, signed packages, answer file and $OEM$ still work.' }
-                              elseif ($S.Family.Cap -and (Get-FamilyOs $S.Family) -eq '10') { "Updates up to $($Cfg.Win10Cutoff) (the last month Microsoft allows offline for Windows 10)." }
-                              elseif ($S.Family.Cap) { "Its last updates ($($S.Family.Cap)) - this version is out of servicing." }
-                              else { 'Newest updates available in the Microsoft Update Catalog.' }
-            if ($S.Family.Supported -and $S.Family.NeedsEkb) { $U.ImgNote.Text += " The $(if ($S.Family.EkbFor) { $S.Family.EkbFor } else { '22H2' }) enablement package is added too." }
-        } else { $U.ImgInfo.Text = 'Nothing unpacked yet.'; $U.ImgNote.Text = '' }
+            $U.ImgInfo.Text = (T '{0}  -  build {1}  -  {2}  -  {3} edition(s)') -f $S.Family.Name, $imgs[0].Version, $S.Family.Arch, $imgs.Count
+            $U.ImgNote.Text = if (-not $S.Family.Supported) { T 'No automatic updates for this build - drivers, signed packages, answer file and $OEM$ still work.' }
+                              elseif ($S.Family.Cap -and (Get-FamilyOs $S.Family) -eq '10') { (T 'Updates up to {0} (the last month Microsoft allows offline for Windows 10).') -f $Cfg.Win10Cutoff }
+                              elseif ($S.Family.Cap) { (T 'Its last updates ({0}) - this version is out of servicing.') -f $S.Family.Cap }
+                              else { T 'Newest updates available in the Microsoft Update Catalog.' }
+            if ($S.Family.Supported -and $S.Family.NeedsEkb) { $U.ImgNote.Text += ' ' + ((T 'The {0} enablement package is added too.') -f $(if ($S.Family.EkbFor) { $S.Family.EkbFor } else { '22H2' })) }
+        } else { $U.ImgInfo.Text = T 'Nothing unpacked yet.'; $U.ImgNote.Text = '' }
         $U.ImgGrid.ItemsSource = (New-Table @('Index:int', 'Edition', 'EditionId', 'Build', 'Size', 'Language') @(foreach ($i in $imgs) { , @($i.Index, $i.Name, $i.Edition, $i.Version, (Format-Size $i.Size), $i.Langs) })).DefaultView
 
         # 2 editions
@@ -6034,28 +7805,28 @@ function Update-Ui {
         if ($d.Count) {
             $mb = 0.0; foreach ($x in $d) { $mb += [double]$x.SizeMB }
             $boot = @($d | Where-Object { $Script:BootClasses -contains $_.Class }).Count
-            $U.DrvSum.Text = '{0} driver package(s), {1} storage/network for boot.wim and WinRE, about {2:N0} MB' -f $d.Count, $boot, $mb
-        } else { $U.DrvSum.Text = 'No drivers selected.' }
+            $U.DrvSum.Text = (T '{0} driver package(s), {1} storage/network for boot.wim and WinRE, about {2:N0} MB') -f $d.Count, $boot, $mb
+        } else { $U.DrvSum.Text = T 'No drivers selected.' }
 
         # 5 signed
-        $U.SignGrid.ItemsSource = (New-Table @('Name', 'InstallsFrom', 'Signed:int', 'Failed:int', 'INFs', 'Engine', 'When', 'Source') @(foreach ($x in @($S.Signed | Where-Object { $_ })) { , @($x.Name, $x.InstallDir, [int]$x.Signed, [int]$x.Failed, $(if ($x.OnlyThisPc) { "this PC only ($(@($x.Kept).Count) kept)" } else { 'all' }), $(if ($x.Engine) { [string]$x.Engine } else { 'Inf2Cat' }), $x.When, $x.Source) })).DefaultView
+        $U.SignGrid.ItemsSource = (New-Table @('Name', 'InstallsFrom', 'Signed:int', 'Failed:int', 'INFs', 'Engine', 'When', 'Source') @(foreach ($x in @($S.Signed | Where-Object { $_ })) { , @($x.Name, $x.InstallDir, [int]$x.Signed, [int]$x.Failed, $(if ($x.OnlyThisPc) { (T 'this PC only ({0} kept)') -f @($x.Kept).Count } else { T 'all' }), $(if ($x.Engine) { [string]$x.Engine } else { 'Inf2Cat' }), $x.When, $x.Source) })).DefaultView
         Update-SignDest
         Update-SignEngine
         $cs = 'create'; $c = $null
         try { $cs = Get-CertStatus; $c = Get-StoreCert } catch { }
         $U.CertInfo.Text = switch ($cs) {
-            'ready'  { 'Ready - {0}, valid until {1:yyyy-MM-dd} (backed up as DriverSigning.pfx)' -f $c.Subject, $c.NotAfter }
-            'export' { 'In this PC''s certificate store, not backed up yet - you will be asked for a password to save DriverSigning.pfx.' }
-            'import' { 'DriverSigning.pfx found - its password is asked when you sign.' }
-            default  { 'None yet - one is created the first time you sign (you choose its password).' }
+            'ready'  { (T 'Ready - {0}, valid until {1:yyyy-MM-dd} (backed up as DriverSigning.pfx)') -f $c.Subject, $c.NotAfter }
+            'export' { T 'In this PC''s certificate store, not backed up yet - you will be asked for a password to save DriverSigning.pfx.' }
+            'import' { T 'DriverSigning.pfx found - its password is asked when you sign.' }
+            default  { T 'None yet - one is created the first time you sign (you choose its password).' }
         }
 
         # 6 answer file + oem
-        $U.UnaCur.Text = if ($S.Unattend) { "$($S.Unattend.Source)   (added $($S.Unattend.Added))" } else { 'none' }
+        $U.UnaCur.Text = if ($S.Unattend) { (T '{0}   (added {1})') -f $S.Unattend.Source, $S.Unattend.Added } else { T 'none' }
         if ($S.Oem -and $S.Oem.Source) {
             $U.OemCur.Text = [string]$S.Oem.Source
             $U.OemInfo.Text = Get-OemSummary ([string]$S.Oem.Source)
-        } else { $U.OemCur.Text = 'none'; $U.OemInfo.Text = '' }
+        } else { $U.OemCur.Text = T 'none'; $U.OemInfo.Text = '' }
 
         # 7 build
         if ($S.Iso -and (Test-Path -LiteralPath $S.Iso)) {
@@ -6063,9 +7834,9 @@ function Update-Ui {
             $h = "$($S.Iso).sha256"
             $U.IsoHash.Text = if (Test-Path -LiteralPath $h) { 'SHA-256  ' + ((Get-Content -LiteralPath $h -Raw) -split '\s')[0] } else { '' }
         } elseif ($S.Serviced) {
-            $U.IsoInfo.Text = "Slipstreamed on $($S.Serviced.When) - build $($S.Serviced.Build). Build the ISO next."
+            $U.IsoInfo.Text = (T 'Slipstreamed on {0} - build {1}. Build the ISO next.') -f $S.Serviced.When, $S.Serviced.Build
             $U.IsoHash.Text = ''
-        } else { $U.IsoInfo.Text = 'No ISO built yet.'; $U.IsoHash.Text = '' }
+        } else { $U.IsoInfo.Text = T 'No ISO built yet.'; $U.IsoHash.Text = '' }
 
         Update-Tools
         Show-CheckResults
@@ -6084,16 +7855,16 @@ function Show-CheckResults {
     $U.ChkGrid.ItemsSource = (New-Table @('Level', 'Area', 'Finding', 'FixText', 'Fix') @(foreach ($r in $rows) { , @($r.Level, $r.Area, $r.Finding, $r.FixText, $r.Fix) })).DefaultView
     $c = $Script:S.Check
     if ($c) {
-        $U.ChkSum.Text = '{0} error(s), {1} warning(s), {2} check(s) passed   -   {3}' -f $c.Errors, $c.Warnings, $c.Passed, $c.When
+        $U.ChkSum.Text = (T '{0} error(s), {1} warning(s), {2} check(s) passed   -   {3}') -f $c.Errors, $c.Warnings, $c.Passed, $c.When
         $U.ChkSum.Foreground = New-Brush $(if ([int]$c.Errors) { '#FF5C7A' } elseif ([int]$c.Warnings) { '#FFC857' } else { '#3DDC97' })
-    } else { $U.ChkSum.Text = 'Not run yet.'; $U.ChkSum.Foreground = New-Brush '#E6EAF2' }
+    } else { $U.ChkSum.Text = T 'Not run yet.'; $U.ChkSum.Foreground = New-Brush '#E6EAF2' }
     $nf = @($rows | Where-Object { $_.Fix }).Count
     $U.ChkFix.IsEnabled = $nf -gt 0
-    $U.ChkFix.Content = if ($nf) { "Apply $nf fix(es)" } else { 'Apply all fixes' }
+    $U.ChkFix.Content = if ($nf) { (T 'Apply {0} fix(es)') -f $nf } else { T 'Apply all fixes' }
     $fixed = $Script:S.Unattend -and $Script:S.Unattend.Fixed
     $U.ChkUndo.IsEnabled = [bool]$fixed
     $U.ChkSave.IsEnabled = [bool]$fixed
-    $U.ChkNote.Text = if ($fixed) { "The ISO uses a fixed copy of your answer file (fixed $($Script:S.Unattend.Fixed)). Save it to update your own file too." } else { '' }
+    $U.ChkNote.Text = if ($fixed) { (T 'The ISO uses a fixed copy of your answer file (fixed {0}). Save it to update your own file too.') -f $Script:S.Unattend.Fixed } else { '' }
 }
 # A borderless WPF window maximizes over the taskbar, so "maximized" is done by hand:
 # the window is sized to the working area of the monitor it is on.
@@ -6116,14 +7887,14 @@ function Set-WorkAreaMax([bool]$On) {
     }
 }
 function Get-OemSummary([string]$Dir) {
-    if (-not (Test-Path -LiteralPath $Dir)) { return 'folder not found' }
-    if ($Script:OemCache -and $Script:OemCache[0] -eq $Dir) { return $Script:OemCache[1] }
+    if (-not (Test-Path -LiteralPath $Dir)) { return (T 'folder not found') }
+    if ($Script:OemCache -and $Script:OemCache[0] -eq "$Dir|$Script:LangNow") { return $Script:OemCache[1] }
     $files = @(Get-ChildItem -LiteralPath $Dir -Recurse -File -Force -ErrorAction SilentlyContinue)
     $mb = ($files | Measure-Object -Property Length -Sum).Sum
     $parts = @(Get-ChildItem -LiteralPath $Dir -Directory -Force -ErrorAction SilentlyContinue | ForEach-Object { $_.Name })
-    $txt = '{0} files, {1}   ({2})' -f $files.Count, (Format-Size ([double]$mb)), ($parts -join ', ')
-    if (Test-Path -LiteralPath (Join-Path $Dir '$$\Setup\Scripts\SetupComplete.cmd')) { $txt += '   - has SetupComplete.cmd' }
-    $Script:OemCache = @($Dir, $txt)
+    $txt = (T '{0} files, {1}   ({2})') -f $files.Count, (Format-Size ([double]$mb)), ($parts -join ', ')
+    if (Test-Path -LiteralPath (Join-Path $Dir '$$\Setup\Scripts\SetupComplete.cmd')) { $txt += '   - ' + (T 'has SetupComplete.cmd') }
+    $Script:OemCache = @("$Dir|$Script:LangNow", $txt)
     return $txt
 }
 function Update-Tools {
@@ -6136,12 +7907,12 @@ function Update-Tools {
     }
     $osc = Find-Oscdimg; $inf = Find-Tool 'Inf2Cat.exe'; $sig = Find-Tool 'signtool.exe'; $mkc = Find-Tool 'makecat.exe'
     $eng = Get-SignEngine
-    & $set $U.T_Osc $osc 'missing - downloaded automatically when you build the ISO'
-    & $set $U.T_Inf $inf $(if ($eng -eq 'inf2cat') { 'missing - downloaded automatically when you sign drivers' } else { 'missing - downloaded only if the signing engine needs Inf2Cat as fallback' })
-    & $set $U.T_Sign $sig 'missing - downloaded automatically when you sign drivers'
-    & $set $U.T_Mkc $mkc $(if ($eng -eq 'makecat') { 'missing - downloaded automatically when you sign drivers' } else { 'missing - only needed for the MakeCat signing engine' })
+    & $set $U.T_Osc $osc (T 'missing - downloaded automatically when you build the ISO')
+    & $set $U.T_Inf $inf $(if ($eng -eq 'inf2cat') { T 'missing - downloaded automatically when you sign drivers' } else { T 'missing - downloaded only if the signing engine needs Inf2Cat as fallback' })
+    & $set $U.T_Sign $sig (T 'missing - downloaded automatically when you sign drivers')
+    & $set $U.T_Mkc $mkc $(if ($eng -eq 'makecat') { T 'missing - downloaded automatically when you sign drivers' } else { T 'missing - only needed for the MakeCat signing engine' })
     $curl = Join-Path $env:SystemRoot 'System32\curl.exe'
-    & $set $U.T_Curl $(if (Test-Path -LiteralPath $curl) { $curl }) 'missing - PowerShell / BITS downloads are used'
+    & $set $U.T_Curl $(if (Test-Path -LiteralPath $curl) { $curl }) (T 'missing - PowerShell / BITS downloads are used')
     $cat = switch ($eng) { 'inf2cat' { $inf } 'makecat' { $mkc } default { $true } }
     $U.ToolsDot.Text = if ($osc -and $cat -and $sig) { '' } else { [string][char]0x25CF }
 }
@@ -6158,15 +7929,15 @@ function Update-SignEngine {
     $U.SignEngMakeCat.IsChecked = ($e -eq 'makecat'); $U.SignEngLibwdi.IsChecked = ($e -eq 'libwdi')
     $U.SignEngGenCat.IsChecked = ($e -eq 'gencat'); $U.SignEngInf2Cat.IsChecked = ($e -eq 'inf2cat')
     $U.SignEngNote.Text = switch ($e) {
-        'makecat' { 'Default. makecat.exe (Windows SDK) builds one catalog per driver folder with the hash of every file in it, so each file is hashed once - about 20 s for NVIDIA''s 3 GB Display.Driver instead of minutes. Compressed files (name.dl_) are hashed expanded, the way Windows checks them. MakeCat does not parse the INF: every catalog is checked with signtool afterwards, and a folder MakeCat cannot do goes to Inf2Cat.' }
-        'libwdi'  { 'Experimental. The catalog is built with the CryptCAT API of Windows itself, the way libwdi (Zadig) does it - nothing to download. One catalog per driver folder with the hash of every file in it (SHA-1). Checked with signtool afterwards; a folder it cannot do goes to Inf2Cat.' }
-        'gencat'  { 'Experimental. LINBIT generate-cat-file (GPL-2.0): its source is downloaded from GitHub (one pinned commit, SHA-256 checked) and built inside WSL - needs WSL with a Linux distribution that has gcc and make. One catalog per driver folder; Inf2Cat signs when WSL or the build is missing.' }
-        default   { 'Microsoft''s standard tool from the Windows Driver Kit: it parses every INF and checks it against every file of the package. The proven choice, but slow on big packages - the options below make it faster.' }
+        'makecat' { T 'Default. makecat.exe (Windows SDK) builds one catalog per driver folder with the hash of every file in it, so each file is hashed once - about 20 s for NVIDIA''s 3 GB Display.Driver instead of minutes. Compressed files (name.dl_) are hashed expanded, the way Windows checks them. MakeCat does not parse the INF: every catalog is checked with signtool afterwards, and a folder MakeCat cannot do goes to Inf2Cat.' }
+        'libwdi'  { T 'Experimental. The catalog is built with the CryptCAT API of Windows itself, the way libwdi (Zadig) does it - nothing to download. One catalog per driver folder with the hash of every file in it (SHA-1). Checked with signtool afterwards; a folder it cannot do goes to Inf2Cat.' }
+        'gencat'  { T 'Experimental. LINBIT generate-cat-file (GPL-2.0): its source is downloaded from GitHub (one pinned commit, SHA-256 checked) and built inside WSL - needs WSL with a Linux distribution that has gcc and make. One catalog per driver folder; Inf2Cat signs when WSL or the build is missing.' }
+        default   { T 'Microsoft''s standard tool from the Windows Driver Kit: it parses every INF and checks it against every file of the package. The proven choice, but slow on big packages - the options below make it faster.' }
     }
 }
 function Update-SignDest {
     $n = ConvertTo-PackageName $Script:U.SignName.Text
-    $Script:U.SignDest.Text = "installs from C:\Drivers\$n during Windows setup"
+    $Script:U.SignDest.Text = (T 'installs from {0} during Windows setup') -f "C:\Drivers\$n"
 }
 #endregion
 
@@ -6180,13 +7951,13 @@ function Show-DriverPicker($Items, [string]$Title, [string]$SubText) {
     $Script:PickTable = New-Table @('Use:bool', 'No:int', 'Class', 'Provider', 'Version', 'Date', 'Arch', 'SizeMB:dbl', 'Older:bool', 'Inf', 'Folder') @(foreach ($x in @($Items)) {
         $n++; , @(((Test-DriverArch ([string]$x.Arch) $arch) -and -not [bool]$x.Older), $n, $x.Class, $x.Provider, $x.Version, $x.Date, [string]$x.Arch, [double]$x.'Size (MB)', [bool]$x.Older, $x.Inf, $x.Folder) })
     $old = @($Items | Where-Object { $_.Older }).Count
-    if ($old) { $SubText += " $old older version(s) of drivers that are here in a newer version too are unticked (column Older) - Windows uses the newest one." }
+    if ($old) { $SubText += ' ' + ((T '{0} older version(s) of drivers that are here in a newer version too are unticked (column Older) - Windows uses the newest one.') -f $old) }
     $Script:PickArch = $arch
     $D.U.PTitle.Text = $Title
     $D.U.PSub.Text = $SubText
     $D.U.PGrid.Add_AutoGeneratingColumn({ param($s, $e) if ($e.PropertyName -eq 'Use') { $e.Cancel = $true } else { $e.Column.IsReadOnly = $true } })
     $D.U.PGrid.ItemsSource = $Script:PickTable.DefaultView
-    $count = { $c = @($Script:PickTable.Select('Use = true')).Count; $Script:PickD.U.PCount.Text = "$c of $($Script:PickTable.Rows.Count) ticked" }
+    $count = { $c = @($Script:PickTable.Select('Use = true')).Count; $Script:PickD.U.PCount.Text = (T '{0} of {1} ticked') -f $c, $Script:PickTable.Rows.Count }
     $Script:PickCount = $count
     & $count
     $Script:PickTable.add_ColumnChanged({ & $Script:PickCount })
@@ -6208,15 +7979,15 @@ function Show-PasswordDialog([string]$Mode) {
     $Script:PwMode = $Mode
     $D.W.Owner = $Script:W
     $D.U.PwText.Text = switch ($Mode) {
-        'import' { 'DriverSigning.pfx was found next to this tool. Enter its password to load your signing certificate.' }
-        'export' { 'Your signing certificate is in this PC''s store but has no backup yet. Choose a password to save it as DriverSigning.pfx - you need it to sign again after reinstalling Windows.' }
-        default  { 'A new self-signed code-signing certificate will be created. Choose a password for its backup file DriverSigning.pfx - you need it to sign again after reinstalling Windows.' }
+        'import' { T 'DriverSigning.pfx was found next to this tool. Enter its password to load your signing certificate.' }
+        'export' { T 'Your signing certificate is in this PC''s store but has no backup yet. Choose a password to save it as DriverSigning.pfx - you need it to sign again after reinstalling Windows.' }
+        default  { T 'A new self-signed code-signing certificate will be created. Choose a password for its backup file DriverSigning.pfx - you need it to sign again after reinstalling Windows.' }
     }
     if ($Mode -eq 'import') { $D.U.Pw2Panel.Visibility = 'Collapsed' }
     $D.U.PwOk.Add_Click({
         $a = $Script:PwD.U.Pw1.Password
-        if (-not $a) { $Script:PwD.U.PwErr.Text = 'Enter a password.'; return }
-        if ($Script:PwMode -ne 'import' -and $a -cne $Script:PwD.U.Pw2.Password) { $Script:PwD.U.PwErr.Text = 'The passwords do not match.'; return }
+        if (-not $a) { $Script:PwD.U.PwErr.Text = T 'Enter a password.'; return }
+        if ($Script:PwMode -ne 'import' -and $a -cne $Script:PwD.U.Pw2.Password) { $Script:PwD.U.PwErr.Text = T 'The passwords do not match.'; return }
         $Script:PwD.W.DialogResult = $true
     })
     $D.W.Add_ContentRendered({ [void]$Script:PwD.U.Pw1.Focus() })
@@ -6228,15 +7999,15 @@ function Show-PasswordDialog([string]$Mode) {
 #region ---------------------------------------------------------------- page actions
 function Test-Unpacked {
     if ($Script:S.Unpacked) { return $true }
-    Show-Msg 'Unpack an ISO first (page 1).'
+    Show-Msg (T 'Unpack an ISO first (page 1).')
     $Script:U.Nav1.IsChecked = $true
     return $false
 }
 function Invoke-UnpackClick {
     $iso = $Script:U.IsoBox.Text.Trim().Trim('"')
-    if (-not $iso -or -not (Test-Path -LiteralPath $iso)) { Show-Msg 'Choose an existing .iso file first.' 'Warning'; return }
+    if (-not $iso -or -not (Test-Path -LiteralPath $iso)) { Show-Msg (T 'Choose an existing .iso file first.') 'Warning'; return }
     if ($Script:S.Unpacked -and (Test-Path -LiteralPath (Join-Path $Script:P.Media 'sources'))) {
-        if (-not (Confirm-Ui "The work folder already has unpacked media ($(Split-Path ([string]$Script:S.SourceIso) -Leaf)). Replace it with a fresh copy of this ISO?")) { return }
+        if (-not (Confirm-Ui ((T 'The work folder already has unpacked media ({0}). Replace it with a fresh copy of this ISO?') -f (Split-Path ([string]$Script:S.SourceIso) -Leaf)))) { return }
     }
     Start-Work 'Unpack' @{ Iso = $iso; NoAsk = $true } { if (@($Script:S.Images).Count -gt 1) { $Script:U.Nav2.IsChecked = $true } }
 }
@@ -6244,27 +8015,27 @@ function Invoke-HostDriversClick {
     Start-Work 'ScanHost' @{} {
         $items = @($Script:Sync.Result)
         if ($items.Count -eq 0) { return }
-        $pick = @(Show-DriverPicker $items 'Drivers installed on this PC' 'Third-party drivers exported from this PC. Ticked ones are slipstreamed into the ISO.')
+        $pick = @(Show-DriverPicker $items (T 'Drivers installed on this PC') (T 'Third-party drivers exported from this PC. Ticked ones are slipstreamed into the ISO.'))
         Start-Work 'CommitHost' @{ Pick = $pick }
     }
 }
 function Invoke-ImportDriversClick {
     $start = @(Find-DriverBackupFolders) | Select-Object -First 1
-    $dir = Select-Folder 'Pick the drivers folder - Drivers-Backup made by Drivers.cmd, a folder from another PC or a vendor pack. All subfolders are scanned.' $start
+    $dir = Select-Folder (T 'Pick the drivers folder - Drivers-Backup made by Drivers.cmd, a folder from another PC or a vendor pack. All subfolders are scanned.') $start
     if (-not $dir) { return }
     $Script:ImportDir = $dir
     Start-Work 'ScanFolder' @{ Dir = $dir } {
         $items = @($Script:Sync.Result)
-        if ($items.Count -eq 0) { Show-Msg 'No .inf drivers in that folder.' 'Warning'; return }
-        $pick = @(Show-DriverPicker $items "Drivers in $($Script:ImportDir)" 'Drivers built for another architecture than the ISO are unticked and left out.')
+        if ($items.Count -eq 0) { Show-Msg (T 'No .inf drivers in that folder.') 'Warning'; return }
+        $pick = @(Show-DriverPicker $items ((T 'Drivers in {0}') -f $Script:ImportDir) (T 'Drivers built for another architecture than the ISO are unticked and left out.'))
         if ($pick.Count -gt 0) { Start-Work 'CommitImport' @{ Dir = $Script:ImportDir; Pick = $pick } }
     }
 }
 function Invoke-SignClick {
     $src = $Script:U.SignSrc.Text.Trim().Trim('"')
-    if (-not $src -or -not (Test-Path -LiteralPath $src -PathType Container)) { Show-Msg 'Choose the driver folder first (for example the folder NVCleanstall extracted).' 'Warning'; return }
+    if (-not $src -or -not (Test-Path -LiteralPath $src -PathType Container)) { Show-Msg (T 'Choose the driver folder first (for example the folder NVCleanstall extracted).') 'Warning'; return }
     $hasInf = Get-ChildItem -LiteralPath $src -Recurse -Filter *.inf -File -ErrorAction SilentlyContinue | Select-Object -First 1
-    if (-not $hasInf) { Show-Msg 'There are no .inf files in that folder or its subfolders.' 'Warning'; return }
+    if (-not $hasInf) { Show-Msg (T 'There are no .inf files in that folder or its subfolders.') 'Warning'; return }
     $name = ConvertTo-PackageName $Script:U.SignName.Text
     $mode = Get-CertStatus
     $pw = $null
@@ -6276,33 +8047,34 @@ function Invoke-SignClick {
 }
 function Invoke-ServiceClick {
     if (-not (Test-Unpacked)) { return }
-    if (@($Script:S.Selected).Count -eq 0) { Show-Msg 'Tick at least one edition first.'; $Script:U.Nav2.IsChecked = $true; return }
-    if ($Script:S.Serviced -and -not (Confirm-Ui "This media was already slipstreamed on $($Script:S.Serviced.When). For a clean result unpack the ISO again (page 1). Slipstream again anyway?" 'Warning')) { return }
+    if (@($Script:S.Selected).Count -eq 0) { Show-Msg (T 'Tick at least one edition first.'); $Script:U.Nav2.IsChecked = $true; return }
+    if ($Script:S.Serviced -and -not (Confirm-Ui ((T 'This media was already slipstreamed on {0}. For a clean result unpack the ISO again (page 1). Slipstream again anyway?') -f $Script:S.Serviced.When) 'Warning')) { return }
     if (@($Script:S.Updates).Count -eq 0 -and $Script:S.Family.Supported -and
-        -not (Confirm-Ui 'No updates are downloaded (page 3). Continue with drivers and options only?')) { return }
+        -not (Confirm-Ui (T 'No updates are downloaded (page 3). Continue with drivers and options only?'))) { return }
     Start-Work 'Service' @{} { $Script:U.Nav7.IsChecked = $true }
 }
 function Invoke-BuildClick {
     if (-not (Test-Unpacked)) { return }
-    if (-not $Script:S.Serviced -and -not (Confirm-Ui 'The media has not been slipstreamed yet. Build the ISO anyway (drivers, updates and options are then missing)?' 'Warning')) { return }
+    if (-not $Script:S.Serviced -and -not (Confirm-Ui (T 'The media has not been slipstreamed yet. Build the ISO anyway (drivers, updates and options are then missing)?') 'Warning')) { return }
     Start-Work 'Build' @{ Out = $Script:U.OutBox.Text.Trim().Trim('"') }
 }
 function Invoke-FixClick {
     $fixes = @($Script:CheckRows | Where-Object { $_.Fix } )
-    if ($fixes.Count -eq 0) { Show-Msg 'Nothing to fix automatically - run the check first. Findings without a fix need a change on the page they mention.'; return }
+    if ($fixes.Count -eq 0) { Show-Msg (T 'Nothing to fix automatically - run the check first. Findings without a fix need a change on the page they mention.'); return }
     $txt = ($fixes | ForEach-Object { '- ' + $_.FixText } | Sort-Object -Unique) -join "`n"
-    if (-not (Confirm-Ui ("Apply these fixes? They change the copies that go into the ISO, not your own files.`n`n" + $txt))) { return }
+    if (-not (Confirm-Ui ((T 'Apply these fixes? They change the copies that go into the ISO, not your own files.') + "`n`n" + $txt))) { return }
     Start-Work 'Fix' @{ Fixes = @($fixes | ForEach-Object { [string]$_.Fix } | Sort-Object -Unique) } { Show-CheckResults }
 }
 function Invoke-RunAllClick {
     $iso = $Script:U.IsoBox.Text.Trim().Trim('"')
     if (-not $iso) { $iso = [string]$Script:S.SourceIso }
-    if (-not $iso -or -not (Test-Path -LiteralPath $iso)) { Show-Msg 'Choose the source ISO on page 1 first.' 'Warning'; $Script:U.Nav1.IsChecked = $true; return }
-    $lines = @("Source: $(Split-Path $iso -Leaf)")
-    $lines += "Editions: $(if (@($Script:S.Selected).Count) { "$(@($Script:S.Selected).Count) ticked" } else { 'asked after unpacking' })"
-    $lines += "Drivers: $(@($Script:S.Drivers).Count)   Signed packages: $(@($Script:S.Signed | Where-Object { $_ }).Count)"
-    $lines += "Answer file: $(if ($Script:S.Unattend) { 'yes' } else { 'no' })   `$OEM`$: $(if ($Script:S.Oem) { 'yes' } else { 'no' })"
-    if (-not (Confirm-Ui ("Run everything now? It takes 30-90 minutes - the PC is kept awake until it is done.`n`n" + ($lines -join "`n")))) { return }
+    if (-not $iso -or -not (Test-Path -LiteralPath $iso)) { Show-Msg (T 'Choose the source ISO on page 1 first.') 'Warning'; $Script:U.Nav1.IsChecked = $true; return }
+    $yes = T 'yes'; $no = T 'no'
+    $lines = @((T 'Source: {0}') -f (Split-Path $iso -Leaf))
+    $lines += (T 'Editions: {0}') -f $(if (@($Script:S.Selected).Count) { (T '{0} ticked') -f @($Script:S.Selected).Count } else { T 'asked after unpacking' })
+    $lines += (T 'Drivers: {0}   Signed packages: {1}') -f @($Script:S.Drivers).Count, @($Script:S.Signed | Where-Object { $_ }).Count
+    $lines += (T 'Answer file: {0}   $OEM$: {1}') -f $(if ($Script:S.Unattend) { $yes } else { $no }), $(if ($Script:S.Oem) { $yes } else { $no })
+    if (-not (Confirm-Ui ((T 'Run everything now? It takes 30-90 minutes - the PC is kept awake until it is done.') + "`n`n" + ($lines -join "`n")))) { return }
     Start-Work 'All' @{ Iso = $iso; Out = $Script:U.OutBox.Text.Trim().Trim('"') }
 }
 #endregion
@@ -6334,9 +8106,10 @@ try {
     if ($init.HadErrors) { throw "Worker failed to start: $($init.Streams.Error[0])" }
     $init.Dispose()
 
-    $Script:ThemeNow = Get-ThemeName          # the window is built in the saved theme, font and text size
+    $Script:ThemeNow = Get-ThemeName          # the window is built in the saved theme, font, text size and language
+    $Script:LangNow = Get-UiLanguage
     $M = New-Xaml $Script:XMain
-    $Script:W = $M.W; $Script:U = $M.U
+    $Script:W = $M.W; $Script:U = $M.U; $Script:UiTexts = $M.Texts
     $W = $Script:W; $U = $Script:U
     $U.VerRun.Text = "  v$Script:AppVersion"
     Set-UiLook
@@ -6373,6 +8146,11 @@ try {
         $U[$x[0]].Tag = $x[1]
         $U[$x[0]].Add_Click({ $Script:Cfg.UiFont = [string]$this.Tag; Save-Settings; Set-UiLook })
     }
+    $U.LangAuto.Tag = 'auto'
+    foreach ($l in (Get-LanguageList)) { $U[$l.Button].Tag = $l.Code }
+    foreach ($n in @('LangAuto') + @(Get-LanguageList | ForEach-Object { $_.Button })) {
+        $U[$n].Add_Click({ $Script:Cfg.UiLanguage = [string]$this.Tag; Save-Settings; Set-UiLanguage })
+    }
     # Ctrl + plus / minus / 0 and Ctrl + mouse wheel change the text size anywhere in the window
     $W.Add_PreviewKeyDown({ param($s, $e)
         if (([Windows.Input.Keyboard]::Modifiers -band [Windows.Input.ModifierKeys]::Control) -eq 0) { return }
@@ -6404,31 +8182,26 @@ try {
             $Script:Cfg[$this.Tag] = [bool]$this.IsChecked
             Save-Settings
             if ($this.Tag -eq 'DefenderExclude' -and $this.IsChecked) {
-                Show-Msg ("While a job runs (unpack, download, sign, slipstream, build), Windows Defender does not scan the work folder " +
-                          "($($Script:P.Work)). The exclusion is removed when the job ends, and at the next start if the program was closed during a job. " +
-                          'Everything in there comes from Microsoft, your drivers and this tool - do not put other downloads in that folder.') 'Information'
+                Show-Msg ((T 'While a job runs (unpack, download, sign, slipstream, build), Windows Defender does not scan the work folder ({0}). The exclusion is removed when the job ends, and at the next start if the program was closed during a job. Everything in there comes from Microsoft, your drivers and this tool - do not put other downloads in that folder.') -f $Script:P.Work) 'Information'
             }
             if ($this.Tag -eq 'SignOnlyThisPc' -and $this.IsChecked) {
-                Show-Msg ("Use this only when the ISO is for this PC. INF files for other hardware are removed from the signed copy, so the driver " +
-                          "installs only on hardware that matches this PC. NVIDIA's own setup.exe may refuse to run from that copy - pnputil installs " +
-                          'the driver anyway. Sign the package again for it to take effect.') 'Information'
+                Show-Msg (T 'Use this only when the ISO is for this PC. INF files for other hardware are removed from the signed copy, so the driver installs only on hardware that matches this PC. NVIDIA''s own setup.exe may refuse to run from that copy - pnputil installs the driver anyway. Sign the package again for it to take effect.') 'Information'
             }
             if ($this.Tag -eq 'Boot2023' -and $this.IsChecked) {
-                Show-Msg ("With Secure Boot on, this ISO only boots on PCs whose UEFI already trusts 'Windows UEFI CA 2023'. Older firmware needs that " +
-                          'Secure Boot update first (or Secure Boot off). The image also needs a 2024-04 or newer update.') 'Warning'
+                Show-Msg (T 'With Secure Boot on, this ISO only boots on PCs whose UEFI already trusts ''Windows UEFI CA 2023''. Older firmware needs that Secure Boot update first (or Secure Boot off). The image also needs a 2024-04 or newer update.') 'Warning'
             }
         })
     }
     $U.CutoffBox.Add_LostFocus({
         $v = $Script:U.CutoffBox.Text.Trim()
         if ($v -match '^\d{4}-\d{2}$') { $Script:Cfg.Win10Cutoff = $v; Save-Settings }
-        else { $Script:U.CutoffBox.Text = [string]$Script:Cfg.Win10Cutoff; if ($v) { Show-Msg 'Use the YYYY-MM format, e.g. 2025-10.' } }
+        else { $Script:U.CutoffBox.Text = [string]$Script:Cfg.Win10Cutoff; if ($v) { Show-Msg (T 'Use the YYYY-MM format, e.g. 2025-10.') } }
     })
     $U.SignJobsBox.Add_LostFocus({
         $v = $Script:U.SignJobsBox.Text.Trim()
         if (-not $v) { $Script:Cfg.SignJobs = 0; Save-Settings }
         elseif ($v -match '^[1-8]$') { if ([int]$v -ne (Get-SignJobs)) { $Script:Cfg.SignJobs = [int]$v; Save-Settings } }
-        else { Show-Msg 'Use a number from 1 to 8 (or leave it empty for the number of processor cores, up to 8).' }
+        else { Show-Msg (T 'Use a number from 1 to 8 (or leave it empty for the number of processor cores, up to 8).') }
         $Script:U.SignJobsBox.Text = [string](Get-SignJobs)
     })
     $U.EdJobsBox.Add_LostFocus({
@@ -6436,14 +8209,14 @@ try {
         $now = (Get-EditionJobs 4 1e6).Wanted
         if (-not $v) { $Script:Cfg.ParallelEditions = 0; Save-Settings }
         elseif ($v -match '^[1-4]$') { if ([int]$v -ne $now) { $Script:Cfg.ParallelEditions = [int]$v; Save-Settings } }
-        else { Show-Msg 'Use a number from 1 to 4 (or leave it empty: 2 on 4+ processor cores, 3 on 8+).' }
+        else { Show-Msg (T 'Use a number from 1 to 4 (or leave it empty: 2 on 4+ processor cores, 3 on 8+).') }
         $Script:U.EdJobsBox.Text = [string](Get-EditionJobs 4 1e6).Wanted
     })
 
     # 1 source
     $U.IsoBrowse.Add_Click({
         $start = if ($Script:S.SourceIso) { Split-Path ([string]$Script:S.SourceIso) -Parent } else { Join-Path $env:USERPROFILE 'Downloads' }
-        $f = Select-File "Select a Windows $(if ($Script:Cfg.WinVersion -eq '11') { '11' } else { '10' }) ISO" 'ISO images (*.iso)|*.iso' $start
+        $f = Select-File ((T 'Select a Windows {0} ISO') -f $(if ($Script:Cfg.WinVersion -eq '11') { '11' } else { '10' })) ((T 'ISO images') + ' (*.iso)|*.iso') $start
         if ($f) { $Script:U.IsoBox.Text = $f }
     })
     $U.UnpackBtn.Add_Click({ Invoke-UnpackClick })
@@ -6467,18 +8240,18 @@ try {
     $U.DrvImport.Add_Click({ Invoke-ImportDriversClick })
     $U.DrvRemove.Add_Click({
         $nums = @($Script:U.DrvGrid.SelectedItems | ForEach-Object { [int]$_.Row['No'] })
-        if ($nums.Count -eq 0) { Show-Msg 'Select the drivers to remove in the list first (Ctrl+click for several).'; return }
+        if ($nums.Count -eq 0) { Show-Msg (T 'Select the drivers to remove in the list first (Ctrl+click for several).'); return }
         Remove-DriverEntries $nums; Update-Ui
     })
     $U.DrvClear.Add_Click({
-        if (@($Script:S.Drivers).Count -and (Confirm-Ui 'Remove every selected driver?')) {
+        if (@($Script:S.Drivers).Count -and (Confirm-Ui (T 'Remove every selected driver?'))) {
             Remove-Item -LiteralPath $Script:P.DrvSel -Recurse -Force -ErrorAction SilentlyContinue
             $Script:S.Drivers = @(); Save-State; Update-Ui
         }
     })
     # 5 signed drivers
     $U.SignBrowse.Add_Click({
-        $d = Select-Folder 'Pick the modded driver folder (e.g. the folder NVCleanstall extracted). All subfolders are scanned.' $Script:U.SignSrc.Text
+        $d = Select-Folder (T 'Pick the modded driver folder (e.g. the folder NVCleanstall extracted). All subfolders are scanned.') $Script:U.SignSrc.Text
         if ($d) {
             $Script:U.SignSrc.Text = $d
             $leaf = Split-Path $d -Leaf
@@ -6499,21 +8272,21 @@ try {
     $U.SignOpen.Add_Click({ New-Item -ItemType Directory -Force -Path $Script:SignDir | Out-Null; Open-Path $Script:SignDir })
     $U.SignRemove.Add_Click({
         $names = @($Script:U.SignGrid.SelectedItems | ForEach-Object { [string]$_.Row['Name'] })
-        if ($names.Count -eq 0) { Show-Msg 'Select a package in the list first.'; return }
+        if ($names.Count -eq 0) { Show-Msg (T 'Select a package in the list first.'); return }
         foreach ($n in $names) { Remove-SignedPackage $n }
         Write-Ok "Removed: $($names -join ', ') (taken out of the media at the next build)"
         Update-Ui
     })
     # 6 answer file + oem
     $U.UnaPick.Add_Click({
-        $f = Select-File 'Select your autounattend.xml' 'Answer files (*.xml)|*.xml' (Join-Path $env:USERPROFILE 'Downloads')
+        $f = Select-File (T 'Select your autounattend.xml') ((T 'Answer files') + ' (*.xml)|*.xml') (Join-Path $env:USERPROFILE 'Downloads')
         if ($f) { try { Set-UnattendFile $f } catch { Show-Msg $_.Exception.Message 'Error' }; Update-Ui }
     })
     $U.UnaGen.Add_Click({ Start-Process $Script:GeneratorUrl })
     $U.UnaRemove.Add_Click({ Clear-UnattendFile; Update-Ui })
     $U.OemPick.Add_Click({
         $start = if ($Script:S.Oem) { [string]$Script:S.Oem.Source } else { $null }
-        $d = Select-Folder 'Pick your $OEM$ folder (the one that contains $1 and/or $$)' $start
+        $d = Select-Folder (T 'Pick your $OEM$ folder (the one that contains $1 and/or $$)') $start
         if ($d) { $Script:OemCache = $null; Set-OemFolder $d; Update-Ui }
     })
     $U.OemOpen.Add_Click({ if ($Script:S.Oem) { Open-Path ([string]$Script:S.Oem.Source) } })
@@ -6521,7 +8294,7 @@ try {
     # 7 build
     $U.OutBrowse.Add_Click({
         $d = New-Object Microsoft.Win32.SaveFileDialog
-        $d.Filter = 'ISO image (*.iso)|*.iso'; $d.FileName = if ($Script:S -and $Script:S.Family) { 'Win' + (Get-FamilyOs $Script:S.Family) + '_custom.iso' } else { 'Windows_custom.iso' }
+        $d.Filter = (T 'ISO image') + ' (*.iso)|*.iso'; $d.FileName = if ($Script:S -and $Script:S.Family) { 'Win' + (Get-FamilyOs $Script:S.Family) + '_custom.iso' } else { 'Windows_custom.iso' }
         if ($d.ShowDialog($Script:W)) { $Script:U.OutBox.Text = $d.FileName }
     })
     $U.SvcBtn.Add_Click({ Invoke-ServiceClick })
@@ -6530,11 +8303,11 @@ try {
         if ($Script:S.Iso -and (Test-Path -LiteralPath $Script:S.Iso)) { Start-Process explorer.exe "/select,`"$($Script:S.Iso)`"" } else { Open-Path $Script:P.Output }
     })
     # 8 options
-    $U.WorkBrowse.Add_Click({ $d = Select-Folder 'Pick or create the work folder (NTFS, no spaces, ~30 GB free)' $Script:Cfg.WorkDir; if ($d) { $Script:U.WorkBox.Text = $d } })
+    $U.WorkBrowse.Add_Click({ $d = Select-Folder (T 'Pick or create the work folder (NTFS, no spaces, ~30 GB free)') $Script:Cfg.WorkDir; if ($d) { $Script:U.WorkBox.Text = $d } })
     $U.WorkApply.Add_Click({
         $w = $Script:U.WorkBox.Text.Trim().Trim('"').TrimEnd('\')
         if (-not $w) { return }
-        if ($w -match '\s' -and -not (Confirm-Ui 'The path has spaces - a short path like D:\W10U is safer for DISM. Use it anyway?' 'Warning')) { return }
+        if ($w -match '\s' -and -not (Confirm-Ui (T 'The path has spaces - a short path like D:\W10U is safer for DISM. Use it anyway?') 'Warning')) { return }
         $Script:Cfg.WorkDir = $w; Save-Settings; Initialize-Paths; $Script:S = Import-State
         Write-Ok "Work folder: $w"
         Update-Ui
@@ -6548,31 +8321,31 @@ try {
     $U.ClnBtn.Add_Click({
         $a = [ordered]@{ Updates = [bool]$Script:U.ClnUpd.IsChecked; Media = [bool]$Script:U.ClnMedia.IsChecked; Output = [bool]$Script:U.ClnOut.IsChecked; Signed = [bool]$Script:U.ClnSigned.IsChecked
                          Drivers = [bool]$Script:U.ClnDrivers.IsChecked; Extra = [bool]$Script:U.ClnExtra.IsChecked; Logs = [bool]$Script:U.ClnLogs.IsChecked; All = [bool]$Script:U.ClnAll.IsChecked }
-        $names = @{ Updates = 'downloaded updates'; Media = 'unpacked media'; Output = 'built ISOs'; Signed = 're-signed driver copies'; Drivers = 'copied drivers'
-                    Extra = 'answer file copy and check results'; Logs = 'logs'; All = 'EVERYTHING in the work folder' }
-        $what = @('mounted images and temp files') + @($a.Keys | Where-Object { $a[$_] } | ForEach-Object { $names[$_] })
-        if (Confirm-Ui ("Delete: " + ($what -join ', ') + '?') 'Warning') { Start-Work 'Clean' $a }
+        $names = @{ Updates = (T 'downloaded updates'); Media = (T 'unpacked media'); Output = (T 'built ISOs'); Signed = (T 're-signed driver copies'); Drivers = (T 'copied drivers')
+                    Extra = (T 'answer file copy and check results'); Logs = (T 'logs'); All = (T 'EVERYTHING in the work folder') }
+        $what = @(T 'mounted images and temp files') + @($a.Keys | Where-Object { $a[$_] } | ForEach-Object { $names[$_] })
+        if (Confirm-Ui ((T 'Delete: {0}?') -f ($what -join ', ')) 'Warning') { Start-Work 'Clean' $a }
     })
     $U.DefBtn.Add_Click({
-        if (-not (Confirm-Ui 'Restore the default options? The work folder is kept.')) { return }
-        $keep = $Script:Cfg.WorkDir; $last = $Script:Cfg.LastDriverFolder
-        $Script:Cfg = Get-DefaultSettings; $Script:Cfg.WorkDir = $keep; $Script:Cfg.LastDriverFolder = $last
+        if (-not (Confirm-Ui (T 'Restore the default options? The work folder is kept.'))) { return }
+        $keep = $Script:Cfg.WorkDir; $last = $Script:Cfg.LastDriverFolder; $lang = $Script:Cfg.UiLanguage
+        $Script:Cfg = Get-DefaultSettings; $Script:Cfg.WorkDir = $keep; $Script:Cfg.LastDriverFolder = $last; $Script:Cfg.UiLanguage = $lang
         Save-Settings; Update-Ui; Write-Ok 'Default options restored.'
     })
     # install check
     $U.ChkBtn.Add_Click({ Start-Work 'Check' @{} { Show-CheckResults } })
     $U.ChkFix.Add_Click({ Invoke-FixClick })
     $U.ChkSave.Add_Click({
-        if (-not (Test-Path -LiteralPath $Script:P.Unattend)) { Show-Msg 'There is no answer file yet (page 6).'; return }
+        if (-not (Test-Path -LiteralPath $Script:P.Unattend)) { Show-Msg (T 'There is no answer file yet (page 6).'); return }
         $d = New-Object Microsoft.Win32.SaveFileDialog
-        $d.Filter = 'Answer file (*.xml)|*.xml'; $d.FileName = 'autounattend.xml'
+        $d.Filter = (T 'Answer file') + ' (*.xml)|*.xml'; $d.FileName = 'autounattend.xml'
         if ($Script:S.Unattend -and $Script:S.Unattend.Source) { $d.InitialDirectory = Split-Path ([string]$Script:S.Unattend.Source) -Parent }
         if ($d.ShowDialog($Script:W)) { Copy-Item -LiteralPath $Script:P.Unattend -Destination $d.FileName -Force; Write-Ok "Saved: $($d.FileName)" }
     })
     $U.ChkUndo.Add_Click({
         $bak = Join-Path $Script:P.Work 'autounattend.original.xml'
-        if (-not (Test-Path -LiteralPath $bak)) { Show-Msg 'No answer file fixes to undo.'; return }
-        if (-not (Confirm-Ui 'Put the answer file back the way it was before the fixes?')) { return }
+        if (-not (Test-Path -LiteralPath $bak)) { Show-Msg (T 'No answer file fixes to undo.'); return }
+        if (-not (Confirm-Ui (T 'Put the answer file back the way it was before the fixes?'))) { return }
         Copy-Item -LiteralPath $bak -Destination $Script:P.Unattend -Force; Remove-Item -LiteralPath $bak -Force
         if ($Script:S.Unattend) { $Script:S.Unattend.Remove('Fixed') }
         Save-State; Sync-Unattend; Write-Ok 'Answer file fixes undone.'; Update-Ui
@@ -6588,7 +8361,7 @@ try {
     $W.Add_Closing({
         param($s, $ev)
         if ($Script:Busy) {
-            $r = [Windows.MessageBox]::Show($Script:W, "'$($Script:JobLabel)' is still running. Closing now can leave a mounted image behind (run Clean up next time). Close anyway?", $Script:AppTitle, 'YesNo', 'Warning')
+            $r = [Windows.MessageBox]::Show($Script:W, ((T '''{0}'' is still running. Closing now can leave a mounted image behind (run Clean up next time). Close anyway?') -f $Script:JobLabel), $Script:AppTitle, 'YesNo', 'Warning')
             if ($r -ne 'Yes') { $ev.Cancel = $true; return }
             try { [void]$Script:Ps.BeginStop($null, $null) } catch { }
         }
