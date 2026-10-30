@@ -1,10 +1,10 @@
 # Changelog
 
-## v3.6.0 — 2026-10-30
+## v4.0.0 — 2026-10-30
 
-The signing changes of [NVIDIA Modded Drivers Signer](https://github.com/j0p3s/nvidia-modded-drivers-signer) 2.3.0, and a choice of the engine that builds the catalogs.
+The signing changes of [NVIDIA Modded Drivers Signer](https://github.com/j0p3s/nvidia-modded-drivers-signer) 2.3.0, and a choice of the engine that builds the catalogs. A new major version because drivers are now signed by a different engine by default.
 
-**Upgrading from 3.5:** download `Windows-ISO-updater-GUI_v3.6.0.cmd` and delete the old `.cmd`. Settings, the `signing` folder and the work folder are kept. **Signing now uses MakeCat by default**; choose *Inf2Cat* on page 5 for the old behaviour. Packages you already signed stay as they are.
+**Upgrading from 3.x:** download `Windows-ISO-updater-GUI_v4.0.0.cmd` and delete the old `.cmd`. Settings, the `signing` folder and the work folder are kept. **Signing now uses MakeCat by default**; choose *Inf2Cat* on page 5 for the old behaviour. Packages you already signed stay as they are.
 
 ### Added
 - **Engine** buttons on page 5 (*Signed NVIDIA / modded*), saved as `SignEngine` in the settings file:
@@ -31,6 +31,10 @@ The signing changes of [NVIDIA Modded Drivers Signer](https://github.com/j0p3s/n
 
 ### README
 - New **Signing engines** section; troubleshooting, files, privacy and legal notice (generate-cat-file GPL-2.0, libwdi-style) updated.
+
+## v3.6.0 — 2026-10-30
+
+The changes listed under 4.0.0, published for a few minutes as 3.6.0 before they were numbered 4.0.0. Same code; use 4.0.0.
 
 ## v3.5.1 — 2026-10-30
 
