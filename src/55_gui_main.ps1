@@ -205,6 +205,14 @@ try {
         else { Show-Msg 'Use a number from 1 to 8 (or leave it empty for the number of processor cores, up to 8).' }
         $Script:U.SignJobsBox.Text = [string](Get-SignJobs)
     })
+    $U.EdJobsBox.Add_LostFocus({
+        $v = $Script:U.EdJobsBox.Text.Trim()
+        $now = (Get-EditionJobs 4 1e6).Wanted
+        if (-not $v) { $Script:Cfg.ParallelEditions = 0; Save-Settings }
+        elseif ($v -match '^[1-4]$') { if ([int]$v -ne $now) { $Script:Cfg.ParallelEditions = [int]$v; Save-Settings } }
+        else { Show-Msg 'Use a number from 1 to 4 (or leave it empty: 2 on 4+ processor cores, 3 on 8+).' }
+        $Script:U.EdJobsBox.Text = [string](Get-EditionJobs 4 1e6).Wanted
+    })
 
     # 1 source
     $U.IsoBrowse.Add_Click({
