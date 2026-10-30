@@ -570,8 +570,10 @@ function Show-DriverPicker($Items, [string]$Title, [string]$SubText) {
     $Script:PickD = $D
     $D.W.Owner = $Script:W
     $n = 0
-    $Script:PickTable = New-Table @('Use:bool', 'No:int', 'Class', 'Provider', 'Version', 'Date', 'Arch', 'SizeMB:dbl', 'Inf', 'Folder') @(foreach ($x in @($Items)) {
-        $n++; , @((Test-DriverArch ([string]$x.Arch) $arch), $n, $x.Class, $x.Provider, $x.Version, $x.Date, [string]$x.Arch, [double]$x.'Size (MB)', $x.Inf, $x.Folder) })
+    $Script:PickTable = New-Table @('Use:bool', 'No:int', 'Class', 'Provider', 'Version', 'Date', 'Arch', 'SizeMB:dbl', 'Older:bool', 'Inf', 'Folder') @(foreach ($x in @($Items)) {
+        $n++; , @(((Test-DriverArch ([string]$x.Arch) $arch) -and -not [bool]$x.Older), $n, $x.Class, $x.Provider, $x.Version, $x.Date, [string]$x.Arch, [double]$x.'Size (MB)', [bool]$x.Older, $x.Inf, $x.Folder) })
+    $old = @($Items | Where-Object { $_.Older }).Count
+    if ($old) { $SubText += " $old older version(s) of drivers that are here in a newer version too are unticked (column Older) - Windows uses the newest one." }
     $Script:PickArch = $arch
     $D.U.PTitle.Text = $Title
     $D.U.PSub.Text = $SubText
@@ -585,7 +587,7 @@ function Show-DriverPicker($Items, [string]$Title, [string]$SubText) {
         $f = $Script:PickD.U.PFilter.Text.Replace("'", "''").Replace('[', '[[]').Replace('*', '[*]').Replace('%', '[%]')
         $Script:PickTable.DefaultView.RowFilter = if ($f) { "Class LIKE '*$f*' OR Provider LIKE '*$f*' OR Inf LIKE '*$f*' OR Folder LIKE '*$f*'" } else { '' }
     })
-    $D.U.PFit.Add_Click({ foreach ($r in $Script:PickTable.Rows) { $r['Use'] = (Test-DriverArch ([string]$r['Arch']) $Script:PickArch) } })
+    $D.U.PFit.Add_Click({ foreach ($r in $Script:PickTable.Rows) { $r['Use'] = (Test-DriverArch ([string]$r['Arch']) $Script:PickArch) -and -not [bool]$r['Older'] } })
     $D.U.PShown.Add_Click({ foreach ($rv in $Script:PickTable.DefaultView) { $rv.Row['Use'] = $true } })
     $D.U.PNone.Add_Click({ foreach ($r in $Script:PickTable.Rows) { $r['Use'] = $false } })
     $D.U.POk.Add_Click({ $Script:PickD.W.DialogResult = $true })

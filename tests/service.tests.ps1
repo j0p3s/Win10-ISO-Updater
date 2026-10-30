@@ -10,7 +10,7 @@ $b = $body.IndexOf('#ENGINE-BEGIN'); $e = $body.IndexOf('#ENGINE-END')
 # engine for the background runspace + the stand-ins Linux needs
 $stubs = @'
 
-function Get-WindowsImage { param($ImagePath, [switch]$Mounted) if ($Mounted) { return @() }; return @(1, 2) }
+function Get-WindowsImage { param($ImagePath, $Index, [switch]$Mounted, $ErrorAction) if ($Mounted) { return @() }; if ($Index -and $env:FAKE_IMG_VER) { return [pscustomobject]@{ ImageIndex = $Index; Version = $env:FAKE_IMG_VER; SPBuild = [int]$env:FAKE_IMG_SP } }; return @(1, 2) }
 '@
 $Script:EngineText = $body.Substring($b, $e - $b) + $stubs
 . ([scriptblock]::Create($stubs))
@@ -60,10 +60,18 @@ $ctx = New-Ctx $false
 $r = Invoke-BootWimService $ctx
 $c = @(Calls)
 Check 'inline: both indexes mounted, updated and exported' (@($c | Where-Object { $_ -match '/Mount-Image' }).Count -eq 2 -and @($c | Where-Object { $_ -match '/Export-Image' }).Count -eq 2)
-Check 'inline: LCU added twice per index (servicing stack + update)' (@($c | Where-Object { $_ -match 'lcu\.msu' }).Count -eq 4)
+Check 'inline: the LCU installed in its first pass is not added a second time (one pass per index)' (@($c | Where-Object { $_ -match 'lcu\.msu' }).Count -eq 2)
 Check 'inline: setup.exe and boot files saved for the media' ((Test-Path (Join-Path $ctx.BfDir 'setup.exe')) -and (Test-Path (Join-Path $ctx.BfDir 'bootmgfw.efi')))
 Check 'inline: 2023 boot files saved' ($r.ExSaved -and (Test-Path (Join-Path $ctx.ExDir 'EFI_EX')))
 $null = Drain
+
+# ---- the first pass did not install the update: the second pass runs (Microsoft's way for WinPE)
+Remove-Item $dlog, $ctx.BootFin -ErrorAction SilentlyContinue
+$env:FAKE_DISM_FAIL = 'lcu.msu'
+$r = Invoke-BootWimService (New-Ctx $false)
+$env:FAKE_DISM_FAIL = ''
+$c = @(Calls); $log = @(Drain)
+Check 'first LCU pass failed: second pass run for each index' (@($c | Where-Object { $_ -match 'lcu\.msu' }).Count -eq 4 -and @($log | Where-Object { $_ -match 'no second pass' }).Count -eq 0)
 
 # ---- option: leave index 1 (Windows PE) as it is
 Remove-Item $dlog, $ctx.BootFin -ErrorAction SilentlyContinue
@@ -106,6 +114,37 @@ Check "background error surfaces as 'boot.wim: ...' ($msg)" ($msg -match '^boot\
 $env:FAKE_DISM_FAIL = ''
 $null = Drain
 
+# ---- updates the image already has: the build an update brings, from the XML inside the .msu
+$xml = '<?xml version="1.0" encoding="utf-8" standalone="yes"?><unattend xmlns="urn:schemas-microsoft-com:unattend"><servicing><package action="install"><assemblyIdentity name="Package_for_ServicingStack_6449" version="19041.6449.1.3" processorArchitecture="amd64" language="neutral" buildType="release" publicKeyToken="31bf3856ad364e35" /><source location="%configsetroot%\SSU-19041.6449-x64.cab" /></package><package action="install"><assemblyIdentity buildType="release" language="neutral" name="Package_for_RollupFix" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" version="19041.6456.1.21" /><source location="%configsetroot%\Windows10.0-KB5066791-x64.cab" /></package></servicing></unattend>'
+$ids = @(Read-MsuXml $xml)
+Check 'msu XML: packages and versions read, in any attribute order' ($ids.Count -eq 2 -and $ids[1].Name -eq 'Package_for_RollupFix' -and $ids[1].Version -eq '19041.6456.1.21')
+$msu = Join-Path $tmp 'windows10.0-kb5066791-x64.msu'; Set-Content $msu 'msu'; [IO.File]::WriteAllText("$msu.xml", $xml, [Text.Encoding]::Unicode)
+$Script:ExpandExe = "$PSScriptRoot/fake/expand"
+$ub = Get-UpdateBuild $msu
+Check "update build from the .msu: $($ub.Build).$($ub.Rev)" ($ub -and $ub.Build -eq 19041 -and $ub.Rev -eq 6456 -and @(Get-ChildItem $P.Temp -Filter 'msuxml_*').Count -eq 0)
+Check 'no XML in the update: nothing known, nothing skipped' ($null -eq (Get-UpdateBuild (Join-Path $tmp 'other.msu')) -and $null -eq (Get-UpdateBuild '/u/x.cab'))
+$Script:ExpandExe = $null
+Check 'image at the build of the update (19045 / WinPE 19041 share the servicing base): skipped' ((Test-UpdateInImage $ub '19045.6456') -and (Test-UpdateInImage $ub '19041.6456') -and (Test-UpdateInImage $ub '19045.6500'))
+Check 'older image, other Windows, unknown version: not skipped' (-not (Test-UpdateInImage $ub '19045.6093') -and -not (Test-UpdateInImage $ub '22631.6456') -and -not (Test-UpdateInImage $ub '') -and -not (Test-UpdateInImage $null '19045.6456'))
+$env:FAKE_IMG_VER = '10.0.19041.6456'; $env:FAKE_IMG_SP = '6456'
+Check "image version from the WIM: $(Get-ImageVersion 'x.wim' 2)" ((Get-ImageVersion 'x.wim' 2) -eq '19041.6456')
+$env:FAKE_IMG_VER = ''
+Check 'image version unknown: empty' ((Get-ImageVersion 'x.wim' 2) -eq '')
+
+# ---- older versions of the same driver are unticked in the picker
+$dv = @(
+    [pscustomobject]@{ Inf = 'nvcvi.inf'; Provider = 'NVIDIA'; Class = 'Display'; Version = '32.0.15.6094'; Date = '2024-08-14'; Folder = 'nvcvi.inf_amd64_a' }
+    [pscustomobject]@{ Inf = 'nvcvi.inf'; Provider = 'NVIDIA'; Class = 'Display'; Version = '32.0.15.8180'; Date = '2025-09-30'; Folder = 'nvcvi.inf_amd64_b' }
+    [pscustomobject]@{ Inf = 'NVCVI.INF'; Provider = 'NVIDIA'; Class = 'Display'; Version = '32.0.15.7680'; Date = '2025-06-02'; Folder = 'nvcvi.inf_amd64_c' }
+    [pscustomobject]@{ Inf = 'ibtusb.inf'; Provider = 'Intel'; Class = 'Bluetooth'; Version = '23.100.0.4'; Date = '2025-01-10'; Folder = 'ibtusb.inf_amd64_a' }
+    [pscustomobject]@{ Inf = 'ibtusb.inf'; Provider = 'Intel'; Class = 'Bluetooth'; Version = '23.110.0.1'; Date = '2025-01-10'; Folder = 'ibtusb.inf_amd64_b' }
+    [pscustomobject]@{ Inf = 'heci.inf'; Provider = 'Intel'; Class = 'System'; Version = '2406.5.5.0'; Date = '2024-03-01'; Folder = 'heci.inf_amd64_a' }
+    [pscustomobject]@{ Inf = 'heci.inf'; Provider = 'Other'; Class = 'System'; Version = '1.0'; Date = '2020-01-01'; Folder = 'heci.inf_amd64_b' }
+)
+$dv = @(Set-OlderDrivers $dv)
+$kept = @($dv | Where-Object { -not $_.Older } | ForEach-Object Folder | Sort-Object) -join ','
+Check "drivers: newest of each kind kept, by date then version, other providers apart ($kept)" ($kept -eq 'heci.inf_amd64_a,heci.inf_amd64_b,ibtusb.inf_amd64_b,nvcvi.inf_amd64_b' -and @($dv | Where-Object Older).Count -eq 3)
+
 # ---- Defender option: exclusion only for the job, never left behind
 $Script:Excl = New-Object System.Collections.Generic.List[string]
 function Get-MpPreference { [pscustomobject]@{ ExclusionPath = @($Script:Excl) } }
@@ -126,6 +165,12 @@ Check 'leftover from a killed run removed at the next start' ($Script:Excl.Count
 $Script:Excl.Add($w)                                          # the user excluded it himself
 Enable-DefenderSkip; Disable-DefenderSkip
 Check "the user's own exclusion is left alone" ($Script:Excl -contains $w -and $Script:Excl.Count -eq 1)
+$null = Drain
+function Get-MpPreference { throw 'Operation failed with the following error: 0x800106ba. Operation: MpPreference. Target: ConfigListExtension.' }
+Enable-DefenderSkip
+$log = @(Drain)
+Check 'Defender not running (0x800106ba): a note, not a warning' (@($log | Where-Object { $_ -match 'Defender is not running on this PC' }).Count -eq 1 -and @($log | Where-Object { $_ -match '\[!!\]' }).Count -eq 0)
+function Get-MpPreference { [pscustomobject]@{ ExclusionPath = @($Script:Excl) } }
 
 # ---- whole slipstream with stand-ins: background boot.wim runs during install.wim
 function Assert-Analyzed { }
@@ -194,6 +239,34 @@ foreach ($parallel in $true, $false) {
     Check "parallel=${parallel}: failed WinRE is a warning, the original WinRE stays" (@($log | Where-Object { $_ -match 'WinRE update skipped' }).Count -eq 1 -and @($log | Where-Object { $_ -match 'Updated WinRE copied' }).Count -eq 0 -and $Script:S.Serviced)
 }
 
+# ---- an ISO that already has the cumulative update: it is not unpacked again for any image
+$realUpdateBuild = ${function:Get-UpdateBuild}
+function Get-UpdateBuild { param($Msu) if ($Msu -match 'lcu') { return [pscustomobject]@{ Build = 19041; Rev = [int]$env:FAKE_LCU_REV } } }
+$env:FAKE_IMG_VER = '10.0.19041.6456'; $env:FAKE_IMG_SP = '6456'
+foreach ($case in @(@{ Rev = 6456; Jobs = 1 }, @{ Rev = 6456; Jobs = 2 }, @{ Rev = 6500; Jobs = 1 })) {
+    Remove-Item $dlog -ErrorAction SilentlyContinue
+    $env:FAKE_LCU_REV = [string]$case.Rev
+    Set-Content (Join-Path $P.Media 'sources/install.wim') 'installwim'; Set-Content (Join-Path $P.Media 'sources/boot.wim') 'bootwim'
+    $Script:S = New-State
+    $Script:S.Unpacked = $true; $Script:S.Family = [ordered]@{ Arch = 'x64'; Supported = $true }
+    $Script:S.Images = @([ordered]@{ Index = 1; Name = 'Windows 10 Home'; Edition = 'Core'; Arch = 'x64'; Version = '19045.6456'; Size = 1 },
+                         [ordered]@{ Index = 2; Name = 'Windows 10 Pro'; Edition = 'Professional'; Arch = 'x64'; Version = '19045.6456'; Size = 1 })
+    $Script:S.Selected = @(1, 2)
+    $Script:Cfg.ParallelBoot = $true; $Script:Cfg.ParallelEditions = $case.Jobs
+    Invoke-Service -Auto
+    $c = @(Calls); $log = @(Drain)
+    $lcuCalls = @($c | Where-Object { $_ -match '/Add-Package' -and $_ -match 'lcu\.msu' }).Count
+    $tag = "update $($case.Rev), editions at once $($case.Jobs)"
+    if ($case.Rev -eq 6456) {
+        Check "${tag}: the update the images already have is skipped everywhere ($lcuCalls LCU calls)" ($lcuCalls -eq 0 -and @($log | Where-Object { $_ -match 'already at build 19045\.6456, skipped' }).Count -eq 2 -and @($log | Where-Object { $_ -match 'WinRE is already at build 19041\.6456, skipped' }).Count -eq 1 -and @($log | Where-Object { $_ -match 'boot\.wim index [12] is already at build 19041\.6456, skipped' }).Count -eq 2)
+        Check "${tag}: the servicing stack still goes in, slipstream finished" (@($c | Where-Object { $_ -match '/Add-Package' -and $_ -match 'ssu\.msu' }).Count -eq 5 -and $Script:S.Serviced)
+    } else {
+        Check "${tag}: a newer update goes into every image, boot.wim in one pass ($lcuCalls LCU calls)" ($lcuCalls -eq 5 -and @($log | Where-Object { $_ -match 'skipped' -and $_ -match 'already at build' }).Count -eq 0)
+    }
+}
+$env:FAKE_IMG_VER = ''; $env:FAKE_LCU_REV = ''
+Set-Item Function:\Get-UpdateBuild $realUpdateBuild
+
 # ---- several editions at the same time
 $cores = [Environment]::ProcessorCount
 $Script:Cfg.ParallelEditions = 0
@@ -203,6 +276,7 @@ $Script:Cfg.ParallelEditions = 3
 $a = (Get-EditionJobs 2 1000).Jobs; $b = (Get-EditionJobs 4 60).Jobs; $c1 = (Get-EditionJobs 4 10).Jobs
 $Script:Cfg.ParallelEditions = 9; $d = (Get-EditionJobs 9 1000).Jobs
 Check "editions at once: never more than ticked ($a), about 25 GB each ($b, $c1), at most 4 ($d)" ($a -eq 2 -and $b -eq 2 -and $c1 -eq 1 -and $d -eq 4)
+$realFreeGB = ${function:Get-FreeGB}
 function Get-FreeGB { return 500.0 }
 function New-Editions {
     Set-Content (Join-Path $P.Media 'sources/install.wim') 'installwim'; Set-Content (Join-Path $P.Media 'sources/boot.wim') 'bootwim'
@@ -276,7 +350,7 @@ Invoke-Service -Auto
 $Script:EngineText = $keepEngine
 $c = @(Calls); $log = @(Drain)
 Check 'no background worker: warned, editions one after the other, slipstream finished' (@($log | Where-Object { $_ -match 'background workers for the editions could not start' }).Count -eq 1 -and @($c | Where-Object { $_ -match '/Mount-Image' -and $_ -match 'install_stage\.wim' }).Count -eq 3 -and $Script:S.Serviced)
-Remove-Item Function:\Get-FreeGB
+Set-Item Function:\Get-FreeGB $realFreeGB
 $Script:Cfg.ParallelEditions = 0; $Script:Cfg.KeepOnlySelected = $true
 
 # ---- Clean up: the new options leave nothing behind

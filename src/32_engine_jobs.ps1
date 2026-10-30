@@ -1,5 +1,23 @@
 
 #region ---------------------------------------------------------------- drivers: scan (worker) / commit (worker) / remove (GUI)
+# Windows keeps the old versions of a driver in its driver store, and Export-WindowsDriver exports them all
+# (one PC had 3 NVIDIA display drivers of about 1.5 GB each and 12 Intel Bluetooth versions). Every package
+# gets Older = $true except the newest of its kind (same INF name, provider and class): the picker leaves
+# those unticked - they only make the ISO bigger and the slipstream slower.
+function Set-OlderDrivers($Items) {
+    $groups = @{}
+    foreach ($x in @($Items)) {
+        $k = '{0}|{1}|{2}' -f ([string]$x.Inf).ToLowerInvariant(), $x.Provider, $x.Class
+        if (-not $groups.ContainsKey($k)) { $groups[$k] = New-Object System.Collections.Generic.List[object] }
+        $groups[$k].Add($x)
+    }
+    foreach ($g in $groups.Values) {
+        $best = @($g | Sort-Object @{ Expression = { [string]$_.Date }; Descending = $true },
+                                   @{ Expression = { $v = [version]'0.0'; [void][version]::TryParse(([string]$_.Version), [ref]$v); $v }; Descending = $true })[0]
+        foreach ($x in $g) { $x | Add-Member -NotePropertyName Older -NotePropertyValue ([string]$x.Folder -ne [string]$best.Folder) -Force }
+    }
+    return @($Items)
+}
 function Get-HostDriverScan {
     $hostArch = Get-HostArch
     if ($Script:S.Family -and $Script:S.Family.Arch -ne $hostArch) {
@@ -29,8 +47,10 @@ function Get-HostDriverScan {
             'Size (MB)' = [math]::Round($size / 1MB, 1); Inf = $inf; Folder = $folder; FullDir = $path
         }
     }
-    $items = @($items | Sort-Object Class, Provider)
+    $items = @(Set-OlderDrivers @($items | Sort-Object Class, Provider))
     Write-Ok "$($items.Count) driver packages found on this PC."
+    $old = @($items | Where-Object { $_.Older }).Count
+    if ($old) { Write-Info "$old of them are older versions of a driver that is there in a newer version too - they are unticked in the list." }
     return $items
 }
 function Save-HostDrivers($Pick) {
@@ -248,7 +268,11 @@ function Enable-DefenderSkip {
         Set-Content -LiteralPath (Join-Path $w 'defender-exclusion.txt') -Value $w -Encoding UTF8
         $Script:DefenderAdded = $w
         Write-Info "Windows Defender skips $w during this job (removed again at the end)."
-    } catch { Write-Warn "Could not add the Defender exclusion ($($_.Exception.Message)) - normal scanning stays on." }
+    } catch {
+        # 0x800106ba: the Defender service is not running (turned off, or another antivirus) - nothing scans the folder
+        if ($_.Exception.Message -match '800106ba') { Write-Info 'Windows Defender is not running on this PC - there is no scan to skip.' }
+        else { Write-Warn "Could not add the Defender exclusion ($($_.Exception.Message)) - normal scanning stays on." }
+    }
 }
 function Disable-DefenderSkip {
     $w = $Script:DefenderAdded
@@ -286,7 +310,7 @@ function Invoke-Job([string]$Job, $A) {
             'CommitHost'   { Save-HostDrivers $A.Pick }
             'ScanFolder'   {
                 Write-Step "Scanning $($A.Dir)"
-                $Script:Sync.Result = @(Get-DriverPackages $A.Dir | Sort-Object Class, Provider, Inf)
+                $Script:Sync.Result = @(Set-OlderDrivers @(Get-DriverPackages $A.Dir | Sort-Object Class, Provider, Inf))
                 Write-Ok "$(@($Script:Sync.Result).Count) driver(s) found."
             }
             'CommitImport' { Save-ImportDrivers $A.Dir $A.Pick }

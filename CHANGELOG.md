@@ -2,11 +2,27 @@
 
 ## v4.1.0 — 2026-10-30
 
-Faster slipstream when several editions are ticked, and the time of every step at the end of the log.
+A faster slipstream, from the DISM logs of a real run: an ISO Microsoft refreshed already has the cumulative update, and the tool no longer unpacks it again for every image. Also several editions at the same time, older driver versions left out, and the time of every step at the end of the log.
+
+That run used a Windows 10 22H2 ISO *"updated Oct 2025"* (already at build 19045.6456) and the October 2025 update (KB5066791):
+- DISM unpacked the update **6 times**: `install.wim`, WinRE and twice for each `boot.wim` index. Each pass took 2.5–4 minutes and ended with *"already in the correct state"* — about 23 minutes of DISM work that changed nothing.
+- `boot.wim` (17:54) was the slowest part of the 18-minute slipstream.
 
 **Upgrading from 4.0:** download `Windows-ISO-updater-GUI_v4.1.0.cmd` and delete the old `.cmd`. Settings, the `signing` folder and the work folder are kept.
 
 ### Added
+- **Updates an image already has are skipped**:
+  - the build an update brings is read from the XML inside the `.msu` (`Package_for_RollupFix` version);
+  - the build of every image (editions, WinRE, both `boot.wim` indexes) is read from the WIM;
+  - an image already at that build (same servicing base: Windows 10 19041–19045, Windows 11 22621–22631, 26100–26200) skips the update, and the log says so;
+  - when the build can't be read, the update is applied as before.
+- **`boot.wim`: the cumulative update in one pass** when that pass installs it.
+  - Microsoft's way for WinPE adds the update twice, because the first pass can stop with `0x8007007E` after it installed the servicing stack.
+  - The second pass now runs only when the first one didn't install it. It used to always run and unpack the whole update again (3–4 minutes per index).
+- **Drivers: older versions are unticked.** Windows keeps the old versions of a driver in its driver store, and *Add drivers from this PC* exported them all; the run above had 3 NVIDIA display drivers and 12 Intel Bluetooth versions among 109 packages.
+  - The picker now unticks every package that is an older version of another one in the list (same INF name, provider and class; newest by date, then version).
+  - A new column *Older* shows which ones. *All that fit* keeps them unticked too.
+  - The same applies to imported folders.
 - **Editions at the same time** (page 7, *Speed*). DISM can't use more than one process for one image, but several editions can be updated side by side:
   - each ticked edition is staged into a WIM file of its own and updated in a background job, with its own mount folder (`mnt\osN`), scratch folder and DISM / engine logs;
   - automatic: 2 at once on 4+ processor cores, 3 on 8+; or set 1–4 (1 = one after the other, as before);
@@ -20,11 +36,16 @@ Faster slipstream when several editions are ticked, and the time of every step a
   - WinRE and `boot.wim` (per index), the media folder, and the total.
 
 ### Fixed
+- *Let Windows Defender skip the work folder*: when Defender is not running (`0x800106ba`, turned off or another antivirus), the log says so in one note instead of a warning at every job.
+- Setup Dynamic Update: one line with the number of updated setup files instead of one line per file (93 in that run).
 - The storage / network driver set for WinRE and `boot.wim` counted one driver when there were none (no effect on DISM).
 
 ### Code and tests
 - The updates of one mounted edition are one function (`Add-EditionUpdates`), used by the main job and by the edition jobs.
-- `tests/service.tests.ps1` (67 checks, 20 new), against the stand-in `dism`:
+- `tests/service.tests.ps1` (82 checks, 35 new), against the stand-in `dism` and a stand-in `expand` that hands out the XML of a `.msu`:
+  - the update build read from a real-shaped `.msu` XML; when an update counts as already in an image;
+  - an ISO already at the build: no image gets the update (with one and two editions at once), a newer update goes into every image, `boot.wim` in one pass, and two passes when the first one fails;
+  - older driver versions; the Defender-not-running note;
   - how many editions run at once (automatic, setting, editions ticked, free space);
   - 3 editions with 2 at once: at most 2 mounted together, each staged into its own WIM, the new `install.wim` in the original order with the unticked edition, own logs and scratch folders;
   - WinRE updated once before any edition is saved and copied into all three;

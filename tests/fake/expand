@@ -1,4 +1,8 @@
 #!/bin/sh
-# fake expand.exe: "expand <src> <dst>" writes the expanded file (the source with an "expanded:" prefix)
-[ "$2" = "-F:*" ] && exit 1
+# fake expand.exe: "expand <src> <dst>" writes the expanded file (the source with an "expanded:" prefix).
+# "expand <file.msu> -F:*.xml <dir>" copies <file.msu>.xml (the XML that would be inside the update) into <dir>.
+case "$2" in
+  -F:\*) exit 1;;
+  -F:\*.xml) [ -f "$1.xml" ] && cp "$1.xml" "$3/update.xml"; exit 0;;
+esac
 { printf 'expanded:'; cat "$1"; } > "$2"

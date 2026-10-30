@@ -103,8 +103,52 @@ function Get-EditionJobs([int]$Count, [double]$FreeGB) {
     $space = [int][math]::Max(1, [math]::Floor($FreeGB / 25))
     return [pscustomobject]@{ Jobs = [int][math]::Min($n, $space); Wanted = $n; Space = $space }
 }
+# ---- updates the image already has. An ISO that Microsoft refreshed ("updated Oct 2025") already carries
+# the cumulative update, and DISM unpacks the whole .msu (3-4 minutes per image) only to report "already in
+# the correct state". The build an update brings is in the XML inside the .msu (Package_for_RollupFix
+# version), the build of an image in its WIM metadata - an update the image is already at is skipped.
+function Read-MsuXml([string]$Text) {
+    $out = @()
+    foreach ($m in [regex]::Matches($Text, '<assemblyIdentity\b[^>]*>')) {
+        $n = [regex]::Match($m.Value, '\bname="([^"]+)"').Groups[1].Value
+        $v = [regex]::Match($m.Value, '\bversion="([^"]+)"').Groups[1].Value
+        if ($n -and $v) { $out += [pscustomobject]@{ Name = $n; Version = $v } }
+    }
+    return $out
+}
+# Build and revision of the cumulative update in a .msu (19041.6456), or $null when it cannot be read.
+function Get-UpdateBuild([string]$Msu) {
+    if ($Msu -notmatch '(?i)\.msu$') { return $null }
+    $dir = Join-Path $Script:P.Temp ('msuxml_' + [guid]::NewGuid().ToString('N').Substring(0, 8))
+    try {
+        New-Item -ItemType Directory -Force -Path $dir | Out-Null
+        $exe = if ($Script:ExpandExe) { $Script:ExpandExe } else { Join-Path $env:SystemRoot 'System32\expand.exe' }
+        $r = Invoke-Native $exe @($Msu, '-F:*.xml', $dir)
+        Add-Log $r.Text
+        foreach ($f in @(Get-ChildItem -LiteralPath $dir -Filter *.xml -File -Recurse -ErrorAction SilentlyContinue)) {
+            foreach ($x in @(Read-MsuXml ([IO.File]::ReadAllText($f.FullName)))) {
+                if ($x.Name -like 'Package_for_RollupFix*') { $v = [version]$x.Version; return [pscustomobject]@{ Build = $v.Major; Rev = $v.Minor } }
+            }
+        }
+    } catch { Add-Log "Build of $Msu not read: $($_.Exception.Message)" }
+    finally { Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue }
+    return $null
+}
+# "19041.6456" for one image of a WIM file, '' when it cannot be read.
+function Get-ImageVersion([string]$ImageFile, [int]$Index) {
+    try {
+        $d = Get-WindowsImage -ImagePath $ImageFile -Index $Index -ErrorAction Stop
+        if ($d.Version -and $null -ne $d.SPBuild) { return ('{0}.{1}' -f ([version]$d.Version).Build, [int]$d.SPBuild) }
+    } catch { }
+    return ''
+}
+# $true when the image ("19045.6456") is already at the build the update brings (same servicing base).
+function Test-UpdateInImage($Update, [string]$ImgVersion) {
+    if (-not $Update -or $ImgVersion -notmatch '^(\d+)\.(\d+)$') { return $false }
+    return ((Get-BaseBuild ([int]$Matches[1])) -eq (Get-BaseBuild ([int]$Update.Build)) -and [int]$Matches[2] -ge [int]$Update.Rev)
+}
 # ---- the updates of one mounted edition (the same in the main job and in an edition job)
-function Add-EditionUpdates([string]$MountDir, $Upd, [string]$Fu, [string]$LcuTip, [bool]$HasDrv, $Times, [string]$Part) {
+function Add-EditionUpdates([string]$MountDir, $Upd, [string]$Fu, [string]$LcuTip, [bool]$HasDrv, $Times, [string]$Part, [string]$ImgVersion = '', $LcuBuild = @{}) {
     $Cfg = $Script:Cfg
     Write-Step 'Updating Windows'
     if ($HasDrv) {
@@ -116,13 +160,15 @@ function Add-EditionUpdates([string]$MountDir, $Upd, [string]$Fu, [string]$LcuTi
     $t = Get-Date
     foreach ($x in @($Upd.SSU)) { Set-SideLabel "$Part servicing stack"; Add-Pkg $MountDir $x 'Servicing stack' -Soft }
     if (@($Upd.SSU).Count) { Add-Timing $Times $Part 'servicing stack' $t }
-    $t = Get-Date
+    $t = Get-Date; $done = 0
     foreach ($x in @($Upd.LCU)) {
+        if ($LcuBuild -and (Test-UpdateInImage $LcuBuild[$x] $ImgVersion)) { Write-Sub "Cumulative update : $(Split-Path $x -Leaf) - this edition is already at build $ImgVersion, skipped"; continue }
         Set-SideLabel "$Part cumulative update"
         try { Add-Pkg $MountDir $x 'Cumulative update' -IgnoreHex @('800F081E') }
         catch { Write-Err $LcuTip; throw }
+        $done++
     }
-    if (@($Upd.LCU).Count) { Add-Timing $Times $Part 'cumulative update' $t }
+    if ($done) { Add-Timing $Times $Part 'cumulative update' $t }
     $t = Get-Date
     foreach ($x in @($Upd.EKB)) { Set-SideLabel "$Part enablement package"; Add-Pkg $MountDir $x 'Enablement package' -IgnoreHex @('800F081E') -Soft }
     if (@($Upd.EKB).Count) { Add-Timing $Times $Part 'enablement package' $t }
@@ -163,13 +209,19 @@ function Invoke-BootWimService($Ctx) {
             continue
         }
         Write-Step "boot.wim index $b of $bootCount"
+        $iv = Get-ImageVersion $Ctx.BootSt $b
         Mount-Img $Ctx.BootSt $b $Ctx.MountPE
         Add-Timing $tq 'boot.wim' "index ${b}: mount" $t
         $t = Get-Date
         foreach ($x in @($upd.SSU)) { Set-SideLabel "boot.wim $b/$bootCount servicing stack"; Add-Pkg $Ctx.MountPE $x 'Servicing stack' -Soft }
         foreach ($x in @($upd.LCU)) {
+            if ($Ctx.LcuBuild -and (Test-UpdateInImage $Ctx.LcuBuild[$x] $iv)) { Write-Sub "Cumulative update : $(Split-Path $x -Leaf) - boot.wim index $b is already at build $iv, skipped"; continue }
             Set-SideLabel "boot.wim $b/$bootCount cumulative update"
+            # Microsoft's way for WinPE: the first pass installs the servicing stack in the update and may stop
+            # with 0x8007007E; the second one installs the rest. When the first pass installed it all, or the
+            # update does not apply, a second pass only unpacks the whole update again.
             Add-Pkg $Ctx.MountPE $x 'Servicing stack via LCU' -IgnoreHex @('8007007E', '800F081E') -Soft
+            if (@(0, 3010, [Convert]::ToInt32('800F081E', 16)) -contains $Script:LastDism) { Write-Sub 'Cumulative update installed (or not needed) in that pass - no second pass'; continue }
             Add-Pkg $Ctx.MountPE $x 'Cumulative update' -IgnoreHex @('800F081E') -Soft
         }
         Add-Timing $tq 'boot.wim' "index ${b}: updates" $t
@@ -207,11 +259,15 @@ function Invoke-WinReService($Ctx) {
     try {
         Set-SideLabel 'WinRE mounting'
         $t = Get-Date
+        $iv = Get-ImageVersion $Ctx.ReWim 1
         Mount-Img $Ctx.ReWim 1 $Ctx.MountRE
         Add-Timing $tq 'WinRE' 'mount' $t
         $t = Get-Date
         foreach ($x in @($Ctx.Upd.SSU)) { Set-SideLabel 'WinRE servicing stack'; Add-Pkg $Ctx.MountRE $x 'Servicing stack' -Soft }
-        foreach ($x in @($Ctx.Upd.LCU)) { Set-SideLabel 'WinRE servicing stack'; Add-Pkg $Ctx.MountRE $x 'Servicing stack via LCU' -IgnoreHex @('8007007E', '800F081E') -Soft }
+        foreach ($x in @($Ctx.Upd.LCU)) {
+            if ($Ctx.LcuBuild -and (Test-UpdateInImage $Ctx.LcuBuild[$x] $iv)) { Write-Sub "Cumulative update : $(Split-Path $x -Leaf) - WinRE is already at build $iv, skipped"; continue }
+            Set-SideLabel 'WinRE servicing stack'; Add-Pkg $Ctx.MountRE $x 'Servicing stack via LCU' -IgnoreHex @('8007007E', '800F081E') -Soft
+        }
         foreach ($x in @($Ctx.Upd.SAFEOS)) { Set-SideLabel 'WinRE Safe OS update'; Add-Pkg $Ctx.MountRE $x 'Safe OS Dynamic Update' -Soft }
         Add-Timing $tq 'WinRE' 'updates' $t
         Set-SideLabel 'WinRE drivers'
@@ -366,7 +422,7 @@ function Invoke-EditionJob($Ctx) {
             $Ctx.Shared.Re = 'none'; $Ctx.Shared.ReSrc = 'none'
         }
     }
-    Add-EditionUpdates $Ctx.Mount $Ctx.Upd $Ctx.Fu $Ctx.LcuTip ([bool]$Ctx.HasDrv) $Ctx.Times $Ctx.Part
+    Add-EditionUpdates $Ctx.Mount $Ctx.Upd $Ctx.Fu $Ctx.LcuTip ([bool]$Ctx.HasDrv) $Ctx.Times $Ctx.Part ([string]$Ctx.ImgVersion) $Ctx.LcuBuild
     if ($Ctx.Shared.Re -eq 'pending') {
         $t = Get-Date
         Set-SideLabel "$($Ctx.Part) waiting for WinRE"
@@ -432,6 +488,7 @@ function Invoke-EditionsParallel($Ctx) {
                 $ec = @{
                     Title = "Edition $k/${n}: $($info.Name) (in the background)"; Part = $part; Wim = $wim; Mount = (Join-Path $Ctx.MountBase "os$k")
                     Upd = $Ctx.Upd; Fu = $Ctx.Fu; LcuTip = $Ctx.LcuTip; HasDrv = $Ctx.HasDrv; Times = $Ctx.Times; Shared = $shared
+                    ImgVersion = [string]$info.Version; LcuBuild = $Ctx.LcuBuild
                     TakeRe = ($k -eq $first); ReWim = $Ctx.ReCtx.ReWim; ReNew = $Ctx.ReCtx.ReNew; Boot2023 = ($Ctx.Boot2023 -and $k -eq $first); ExDir = $Ctx.ExDir
                 }
                 $job = Start-SideJob @{ Name = "Edition $k"; Command = 'Invoke-EditionJob'; Tag = "ed$k"; Scratch = "scratch-ed$k"; DismMatch = "(install_stage$k\.wim|mnt\\os$k\b|scratch-ed$k\b)" } $ec
@@ -520,13 +577,18 @@ function Invoke-Service([switch]$Auto) {
     $lcuTip   = if ((Get-FamilyOs $S.Family) -eq '10') { 'If this is a Windows 10 update newer than 2025-10, Microsoft blocks offline ESU integration - set the month back on the Windows updates page.' }
                 else { 'See logs\dism.log. A Windows 11 image needs a DISM of the same or a newer Windows (the Windows ADK Deployment Tools have one).' }
     New-Item -ItemType Directory -Force -Path $bfDir | Out-Null
+    $lcuBuild = @{}
+    foreach ($x in @($upd.LCU)) {
+        $ub = Get-UpdateBuild $x
+        if ($ub) { $lcuBuild[$x] = $ub; Write-Info ('{0} brings build {1}.{2} - an image already at that build skips it' -f (Split-Path $x -Leaf), $ub.Build, $ub.Rev) }
+    }
     $bootSet  = New-BootDriverSet $bootInfs (Join-Path $P.Temp 'bootdrivers')
     $bootCtx  = @{
         Upd = $upd; Media = $P.Media; MountPE = $P.MountPE; BfDir = $bfDir; ExDir = (Join-Path $P.Temp 'boot2023_pe')
         BootSt = (Join-Path $P.Temp 'boot_stage.wim'); BootFin = (Join-Path $P.Temp 'boot_final.wim')
-        BootSet = $bootSet; Fu = $fu; Boot2023 = [bool]$Cfg.Boot2023; SkipPE = [bool]$Cfg.BootSkipPE; Times = $times
+        BootSet = $bootSet; Fu = $fu; Boot2023 = [bool]$Cfg.Boot2023; SkipPE = [bool]$Cfg.BootSkipPE; Times = $times; LcuBuild = $lcuBuild
     }
-    $reCtx    = @{ Upd = $upd; ReWim = $reWim; ReNew = $reNew; MountRE = $P.MountRE; BootSet = $bootSet; Fu = $fu; Times = $times }
+    $reCtx    = @{ Upd = $upd; ReWim = $reWim; ReNew = $reNew; MountRE = $P.MountRE; BootSet = $bootSet; Fu = $fu; Times = $times; LcuBuild = $lcuBuild }
     $reSpec   = @{ Name = 'WinRE'; Command = 'Invoke-WinReService'; Tag = 're'; Scratch = 'scratch-re'; DismMatch = '(winre|mnt\\re|scratch-re)' }
 
     $all = @($S.Images | ForEach-Object { [int]$_.Index })
@@ -555,7 +617,7 @@ function Invoke-Service([switch]$Auto) {
         if ($edJobs -gt 1) {
             $pr = @(Invoke-EditionsParallel @{
                 Src = $src; ExportIdx = $exportIdx; Selected = @($S.Selected); Images = @($S.Images); Jobs = $edJobs; Final = $final; Temp = $P.Temp
-                MountBase = (Split-Path $P.Mount -Parent); Upd = $upd; Fu = $fu; LcuTip = $lcuTip; HasDrv = $hasDrv; Times = $times
+                MountBase = (Split-Path $P.Mount -Parent); Upd = $upd; Fu = $fu; LcuTip = $lcuTip; HasDrv = $hasDrv; Times = $times; LcuBuild = $lcuBuild
                 ReCtx = $reCtx; ReSpec = $reSpec; ParallelRe = [bool]$Cfg.ParallelBoot; Boot2023 = [bool]$Cfg.Boot2023; ExDir = $exDir
             }) | Select-Object -Last 1
             if ($pr) { $parDone = $true; if ($pr.ExDir) { $exSaved = $true } }
@@ -596,7 +658,7 @@ function Invoke-Service([switch]$Auto) {
                         } else { Write-Warn 'No winre.wim in this edition - WinRE skipped.' }
                     }
 
-                    Add-EditionUpdates $P.Mount $upd $fu $lcuTip $hasDrv $times $part
+                    Add-EditionUpdates $P.Mount $upd $fu $lcuTip $hasDrv $times $part ([string]$info.Version) $lcuBuild
                     if ($reJob) {
                         $j = $reJob; $reJob = $null
                         $t = Get-Date
@@ -647,8 +709,10 @@ function Invoke-Service([switch]$Auto) {
 
     foreach ($cab in $upd.SETUP) {
         Write-Sub "Setup Dynamic Update -> sources ($(Split-Path $cab -Leaf))"
-        $code = Invoke-Exe (Join-Path $env:SystemRoot 'System32\expand.exe') ("$(Q $cab) -F:* $(Q $srcDir)")
-        if ($code -ne 0) { Write-Warn "expand.exe exit $code" }
+        $r = Invoke-Native (Join-Path $env:SystemRoot 'System32\expand.exe') @($cab, '-F:*', $srcDir)
+        Add-Log $r.Text
+        $n = [regex]::Match($r.Text, '(\d+) files? total').Groups[1].Value
+        if ($r.Code -ne 0) { Write-Warn "expand.exe exit $($r.Code)" } elseif ($n) { Write-Sub "$n setup files updated" }
     }
     $setupExe = Join-Path $bfDir 'setup.exe'
     if (Test-Path -LiteralPath $setupExe) { Copy-Item -LiteralPath $setupExe -Destination (Join-Path $srcDir 'setup.exe') -Force; Write-Sub 'setup.exe synced with boot.wim' }
