@@ -74,12 +74,15 @@ $Script:Cfg.UiZoom = 100
 Step-UiZoom 1; $z1 = Get-UiZoom; Step-UiZoom 1; Step-UiZoom 1; Step-UiZoom 1; $zmax = Get-UiZoom; Step-UiZoom -1; $zdown = Get-UiZoom; Step-UiZoom 0; $z0 = Get-UiZoom
 Check "Ctrl+plus / minus / 0: $z1, max $zmax, $zdown, $z0" ($z1 -eq 115 -and $zmax -eq 150 -and $zdown -eq 130 -and $z0 -eq 100)
 Check 'text size saved only when it changes' ($script:saved -eq 5 -and $script:looks -eq 5)
-$names = @('ThemeDark', 'ThemeLight', 'ThemeSystem', 'Zoom100', 'Zoom115', 'Zoom130', 'Zoom150', 'FontSegoe', 'FontVerdana', 'FontTahoma', 'FontArial', 'ThemeBtn')
+$names = @('ThemeDark', 'ThemeLight', 'ThemeSystem', 'Zoom100', 'Zoom115', 'Zoom130', 'Zoom150', 'FontSegoe', 'FontVerdana', 'FontTahoma', 'FontArial', 'LangAuto', 'LangEn', 'LangPt', 'LangEs', 'LangFr', 'LangDe', 'LangIt', 'ThemeBtn')
 $Script:U = @{}; foreach ($n in $names) { $Script:U[$n] = [pscustomobject]@{ IsChecked = $false; Content = ''; ToolTip = '' } }
 $Script:Cfg = @{ UiTheme = 'Light'; UiZoom = 130; UiFont = 'Verdana' }; $Script:ThemeNow = 'Light'
 Update-A11yUi
 $on = @($names | Where-Object { $Script:U[$_].IsChecked })
-Check "panel shows the saved choices ($($on -join ','))" (($on -join ',') -eq 'ThemeLight,Zoom130,FontVerdana')
+Check "panel shows the saved choices ($($on -join ','))" (($on -join ',') -eq 'ThemeLight,Zoom130,FontVerdana,LangAuto')
+$Script:Cfg.UiLanguage = 'fr'; Update-A11yUi
+Check 'panel shows the saved language' ($Script:U.LangFr.IsChecked -and -not $Script:U.LangAuto.IsChecked -and -not $Script:U.LangEn.IsChecked)
+$Script:Cfg.UiLanguage = $null
 Check 'light theme: the button offers the dark theme (moon)' ($Script:U.ThemeBtn.Content -eq [string][char]0xE708 -and $Script:U.ThemeBtn.ToolTip -eq 'Dark theme')
 $Script:Cfg.UiTheme = 'Dark'; $Script:ThemeNow = 'Dark'; Update-A11yUi
 Check 'dark theme: the button offers the light theme (sun)' ($Script:U.ThemeBtn.Content -eq [string][char]0xE706 -and $Script:U.ThemeDark.IsChecked)

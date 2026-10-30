@@ -295,7 +295,18 @@ __RES__
               <RadioButton x:Name="FontTahoma" Style="{StaticResource Seg}" Padding="12,7" GroupName="font" Content="Tahoma" FontFamily="Tahoma" Margin="0,0,6,6"/>
               <RadioButton x:Name="FontArial" Style="{StaticResource Seg}" Padding="12,7" GroupName="font" Content="Arial" FontFamily="Arial" Margin="0,0,0,6"/>
             </WrapPanel>
+            <TextBlock Text="Language" FontWeight="SemiBold" Margin="0,8,0,6"/>
+            <WrapPanel>
+              <RadioButton x:Name="LangAuto" Style="{StaticResource Seg}" Padding="12,7" GroupName="lang" Content="Like Windows" Margin="0,0,6,6"/>
+              <RadioButton x:Name="LangEn" Style="{StaticResource Seg}" Padding="12,7" GroupName="lang" Content="English" Margin="0,0,6,6"/>
+              <RadioButton x:Name="LangPt" Style="{StaticResource Seg}" Padding="12,7" GroupName="lang" Content="Portugu&#xEA;s" Margin="0,0,6,6"/>
+              <RadioButton x:Name="LangEs" Style="{StaticResource Seg}" Padding="12,7" GroupName="lang" Content="Espa&#xF1;ol" Margin="0,0,6,6"/>
+              <RadioButton x:Name="LangFr" Style="{StaticResource Seg}" Padding="12,7" GroupName="lang" Content="Fran&#xE7;ais" Margin="0,0,6,6"/>
+              <RadioButton x:Name="LangDe" Style="{StaticResource Seg}" Padding="12,7" GroupName="lang" Content="Deutsch" Margin="0,0,6,6"/>
+              <RadioButton x:Name="LangIt" Style="{StaticResource Seg}" Padding="12,7" GroupName="lang" Content="Italiano" Margin="0,0,0,6"/>
+            </WrapPanel>
             <TextBlock Style="{StaticResource Sub}" FontSize="12" Margin="0,8,0,0" Text="Ctrl + plus / Ctrl + minus / Ctrl + 0 change the text size anywhere in the window. Verdana and Tahoma have wider, more distinct letters. Saved for the next start."/>
+            <TextBlock Style="{StaticResource Sub}" FontSize="12" Margin="0,6,0,0" Text="The Activity log and the Install check findings stay in English - that is what a bug report or a search needs."/>
           </StackPanel>
         </Border>
       </Popup>
