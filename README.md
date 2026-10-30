@@ -1,6 +1,6 @@
 # Windows ISO Updater
 
-![version](https://img.shields.io/badge/version-3.6.0-2F9BFF) ![platform](https://img.shields.io/badge/Windows-10%20%7C%2011-8B5CF6) ![license](https://img.shields.io/badge/license-MIT-3DDC97) [![tests](https://github.com/j0p3s/Windows-ISO-Updater/actions/workflows/tests.yml/badge.svg)](https://github.com/j0p3s/Windows-ISO-Updater/actions/workflows/tests.yml)
+![version](https://img.shields.io/badge/version-4.0.0-2F9BFF) ![platform](https://img.shields.io/badge/Windows-10%20%7C%2011-8B5CF6) ![license](https://img.shields.io/badge/license-MIT-3DDC97) [![tests](https://github.com/j0p3s/Windows-ISO-Updater/actions/workflows/tests.yml/badge.svg)](https://github.com/j0p3s/Windows-ISO-Updater/actions/workflows/tests.yml)
 
 **One file. Double-click. Get a fully updated Windows 10 or Windows 11 ISO with your drivers, your signed NVIDIA mod, your answer file and your `$OEM$` folder baked in.**
 
@@ -341,7 +341,8 @@ The full list of changes is in **[CHANGELOG.md](CHANGELOG.md)**; every release o
 
 | Version | Date | Highlights |
 |---|---|---|
-| **3.6.0** | 2026-10-30 | Choice of signing engine on page 5: **MakeCat** (default, seconds instead of minutes for NVIDIA), libwdi-style, generate-cat-file (WSL), Inf2Cat — from NVIDIA Modded Drivers Signer 2.3.0 |
+| **4.0.0** | 2026-10-30 | Choice of signing engine on page 5: **MakeCat** (default, seconds instead of minutes for NVIDIA), libwdi-style, generate-cat-file (WSL), Inf2Cat — from NVIDIA Modded Drivers Signer 2.3.0 |
+| 3.6.0 | 2026-10-30 | The same changes, published for a few minutes before they were numbered 4.0.0 |
 | 3.5.1 | 2026-10-30 | Fix: 3.5.0 didn't open on Windows (*"'#FF0B0E14' is not a valid value for property 'Background'"*) |
 | 3.5.0 | 2026-10-29 | Dark / light theme, text size and font (top right corner), keyboard zoom, screen-reader names |
 | 3.4.0 | 2026-10-28 | Renamed to **Windows ISO Updater**; the file carries its version: `Windows-ISO-updater-GUI_vX.X.X.cmd`; code-review fixes |

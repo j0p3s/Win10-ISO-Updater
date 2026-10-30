@@ -10,7 +10,7 @@ $ProgressPreference    = 'SilentlyContinue'
 
 $Script:AppName      = 'Windows-ISO-Updater'
 $Script:AppTitle     = 'Windows ISO Updater'
-$Script:AppVersion   = '3.6.0'
+$Script:AppVersion   = '4.0.0'
 $Script:Root         = Split-Path -Parent $env:W10U_SELF
 $ToolsDir            = Join-Path $Script:Root 'tools'
 $IsoPath             = $null
