@@ -395,6 +395,7 @@ function Update-Ui {
         $U.CutoffBox.Text = [string]$Cfg.Win10Cutoff
         Update-WinVersion
         $U.SignJobsBox.Text = [string](Get-SignJobs)
+        $U.EdJobsBox.Text = [string](Get-EditionJobs 4 1e6).Wanted
         $U.WorkBox.Text = [string]$Cfg.WorkDir
         if (-not $U.IsoBox.Text -and $S.SourceIso) { $U.IsoBox.Text = $S.SourceIso }
 

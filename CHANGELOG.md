@@ -1,5 +1,40 @@
 # Changelog
 
+## v4.1.0 — 2026-10-30
+
+Faster slipstream when several editions are ticked, and the time of every step at the end of the log.
+
+**Upgrading from 4.0:** download `Windows-ISO-updater-GUI_v4.1.0.cmd` and delete the old `.cmd`. Settings, the `signing` folder and the work folder are kept.
+
+### Added
+- **Editions at the same time** (page 7, *Speed*). DISM can't use more than one process for one image, but several editions can be updated side by side:
+  - each ticked edition is staged into a WIM file of its own and updated in a background job, with its own mount folder (`mnt\osN`), scratch folder and DISM / engine logs;
+  - automatic: 2 at once on 4+ processor cores, 3 on 8+; or set 1–4 (1 = one after the other, as before);
+  - each one needs about 25 GB free on the work drive; with less, fewer run at once and the log says why;
+  - WinRE is updated once, from the first edition, as soon as that edition is mounted. Every edition waits for it just before it is saved;
+  - the new `install.wim` keeps the original edition order, and editions that are not updated are copied as they are. It is written while the remaining editions are still being updated;
+  - each edition's log follows in the Activity panel when it finishes. If one fails, the others are stopped, the mounts are discarded and the unpacked media stays as it was;
+  - if no background worker can start, the editions are updated one after the other, with a warning.
+- **Time per step** at the end of the slipstream log:
+  - for every edition: stage, mount, drivers, servicing stack, cumulative update, enablement package, cleanup, .NET, waiting for WinRE, save, export;
+  - WinRE and `boot.wim` (per index), the media folder, and the total.
+
+### Fixed
+- The storage / network driver set for WinRE and `boot.wim` counted one driver when there were none (no effect on DISM).
+
+### Code and tests
+- The updates of one mounted edition are one function (`Add-EditionUpdates`), used by the main job and by the edition jobs.
+- `tests/service.tests.ps1` (67 checks, 20 new), against the stand-in `dism`:
+  - how many editions run at once (automatic, setting, editions ticked, free space);
+  - 3 editions with 2 at once: at most 2 mounted together, each staged into its own WIM, the new `install.wim` in the original order with the unticked edition, own logs and scratch folders;
+  - WinRE updated once before any edition is saved and copied into all three;
+  - the time-per-step table;
+  - faster than one after the other;
+  - a failing edition (the others stopped, media unchanged), and no background worker (one after the other).
+
+### README
+- *Speed*: the new option, the time-per-step table; troubleshooting row for the free-space warning.
+
 ## v4.0.0 — 2026-10-30
 
 The signing changes of [NVIDIA Modded Drivers Signer](https://github.com/j0p3s/nvidia-modded-drivers-signer) 2.3.0, and a choice of the engine that builds the catalogs. A new major version because drivers are now signed by a different engine by default.

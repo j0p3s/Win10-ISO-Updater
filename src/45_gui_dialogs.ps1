@@ -186,9 +186,14 @@ $Script:XPages = @'
             <Border Style="{StaticResource Card}"><StackPanel>
               <TextBlock Style="{StaticResource H2}" Text="Speed"/>
               <CheckBox x:Name="cfg_ParallelBoot" Style="{StaticResource Toggle}" Content="Update boot.wim and WinRE at the same time as install.wim (faster, uses more CPU and disk)"/>
+              <StackPanel Orientation="Horizontal" Margin="0,6,0,6">
+                <TextBlock Text="Editions at the same time" VerticalAlignment="Center" Margin="0,0,12,0"/>
+                <TextBox x:Name="EdJobsBox" Width="50" AutomationProperties.Name="Editions updated at the same time"/>
+                <TextBlock Style="{StaticResource Sub}" VerticalAlignment="Center" Margin="12,0,0,0" TextWrapping="Wrap" MaxWidth="560" Text="1-4, empty = automatic (2 on 4+ processor cores, 3 on 8+). Each one needs about 25 GB free on the work drive; fewer run at once when there is less. 1 = one after the other."/>
+              </StackPanel>
               <CheckBox x:Name="cfg_DefenderExclude" Style="{StaticResource Toggle}" Content="Let Windows Defender skip the work folder while a job runs (removed again afterwards)"/>
               <CheckBox x:Name="cfg_BootSkipPE" Style="{StaticResource Toggle}" Content="Leave boot.wim index 1 (Windows PE for WDS servers) as it is - USB / DVD setup uses index 2"/>
-              <TextBlock Style="{StaticResource Sub}" Margin="0,4,0,0" Text="DISM applies each update with one process, so servicing one image cannot use more cores - updating boot.wim and WinRE alongside install.wim can. Defender scanning every file DISM writes is often the biggest slowdown. Storage / network drivers go into WinRE and boot.wim with one DISM call."/>
+              <TextBlock Style="{StaticResource Sub}" Margin="0,4,0,0" Text="DISM applies each update with one process, so servicing one image cannot use more cores - updating boot.wim, WinRE and several editions side by side can. Defender scanning every file DISM writes is often the biggest slowdown. Storage / network drivers go into WinRE and boot.wim with one DISM call. The log ends with the time of every step."/>
             </StackPanel></Border>
             <Border Style="{StaticResource Card}"><StackPanel>
               <TextBlock Style="{StaticResource H2}" Text="Output ISO"/>

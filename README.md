@@ -1,6 +1,6 @@
 # Windows ISO Updater
 
-![version](https://img.shields.io/badge/version-4.0.0-2F9BFF) ![platform](https://img.shields.io/badge/Windows-10%20%7C%2011-8B5CF6) ![license](https://img.shields.io/badge/license-MIT-3DDC97) [![tests](https://github.com/j0p3s/Windows-ISO-Updater/actions/workflows/tests.yml/badge.svg)](https://github.com/j0p3s/Windows-ISO-Updater/actions/workflows/tests.yml)
+![version](https://img.shields.io/badge/version-4.1.0-2F9BFF) ![platform](https://img.shields.io/badge/Windows-10%20%7C%2011-8B5CF6) ![license](https://img.shields.io/badge/license-MIT-3DDC97) [![tests](https://github.com/j0p3s/Windows-ISO-Updater/actions/workflows/tests.yml/badge.svg)](https://github.com/j0p3s/Windows-ISO-Updater/actions/workflows/tests.yml)
 
 **One file. Double-click. Get a fully updated Windows 10 or Windows 11 ISO with your drivers, your signed NVIDIA mod, your answer file and your `$OEM$` folder baked in.**
 
@@ -66,7 +66,7 @@ The console line at start shows the version (`Starting Windows ISO Updater v3.5.
 | 5 | **Signed NVIDIA / modded** | Re-signs edited driver packages so Windows accepts them, with the engine you pick: MakeCat, libwdi-style, generate-cat-file or Inf2Cat (see below) |
 | 6 | **Answer file + `$OEM$`** | Your `autounattend.xml` (from [autounattended-generator](https://github.com/j0p3s/autounattended-generator)) and your `$OEM$` folder |
 | ✓ | **Install check** | Finds what would break or stall a clean install, and fixes it |
-| 7 | **Slipstream + build ISO** | Services WinRE, `install.wim` and `boot.wim`, then writes the ISO. Options: no "press any key", Windows UEFI CA 2023 boot manager, split `install.wim` for FAT32, [speed options](#speed), output file name |
+| 7 | **Slipstream + build ISO** | Services WinRE, `install.wim` and `boot.wim` (several editions at the same time), then writes the ISO and logs the time of every step. Options: no "press any key", Windows UEFI CA 2023 boot manager, split `install.wim` for FAT32, [speed options](#speed), output file name |
 | | **Options and clean up** | Work folder, **Clean up** (mounted images, temp files, and on request updates, media, ISOs, signed copies, copied drivers, answer file copy, logs — or **Everything**), defaults |
 | | **Tools** | Shows DISM, `oscdimg`, `Inf2Cat`, `signtool`, `makecat` and `curl`, and downloads what is missing |
 
@@ -94,10 +94,11 @@ The ISO is written to a temporary `.part` file and renamed when oscdimg has fini
 
 ## Speed
 
-DISM applies each update with a single process, so servicing **one** image can't use more cores. What the tool does instead (page 7, *Speed*):
+DISM applies each update with a single process, so servicing **one** image can't use more cores. What the tool does instead is service several images side by side (page 7, *Speed*):
 
 | Option | Default | Effect |
 |---|---|---|
+| **Editions at the same time** | automatic: 2 on 4+ processor cores, 3 on 8+ | With several editions ticked on page 2, each one is staged into a WIM file of its own and updated in a background job with its own mount folder, scratch folder and logs. Up to 4 run at once (*1* = one after the other, as before). Each needs about **25 GB free** on the work drive; with less space, fewer run at once and the log says why. WinRE is still updated only once, from the first edition, and goes into every edition before it is saved. The new `install.wim` keeps the original edition order and is written while the remaining editions are still being updated. Their logs follow in the Activity panel as each edition finishes. With 3 editions, 2 at once should take about the time of 2 editions instead of 3. |
 | **Update boot.wim and WinRE at the same time as install.wim** | on | Neither depends on `install.wim`. `boot.wim` is serviced in a background worker from the start. WinRE is serviced in a second one as soon as the first edition is mounted, and the edition only waits for it just before it is saved. Their logs follow in the Activity panel, and the status line shows all jobs. Saves the whole `boot.wim` time (often 5–8 minutes) and most of the WinRE time. Off: both are updated one after the other, as before. |
 | **Let Windows Defender skip the work folder while a job runs** | off | Real-time scanning of every file DISM, robocopy and oscdimg write is often the biggest slowdown (20–40%). The work folder is excluded only for the job and removed again at the end — and at the next start if the program was closed during a job. An exclusion you set yourself is left alone. |
 | **Leave boot.wim index 1 as it is** | off | Index 1 is Windows PE for WDS servers; USB / DVD setup boots index 2. Microsoft updates both, hence off. |
@@ -108,7 +109,9 @@ Always on:
 - WinRE is updated once and copied into every edition. If its update fails, it is not tried again for the next edition.
 - *Find and download updates*: the lookup for a standalone servicing stack update walks back up to 36 months of the catalog, one search per month, and usually finds nothing. It runs in the background while the other updates are found and downloaded.
 
-The biggest factor is the number of editions: each ticked edition is updated one after the other and adds the full `install.wim` time. Tick only the editions you need on page 2.
+The biggest factor is still the number of editions: each one adds a full `install.wim` update, even when several run at once (they share the processor and the disk). Tick only the editions you need on page 2.
+
+**Time per step:** the slipstream log ends with a table of how long each step took — staging, mount, servicing stack, cumulative update, .NET, waiting for WinRE, saving and exporting for every edition, and the WinRE, `boot.wim` and media folder steps. Use it to see where the time goes on your PC. Parts that run at the same time add up to more than the total.
 
 Putting the work folder on an NVMe drive (*Options*) helps too.
 
@@ -283,6 +286,7 @@ Logs: `C:\W10U\logs\engine.log` and `dism.log` (`dism-boot.log` for boot.wim whe
 | Drivers didn't install after setup | Read `C:\Windows\Temp\SetupComplete-drivers.log`, and run the **Install check** (OEM-key fallback) |
 | `Inf2Cat` "Signability test failed" | Delete `inf2cat.exe.manifest` next to `Inf2Cat.exe` and sign again |
 | Windows 11 slipstream fails on a Windows 10 PC | Answer **Yes** when the tool offers the Windows ADK Deployment Tools (this PC's DISM is too old for Windows 11), or install them yourself and run the slipstream again |
+| Slipstream: "The editions are updated one after the other: ... GB free" | Each edition updated at the same time needs about 25 GB free on the work drive. Free some space or move the work folder (*Options*) — or keep it one after the other |
 | *Re-sign drivers* runs for a very long time on `Display.Driver` | With Inf2Cat that is normal when every INF of a full NVIDIA package needs a new catalog (up to an hour) — the log says how many INF files get one and how long it should take. Check that `Inf2Cat.exe` uses CPU in Task Manager → Details. Faster: choose the **MakeCat** engine (seconds), or keep *New catalogs only for the INF files that need one* on, raise *Catalog runs at the same time*, or turn on *Only keep the INF files for this PC's hardware* |
 | Signing: "MakeCat could not build the catalog - Inf2Cat builds it instead" (or libwdi-style / generate-cat-file) | Inf2Cat signed that folder in the same run, nothing to do. The engine's last lines are in the log above; please open an issue with `logs\engine.log` |
 | Signing: "Verification failed" with MakeCat, libwdi-style or generate-cat-file | `signtool` found an INF that doesn't match the new catalog. Choose **Inf2Cat** on page 5 and sign again — the other engines don't parse the INF |
@@ -314,7 +318,7 @@ python src/build.py
 | `00_header.cmd` | batch launcher: elevation, starts the PowerShell part of the same file |
 | `10_engine_head.ps1` | constants, log sink (every `Write-Host` goes to the Activity panel), Yes/No questions from the worker |
 | `30_engine_tools.ps1` | console tools with live output and progress, several Inf2Cat / MakeCat runs at the same time, oscdimg / Inf2Cat / signtool download |
-| `35_engine_service.ps1` | slipstream: WinRE, install.wim, boot.wim (optionally in a background runspace), media update |
+| `35_engine_service.ps1` | slipstream: WinRE, install.wim (several editions at the same time, each in a background runspace), boot.wim (optionally in a background runspace), media update, time per step |
 | `36_engine_build.ps1` | ISO build: free space and "in use" checks, oscdimg into a `.part` file, SHA-256 |
 | `37_engine_download.ps1` | finds and downloads the updates (servicing stack lookup in a background job) |
 | `38_engine_windows.ps1` | Windows 10 / 11 detection, catalog title patterns, update order (24H2 checkpoints), the DISM for the image (ADK on a Windows 10 PC), Analyze |
@@ -331,7 +335,7 @@ python src/build.py
 pwsh tests/run-tests.ps1
 ```
 
-Thirteen suites (about 430 checks) run the PowerShell part on Linux / macOS with PowerShell 7: catalog parsing (Windows 10 and Windows 11 titles, the 24H2 checkpoint order, the DISM choice), signing with stand-ins for `signtool` / `Inf2Cat` (an NVCleanstall-style untrusted catalog, live Inf2Cat status from a worker runspace, keeping only this PC's INF files, isolated copies with only the edited INF files, an own catalog for an INF whose catalog is shared (NVIDIA's `nv_dispi.cat`) with its encoding kept, several Inf2Cat runs at the same time, the fallback to the whole folder, batched signing, the time estimate), the signing engines with stand-ins for `makecat`, `expand` and WSL (one catalog per folder with every file in it, compressed files expanded, the `.cdf`, the CryptCAT source compiled, the fallback to Inf2Cat, the engine buttons), `$OEM$` assembly, every install check finding and fix, an answer file made by the autounattend generator (`tests/fixtures`, personal data removed), the page refresh with Windows PowerShell 5.1's JSON behaviour simulated (and the taskbar progress), the dark / light theme (XAML conversion, a light color for every color, text contrast) with the text size and font settings, a whole slipstream against a stand-in `dism` (boot.wim and WinRE in the background vs. sequential, a failed WinRE update, the driver set, the Defender option), the ISO build against a stand-in `oscdimg` (failed build, ISO in use, free space), and the download step with a stand-in catalog (the servicing stack lookup running while the other updates download). DISM, WPF and real driver installs still need a Windows test run.
+Thirteen suites (about 450 checks) run the PowerShell part on Linux / macOS with PowerShell 7: catalog parsing (Windows 10 and Windows 11 titles, the 24H2 checkpoint order, the DISM choice), signing with stand-ins for `signtool` / `Inf2Cat` (an NVCleanstall-style untrusted catalog, live Inf2Cat status from a worker runspace, keeping only this PC's INF files, isolated copies with only the edited INF files, an own catalog for an INF whose catalog is shared (NVIDIA's `nv_dispi.cat`) with its encoding kept, several Inf2Cat runs at the same time, the fallback to the whole folder, batched signing, the time estimate), the signing engines with stand-ins for `makecat`, `expand` and WSL (one catalog per folder with every file in it, compressed files expanded, the `.cdf`, the CryptCAT source compiled, the fallback to Inf2Cat, the engine buttons), `$OEM$` assembly, every install check finding and fix, an answer file made by the autounattend generator (`tests/fixtures`, personal data removed), the page refresh with Windows PowerShell 5.1's JSON behaviour simulated (and the taskbar progress), the dark / light theme (XAML conversion, a light color for every color, text contrast) with the text size and font settings, a whole slipstream against a stand-in `dism` (boot.wim and WinRE in the background vs. sequential, several editions at the same time — how many at once, the edition order of the new `install.wim`, WinRE in every edition, a failing edition, no background worker — a failed WinRE update, the driver set, the Defender option, the time per step), the ISO build against a stand-in `oscdimg` (failed build, ISO in use, free space), and the download step with a stand-in catalog (the servicing stack lookup running while the other updates download). DISM, WPF and real driver installs still need a Windows test run.
 
 ---
 
@@ -341,7 +345,8 @@ The full list of changes is in **[CHANGELOG.md](CHANGELOG.md)**; every release o
 
 | Version | Date | Highlights |
 |---|---|---|
-| **4.0.0** | 2026-10-30 | Choice of signing engine on page 5: **MakeCat** (default, seconds instead of minutes for NVIDIA), libwdi-style, generate-cat-file (WSL), Inf2Cat — from NVIDIA Modded Drivers Signer 2.3.0 |
+| **4.1.0** | 2026-10-30 | Faster slipstream with several editions: updated at the same time (2 on 4+ cores, 3 on 8+); time of every step at the end of the log |
+| 4.0.0 | 2026-10-30 | Choice of signing engine on page 5: **MakeCat** (default, seconds instead of minutes for NVIDIA), libwdi-style, generate-cat-file (WSL), Inf2Cat — from NVIDIA Modded Drivers Signer 2.3.0 |
 | 3.6.0 | 2026-10-30 | The same changes, published for a few minutes before they were numbered 4.0.0 |
 | 3.5.1 | 2026-10-30 | Fix: 3.5.0 didn't open on Windows (*"'#FF0B0E14' is not a valid value for property 'Background'"*) |
 | 3.5.0 | 2026-10-29 | Dark / light theme, text size and font (top right corner), keyboard zoom, screen-reader names |
