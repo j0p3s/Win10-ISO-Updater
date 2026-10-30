@@ -1,6 +1,6 @@
 # Windows ISO Updater
 
-![version](https://img.shields.io/badge/version-3.5.0-2F9BFF) ![platform](https://img.shields.io/badge/Windows-10%20%7C%2011-8B5CF6) ![license](https://img.shields.io/badge/license-MIT-3DDC97) [![tests](https://github.com/j0p3s/Windows-ISO-Updater/actions/workflows/tests.yml/badge.svg)](https://github.com/j0p3s/Windows-ISO-Updater/actions/workflows/tests.yml)
+![version](https://img.shields.io/badge/version-3.5.1-2F9BFF) ![platform](https://img.shields.io/badge/Windows-10%20%7C%2011-8B5CF6) ![license](https://img.shields.io/badge/license-MIT-3DDC97) [![tests](https://github.com/j0p3s/Windows-ISO-Updater/actions/workflows/tests.yml/badge.svg)](https://github.com/j0p3s/Windows-ISO-Updater/actions/workflows/tests.yml)
 
 **One file. Double-click. Get a fully updated Windows 10 or Windows 11 ISO with your drivers, your signed NVIDIA mod, your answer file and your `$OEM$` folder baked in.**
 
@@ -16,7 +16,7 @@
 
 Missing tools (`oscdimg`, `Inf2Cat`, `signtool`) are downloaded automatically from Microsoft and verified.
 
-**Contents:** [Screenshots](#screenshots) · [Quick start](#quick-start) · [The pages](#the-pages) · [Speed](#speed) · [Modded drivers](#modded-drivers-nvidia--nvcleanstall) · [Install check](#install-check) · [Display and accessibility](#display-and-accessibility) · [Supported Windows versions](#supported-windows-versions) · [Privacy](#privacy-what-stays-on-your-pc) · [Files the tool creates](#files-the-tool-creates) · [Troubleshooting](#troubleshooting) · [Building from source](#building-from-source) · [Legal notice](#legal-notice)
+**Contents:** [Screenshots](#screenshots) · [Quick start](#quick-start) · [The pages](#the-pages) · [Speed](#speed) · [Modded drivers](#modded-drivers-nvidia--nvcleanstall) · [Install check](#install-check) · [Display and accessibility](#display-and-accessibility) · [Supported Windows versions](#supported-windows-versions) · [Privacy](#privacy-what-stays-on-your-pc) · [Files the tool creates](#files-the-tool-creates) · [Troubleshooting](#troubleshooting) · [Building from source](#building-from-source) · [Changelog](#changelog) · [Legal notice](#legal-notice)
 
 ---
 
@@ -47,7 +47,7 @@ Missing tools (`oscdimg`, `Inf2Cat`, `signtool`) are downloaded automatically fr
 
 That's it. The new ISO lands in `C:\W10U\output` (the work folder can be changed under *Options*).
 
-The console line at start shows the version (`Starting Windows ISO Updater v3.5.0 ...`), then the console hides and the window opens.
+The console line at start shows the version (`Starting Windows ISO Updater v3.5.1 ...`), then the console hides and the window opens.
 
 **Updating:** download the new `Windows-ISO-updater-GUI_vX.X.X.cmd`, put it in the same folder and delete the old one (the file name changes with every version). Your settings, the `signing` folder and the work folder (unpacked media, updates, drivers) are kept — the tool picks up where you left off.
 
@@ -308,6 +308,25 @@ pwsh tests/run-tests.ps1
 ```
 
 Twelve suites (about 375 checks) run the PowerShell part on Linux / macOS with PowerShell 7: catalog parsing (Windows 10 and Windows 11 titles, the 24H2 checkpoint order, the DISM choice), signing with stand-ins for `signtool` / `Inf2Cat` (an NVCleanstall-style untrusted catalog, live Inf2Cat status from a worker runspace, keeping only this PC's INF files, isolated copies with only the edited INF files, an own catalog for an INF whose catalog is shared (NVIDIA's `nv_dispi.cat`) with its encoding kept, several Inf2Cat runs at the same time, the fallback to the whole folder, batched signing, the time estimate), `$OEM$` assembly, every install check finding and fix, an answer file made by the autounattend generator (`tests/fixtures`, personal data removed), the page refresh with Windows PowerShell 5.1's JSON behaviour simulated (and the taskbar progress), the dark / light theme (XAML conversion, a light color for every color, text contrast) with the text size and font settings, a whole slipstream against a stand-in `dism` (boot.wim and WinRE in the background vs. sequential, a failed WinRE update, the driver set, the Defender option), the ISO build against a stand-in `oscdimg` (failed build, ISO in use, free space), and the download step with a stand-in catalog (the servicing stack lookup running while the other updates download). DISM, WPF and real driver installs still need a Windows test run.
+
+---
+
+## Changelog
+
+The full list of changes is in **[CHANGELOG.md](CHANGELOG.md)**; every release on the [Releases](https://github.com/j0p3s/Windows-ISO-Updater/releases) page carries its own part of it.
+
+| Version | Date | Highlights |
+|---|---|---|
+| **3.5.1** | 2026-10-30 | Fix: 3.5.0 didn't open on Windows (*"'#FF0B0E14' is not a valid value for property 'Background'"*) |
+| 3.5.0 | 2026-10-29 | Dark / light theme, text size and font (top right corner), keyboard zoom, screen-reader names |
+| 3.4.0 | 2026-10-28 | Renamed to **Windows ISO Updater**; the file carries its version: `Windows-ISO-updater-GUI_vX.X.X.cmd`; code-review fixes |
+| 3.3.0 | 2026-10-28 | Windows 11 support and a Windows 10 / 11 switch on page 1 |
+| 3.2.0 | 2026-10-28 | Faster NVIDIA signing: new catalogs only for the INF files that need one |
+| 3.1.0 | 2026-10-28 | Faster driver signing (speed-ups from NVIDIA Modded Drivers Signer 1.1–1.4) |
+| 3.0.0 | 2026-10-27 | Faster slipstream and downloads, PC kept awake, taskbar progress, safer ISO build |
+| 2.1.x | 2026-10-25 | boot.wim updated in parallel, Defender option, *Clean up → Everything*, readable text |
+| 2.0.x | 2026-10-24 | Single file with a graphical interface, signed NVIDIA mods, `$OEM$`, Install check with fixes, live Inf2Cat status |
+| 1.x | — | Console menu: unpack, updates, drivers, answer file, ISO build |
 
 ---
 

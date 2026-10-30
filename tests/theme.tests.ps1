@@ -88,5 +88,19 @@ $d = Get-DefaultSettings
 Check 'defaults: dark, 100 %, Segoe UI' ($d.UiTheme -eq 'Dark' -and $d.UiZoom -eq 100 -and $d.UiFont -eq 'Segoe UI')
 Check 'title bar: theme and accessibility buttons before minimize, with names for screen readers' ($Script:XMain -match '(?s)x:Name="ThemeBtn".*AutomationProperties\.Name=.*x:Name="A11yBtn".*AutomationProperties\.Name=.*x:Name="MinBtn"')
 
+# ---- theme resources hold the .NET brush, not PowerShell's wrapper (v3.5.0 did not start on Windows PowerShell 5.1:
+#      "'#FF0B0E14' is not a valid value for property 'Background'")
+Add-Type -TypeDefinition 'public static class ResType { public static string Of(System.Collections.IDictionary d, object k) { return d[k].GetType().FullName; } }'
+function New-Wrapped { $b = New-Object System.Text.StringBuilder 'brush'; return $b }
+$res = New-Object System.Collections.Hashtable
+$res['raw'] = New-Wrapped
+Check 'PowerShell stores a PSObject wrapper when an object goes straight into a dictionary (the v3.5.0 bug)' ([ResType]::Of($res, 'raw') -eq 'System.Management.Automation.PSObject')
+Set-Resource $res 'T_0B0E14' (New-Wrapped)
+$gw = New-Object System.Text.StringBuilder 'gradient'
+Set-Resource $res 'HeaderBg' $gw
+Check 'Set-Resource stores the object itself' ([ResType]::Of($res, 'T_0B0E14') -eq 'System.Text.StringBuilder' -and [ResType]::Of($res, 'HeaderBg') -eq 'System.Text.StringBuilder')
+$direct = @([regex]::Matches($gui, '\.Resources\[[^\]]+\]\s*=') | ForEach-Object Value)
+Check "no resource is assigned directly - all go through Set-Resource ($($direct -join ' '))" ($direct.Count -eq 0)
+
 if ($fails) { exit 1 }
 exit 0

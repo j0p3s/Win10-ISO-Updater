@@ -1,5 +1,21 @@
 # Changelog
 
+## v3.5.1 — 2026-10-30
+
+Fix for 3.5.0, which did not open on Windows.
+
+**Upgrading from 3.5.0:** download `Windows-ISO-updater-GUI_v3.5.1.cmd` and delete `Windows-ISO-updater-GUI_v3.5.0.cmd`. Settings, the `signing` folder and the work folder are kept.
+
+### Fixed
+- **3.5.0 stopped at start with "Windows ISO Updater could not start: '#FF0B0E14' is not a valid value for property 'Background'".** The theme colors were stored in the window's resources as PowerShell's wrapper object instead of the brush itself. Windows PowerShell 5.1 keeps that wrapper when an object goes straight into a dictionary, and WPF can't use it as a color. Every theme resource now holds the brush itself, so the window opens again in the dark and the light theme.
+
+### Code and tests
+- New `Set-Resource` helper: the only way resources are stored, always as the .NET object itself.
+- `tests/theme.tests.ps1` shows the wrapper problem with a plain dictionary, checks that `Set-Resource` stores the object itself, and fails if any code assigns a resource directly.
+
+### README
+- New **Changelog** section with a short summary of every version and a link to this file.
+
 ## v3.5.0 — 2026-10-29
 
 Display and accessibility options in the top right corner: a dark / light theme, the text size and the font.

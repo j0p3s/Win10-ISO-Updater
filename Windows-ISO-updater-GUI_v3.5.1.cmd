@@ -1,6 +1,6 @@
 @echo off
 :: ===========================================================================
-::  Windows-ISO-updater-GUI_v3.5.0.cmd  -  one file, graphical interface
+::  Windows-ISO-updater-GUI_v3.5.1.cmd  -  one file, graphical interface
 ::  Windows ISO Updater: the file name carries the version (vX.X.X).
 ::  - unpacks a Windows 10 or Windows 11 ISO and detects its build
 ::  - downloads its updates from the Microsoft Update Catalog
@@ -26,7 +26,7 @@ exit /b
 
 :admin_ok
 set "W10U_SELF=%~f0"
-echo Starting Windows ISO Updater v3.5.0 ...  (this window hides when the program opens)
+echo Starting Windows ISO Updater v3.5.1 ...  (this window hides when the program opens)
 "%PSEXE%" -NoProfile -STA -ExecutionPolicy Bypass -Command "$t=[IO.File]::ReadAllText($env:W10U_SELF);$i=$t.IndexOf('#'+'PS-BEGIN');Invoke-Expression $t.Substring($i)"
 if errorlevel 1 pause
 exit /b
@@ -42,7 +42,7 @@ $ProgressPreference    = 'SilentlyContinue'
 
 $Script:AppName      = 'Windows-ISO-Updater'
 $Script:AppTitle     = 'Windows ISO Updater'
-$Script:AppVersion   = '3.5.0'
+$Script:AppVersion   = '3.5.1'
 $Script:Root         = Split-Path -Parent $env:W10U_SELF
 $ToolsDir            = Join-Path $Script:Root 'tools'
 $IsoPath             = $null
@@ -3946,7 +3946,7 @@ __RES__
           <TextBlock Text="W10" Foreground="White" FontWeight="Bold" FontSize="12" HorizontalAlignment="Center" VerticalAlignment="Center"/>
         </Border>
         <StackPanel Margin="12,0,0,0" VerticalAlignment="Center">
-          <TextBlock FontSize="15" FontWeight="SemiBold"><Run Text="Windows ISO Updater"/><Run x:Name="VerRun" Text="  v3.5.0" Foreground="#5B6478" FontWeight="Normal" FontSize="12"/></TextBlock>
+          <TextBlock FontSize="15" FontWeight="SemiBold"><Run Text="Windows ISO Updater"/><Run x:Name="VerRun" Text="  v3.5.1" Foreground="#5B6478" FontWeight="Normal" FontSize="12"/></TextBlock>
           <TextBlock Text="updates + drivers + signed NVIDIA mods + autounattend + $OEM$  ->  bootable ISO" Foreground="#8A94A8" FontSize="11"/>
         </StackPanel>
       </StackPanel>
@@ -4613,15 +4613,24 @@ function Get-UiFont {
     if (@('Segoe UI', 'Verdana', 'Tahoma', 'Arial') -notcontains $f) { $f = 'Segoe UI' }
     return $f
 }
+# Objects made with New-Object reach PowerShell code wrapped in a PSObject. A typed property (Foreground = ...)
+# unwraps them, but a dictionary such as Window.Resources stores the wrapper as it is - and a DynamicResource
+# then hands WPF a PSObject: "'#FF0B0E14' is not a valid value for property 'Background'" (v3.5.0 on Windows
+# PowerShell 5.1). Resources are therefore always stored as the .NET object itself.
+function Set-Resource($Dict, [string]$Key, $Value) {
+    $o = $Value
+    if ($null -ne $o -and $null -ne $o.psobject) { $o = $o.psobject.BaseObject }
+    $Dict[$Key] = $o
+}
 function Set-ThemeResources($Win) {
     if (-not $Win) { return }
-    foreach ($k in $Script:ThemeKeys) { $Win.Resources["T_$k"] = New-Brush "#$k" }
+    foreach ($k in $Script:ThemeKeys) { Set-Resource $Win.Resources "T_$k" (New-Brush "#$k") }
     $stops = if ($Script:ThemeNow -eq 'Light') { @('#E4ECFA', '#EDE7FA') } else { @('#16213A', '#1B1733') }
     $c0 = [Windows.Media.Color][Windows.Media.ColorConverter]::ConvertFromString($stops[0])
     $c1 = [Windows.Media.Color][Windows.Media.ColorConverter]::ConvertFromString($stops[1])
     $g = New-Object Windows.Media.LinearGradientBrush $c0, $c1, (New-Object Windows.Point 0, 0), (New-Object Windows.Point 1, 0)
     $g.Freeze()
-    $Win.Resources['HeaderBg'] = $g
+    Set-Resource $Win.Resources 'HeaderBg' $g
 }
 # Font for every text that has none of its own (the log keeps Consolas, icons their symbol font) and
 # the text size as a zoom of the whole window content.

@@ -146,15 +146,24 @@ function Get-UiFont {
     if (@('Segoe UI', 'Verdana', 'Tahoma', 'Arial') -notcontains $f) { $f = 'Segoe UI' }
     return $f
 }
+# Objects made with New-Object reach PowerShell code wrapped in a PSObject. A typed property (Foreground = ...)
+# unwraps them, but a dictionary such as Window.Resources stores the wrapper as it is - and a DynamicResource
+# then hands WPF a PSObject: "'#FF0B0E14' is not a valid value for property 'Background'" (v3.5.0 on Windows
+# PowerShell 5.1). Resources are therefore always stored as the .NET object itself.
+function Set-Resource($Dict, [string]$Key, $Value) {
+    $o = $Value
+    if ($null -ne $o -and $null -ne $o.psobject) { $o = $o.psobject.BaseObject }
+    $Dict[$Key] = $o
+}
 function Set-ThemeResources($Win) {
     if (-not $Win) { return }
-    foreach ($k in $Script:ThemeKeys) { $Win.Resources["T_$k"] = New-Brush "#$k" }
+    foreach ($k in $Script:ThemeKeys) { Set-Resource $Win.Resources "T_$k" (New-Brush "#$k") }
     $stops = if ($Script:ThemeNow -eq 'Light') { @('#E4ECFA', '#EDE7FA') } else { @('#16213A', '#1B1733') }
     $c0 = [Windows.Media.Color][Windows.Media.ColorConverter]::ConvertFromString($stops[0])
     $c1 = [Windows.Media.Color][Windows.Media.ColorConverter]::ConvertFromString($stops[1])
     $g = New-Object Windows.Media.LinearGradientBrush $c0, $c1, (New-Object Windows.Point 0, 0), (New-Object Windows.Point 1, 0)
     $g.Freeze()
-    $Win.Resources['HeaderBg'] = $g
+    Set-Resource $Win.Resources 'HeaderBg' $g
 }
 # Font for every text that has none of its own (the log keeps Consolas, icons their symbol font) and
 # the text size as a zoom of the whole window content.
