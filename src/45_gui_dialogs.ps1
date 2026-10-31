@@ -13,14 +13,14 @@ $Script:XPages = @'
             </StackPanel></Border>
             <Border Style="{StaticResource Card}"><StackPanel>
               <TextBlock Style="{StaticResource H2}" Text="ISO file"/>
-              <TextBlock Style="{StaticResource Sub}" Margin="0,0,0,10" Text="Use an original ISO from Microsoft. Before it is unpacked, its SHA-256 is compared with the ones Microsoft publishes for its Windows 10 and 11 ISOs - the list in this program and, when online, the download pages on microsoft.com. An ISO that is not there may have been modified."/>
+              <TextBlock Style="{StaticResource Sub}" Margin="0,0,0,10" Text="Use an original ISO from Microsoft. Before it is unpacked, its SHA-256 is compared with the ones Microsoft publishes for its Windows 10 and 11 ISOs - the list in this program and, when online, the download pages on microsoft.com. When it is not there (an ISO made with the Media Creation Tool never is), the Microsoft signatures of its setup and boot files are checked."/>
               <Grid><Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
                 <TextBox x:Name="IsoBox" Margin="0,0,8,0"/>
                 <Button x:Name="IsoBrowse" Grid.Column="1" Style="{StaticResource Btn}" Content="Browse..." Margin="0"/>
               </Grid>
               <WrapPanel Margin="0,14,0,0">
                 <Button x:Name="UnpackBtn" Style="{StaticResource Primary}" Content="Unpack and analyze"/>
-                <Button x:Name="IsoCheckBtn" Style="{StaticResource Btn}" Content="Check SHA-256"/>
+                <Button x:Name="IsoCheckBtn" Style="{StaticResource Btn}" Content="Check the ISO"/>
                 <Button x:Name="AnalyzeBtn" Style="{StaticResource Btn}" Content="Re-read image info"/>
                 <Button x:Name="GetIsoBtn" Style="{StaticResource Btn}" Content="Download Windows 10 from Microsoft"/>
               </WrapPanel>

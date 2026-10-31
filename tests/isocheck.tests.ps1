@@ -4,7 +4,7 @@ function Check($n, $c) { if ($c) { Microsoft.PowerShell.Utility\Write-Host "PASS
 $tokens=$null;$errs=$null
 $ast=[System.Management.Automation.Language.Parser]::ParseFile("$PSScriptRoot/v2body.ps1",[ref]$tokens,[ref]$errs)
 foreach($f in $ast.FindAll({param($n)$n -is [System.Management.Automation.Language.FunctionDefinitionAst]},$true)){ . ([scriptblock]::Create($f.Extent.Text)) }
-foreach ($a in $ast.FindAll({param($n) $n -is [System.Management.Automation.Language.AssignmentStatementAst] -and $n.Left.Extent.Text -match '^\$Script:(X(Main|Pages)|IsoHashUA|Inv)$'}, $true)) { . ([scriptblock]::Create($a.Extent.Text)) }
+foreach ($a in $ast.FindAll({param($n) $n -is [System.Management.Automation.Language.AssignmentStatementAst] -and $n.Left.Extent.Text -match '^\$Script:(X(Main|Pages)|IsoHashUA|IsoSignedFiles|Inv)$'}, $true)) { . ([scriptblock]::Create($a.Extent.Text)) }
 function New-Brush([string]$Hex) { $Hex }
 $root = Split-Path -Parent $PSScriptRoot
 $tmp = Join-Path ([IO.Path]::GetTempPath()) 'w10u_isocheck'; Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue; New-Item -ItemType Directory $tmp | Out-Null
@@ -70,6 +70,62 @@ $hashCalls = 0
 $Script:RealHash = ${function:Get-FileSha256}
 function Get-FileSha256([string]$Path) { $script:hashCalls++; & $Script:RealHash $Path }
 
+# ---- Microsoft's signatures of the setup and boot files: stand-ins for the files and Get-AuthenticodeSignature
+$Script:SigOf = @{}     # path -> status or "Valid|CN=Other" ; not listed: Valid, signed by Microsoft
+function Get-AuthenticodeSignature {
+    param($LiteralPath)
+    $v = [string]$Script:SigOf[[string]$LiteralPath]; if (-not $v) { $v = 'Valid' }
+    $st, $subj = $v -split '\|'; if (-not $subj) { $subj = 'CN=Microsoft Windows, O=Microsoft Corporation, L=Redmond, S=Washington, C=US' }
+    return [pscustomobject]@{ Status = $st; SignerCertificate = $(if ($st -eq 'NotSigned') { $null } else { [pscustomobject]@{ Subject = $subj } }) }
+}
+function New-Media([string]$Name, [string]$Image, [string[]]$Files = @('setup.exe', 'sources\setup.exe', 'bootmgr.efi', 'efi\boot\bootx64.efi')) {
+    $d = Join-Path $tmp $Name
+    foreach ($f in @($Files) + "sources\$Image") { $p = Join-Path $d ($f -replace '\\', '/'); New-Item -ItemType Directory -Force (Split-Path $p) | Out-Null; [IO.File]::WriteAllText($p, 'x') }
+    return $d
+}
+$mediaWim = New-Media 'media-wim' 'install.wim'
+$mediaEsd = New-Media 'media-esd' 'install.esd'
+$mediaBad = New-Media 'media-bad' 'install.wim'
+$Script:SigOf[(Join-Path $mediaBad 'sources/setup.exe')] = 'HashMismatch'
+$sg = Test-IsoFolderSignatures $mediaWim
+Check "signatures: setup and boot files signed by Microsoft ($(@($sg.Checked) -join ', '))" (@($sg.Checked).Count -eq 4 -and @($sg.Bad).Count -eq 0 -and -not $sg.Esd)
+Check 'install.esd: an ISO built from the download files (Media Creation Tool)' ((Test-IsoFolderSignatures $mediaEsd).Esd)
+$sg = Test-IsoFolderSignatures $mediaBad
+Check "a changed file: $(@($sg.Bad) -join ', ')" (@($sg.Bad) -join ',' -eq 'sources\setup.exe (HashMismatch)')
+$m2 = New-Media 'media-other' 'install.wim'
+$Script:SigOf[(Join-Path $m2 'bootmgr.efi')] = 'Valid|CN=Someone Else, O=Someone Else Ltd'
+$Script:SigOf[(Join-Path $m2 'setup.exe')] = 'UnknownError'
+$Script:SigOf[(Join-Path $m2 'efi/boot/bootx64.efi')] = 'NotSupportedFileFormat'
+$sg = Test-IsoFolderSignatures $m2
+Check "another signer, an untrusted chain; a file Windows can't read is skipped ($(@($sg.Bad) -join ', '))" ((@($sg.Bad) -join ',') -eq 'setup.exe (UnknownError),bootmgr.efi (signed by Someone Else)' -and @($sg.Checked).Count -eq 3)
+$sg = Test-IsoFolderSignatures (New-Media 'media-noboot' 'install.wim' @('sources\setup.exe'))
+Check "missing boot files ($(@($sg.Bad) -join ', '))" ((@($sg.Bad) -join ',') -eq 'efi\boot\boot*.efi (missing)')
+$sg = Test-IsoFolderSignatures (New-Media 'media-nosetup' 'install.wim' @('bootmgr.efi'))
+Check "missing setup ($(@($sg.Bad) -join ', '))" ((@($sg.Bad) -join ',') -eq 'setup.exe (missing)')
+
+# ---- mounting the ISO: stand-ins for the Storage cmdlets
+$Script:Disk = @{ Attached = $false; Mounted = 0; Dismounted = 0 }
+function Get-DiskImage { param($ImagePath) [pscustomobject]@{ Attached = $Script:Disk.Attached; ImagePath = $ImagePath } }
+function Mount-DiskImage { param($ImagePath, [switch]$PassThru) $Script:Disk.Mounted++; [pscustomobject]@{ Attached = $true; ImagePath = $ImagePath } }
+function Dismount-DiskImage { param($ImagePath) $Script:Disk.Dismounted++ }
+function Get-Volume { param([Parameter(ValueFromPipeline)]$InputObject) process { [pscustomobject]@{ DriveLetter = 'X' } } }
+function Start-Sleep { }
+$got = Invoke-WithMountedIso $isoA { param($Root) "root=$Root" }
+Check 'mounted, read and dismounted' ($got -eq 'root=X:\' -and $Script:Disk.Mounted -eq 1 -and $Script:Disk.Dismounted -eq 1)
+try { Invoke-WithMountedIso $isoA { throw 'boom' } } catch { }
+Check 'dismounted after an error too' ($Script:Disk.Mounted -eq 2 -and $Script:Disk.Dismounted -eq 2)
+$Script:Disk.Attached = $true
+[void](Invoke-WithMountedIso $isoA { 'x' })
+Check 'an ISO the user had mounted stays mounted' ($Script:Disk.Mounted -eq 2 -and $Script:Disk.Dismounted -eq 2)
+# from here on each ISO opens as one of the media folders above
+$Script:Mounts = @{}; $Script:MountCalls = 0
+function Invoke-WithMountedIso([string]$Iso, [scriptblock]$Do) {
+    $Script:MountCalls++
+    $d = $Script:Mounts[(Split-Path $Iso -Leaf)]
+    if (-not $d) { throw 'Mount-DiskImage failed' }
+    return (& $Do $d)
+}
+
 $r = Test-IsoOriginal $isoA
 Check "in the built-in list: original, microsoft.com not needed ($($r.Product) - $($r.Label))" ($r.Status -eq 'original' -and $r.Source -eq 'list' -and $null -eq $r.Online -and $Script:Web.Calls -eq 0 -and $r.Product -eq 'Windows 11 26H2' -and $r.Sha256 -eq $shaA)
 $Script:S = Import-State
@@ -88,11 +144,15 @@ Check "not in the list, on microsoft.com: original ($($r.Product) - $($r.Label))
 Check 'microsoft.com read as a browser that is not on Windows (the Windows 10 page lists the ISOs only then)' ($Script:Web.UA -notmatch 'Windows')
 
 $Script:Web.Calls = 0
+$Script:Mounts[(Split-Path $isoC -Leaf)] = $mediaWim
+$item = $null; while ($Script:Sync.Queue.TryDequeue([ref]$item)) { }
 $r = Test-IsoOriginal $isoC
 Check 'nowhere: unknown, pages were read' ($r.Status -eq 'unknown' -and $r.Online -eq $true -and $Script:Web.Calls -eq 3 -and $r.Sha256 -eq $shaC)
 Check 'subscription download recognised by its name' ($r.Subscription -eq $true)
+Check 'not listed: the signatures were checked' ($r.SigDone -and @($r.SigChecked).Count -eq 4 -and @($r.SigBad).Count -eq 0 -and -not $r.Esd -and $Script:MountCalls -eq 1)
 $log = @(); $item = $null; while ($Script:Sync.Queue.TryDequeue([ref]$item)) { $log += [string]$item[1] }
 Check 'log: advice to download an original ISO' (@($log | Where-Object { $_ -match 'download an original Windows 10 or 11 ISO' }).Count -eq 1 -and @($log | Where-Object { $_ -match 'Visual Studio subscription' }).Count -eq 1)
+Check 'log: the signed files' (@($log | Where-Object { $_ -match 'Setup and boot files signed by Microsoft: setup.exe, sources\\setup.exe, bootmgr.efi, efi\\boot\\bootx64.efi' }).Count -eq 1)
 
 $Script:Web.Mode = 'offline'
 (Get-Item $isoC).LastWriteTimeUtc = (Get-Date).ToUniversalTime().AddDays(-2)
@@ -101,6 +161,11 @@ $r = Test-IsoOriginal $isoC
 Check 'offline: unknown, Online false' ($r.Status -eq 'unknown' -and $r.Online -eq $false -and $hashCalls -eq $n + 1)
 $Script:Web.Mode = 'ok'
 $Script:Web.Pages[$pages[1].Url] = "Version 25H2 " + (& $row 'English' $shaC)
+$mc = $Script:MountCalls
+$Script:Web.Mode = 'offline'
+$r = Test-IsoOriginal $isoC
+Check 'looked up again: the signatures are not checked again' ($r.Status -eq 'unknown' -and $Script:MountCalls -eq $mc -and @($r.SigChecked).Count -eq 4)
+$Script:Web.Mode = 'ok'
 $r = Test-IsoOriginal $isoC
 Check 'online again: found, without reading the ISO again' ($r.Status -eq 'original' -and $r.Product -eq 'Windows 11 25H2 Arm64' -and $hashCalls -eq $n + 1)
 $Script:Web.Pages = @{}
@@ -108,6 +173,30 @@ $Script:S.IsoCheck = $null
 $r = Test-IsoOriginal $isoB
 $fl = @(Get-MicrosoftIsoHashes)
 Check 'pages without a table count as not read' ($r.Status -eq 'unknown' -and $r.Online -eq $false -and $fl[0].Read -eq 0 -and @($fl[0].Failed).Count -eq 3)
+Check 'an ISO that could not be opened: unknown, signatures not checked' (-not $r.SigDone -and @($r.SigChecked).Count -eq 0)
+$Script:S.IsoCheck.SigDone = $true; $Script:S.IsoCheck.SigChecked = $null; $Script:S.IsoCheck.SigBad = $null     # lists read back as $null
+$r = Test-IsoOriginal $isoB
+Check 'signature lists read back as $null: not taken for faults' ($r.Status -eq 'unknown' -and @($r.SigBad).Count -eq 0 -and @($r.SigChecked).Count -eq 0)
+$v = Get-IsoCheckView ([ordered]@{ Status = 'unknown'; SigChecked = $null; SigBad = $null; Online = $true })
+Check 'page 1: no signed files claimed for a $null list' ($v.Note -notmatch 'signed by Microsoft \(')
+
+# ---- an ISO made with the Media Creation Tool, and a modified one
+$isoM = Join-Path $tmp 'Windows.iso'; [IO.File]::WriteAllBytes($isoM, [byte[]](5..250))
+$isoX = Join-Path $tmp 'Win10_22H2_Lite.iso'; [IO.File]::WriteAllBytes($isoX, [byte[]](7..240))
+$Script:Mounts['Windows.iso'] = $mediaEsd; $Script:Mounts['Win10_22H2_Lite.iso'] = $mediaBad
+$item = $null; while ($Script:Sync.Queue.TryDequeue([ref]$item)) { }
+$Script:S.IsoCheck = $null
+$resM = Test-IsoOriginal $isoM
+$log = @(); while ($Script:Sync.Queue.TryDequeue([ref]$item)) { $log += [string]$item[1] }
+Check 'Media Creation Tool ISO: recognised, signatures fine' ($resM.Status -eq 'mct' -and $resM.Esd -and @($resM.SigChecked).Count -eq 4)
+Check 'log: Media Creation Tool, nothing wrong, no advice to download' (@($log | Where-Object { $_ -match 'made with the Media Creation Tool .*nothing wrong' }).Count -eq 1 -and @($log | Where-Object { $_ -match 'download an original' }).Count -eq 0)
+$n = $hashCalls; $w = $Script:Web.Calls; $mc = $Script:MountCalls
+$r = Test-IsoOriginal $isoM
+Check 'Media Creation Tool ISO checked again: nothing read or looked up again' ($r.Status -eq 'mct' -and $hashCalls -eq $n -and $Script:Web.Calls -eq $w -and $Script:MountCalls -eq $mc)
+$resX = Test-IsoOriginal $isoX
+$log = @(); while ($Script:Sync.Queue.TryDequeue([ref]$item)) { $log += [string]$item[1] }
+Check "modified ISO: $(@($resX.SigBad) -join ', ')" ($resX.Status -eq 'badsig' -and (@($resX.SigBad) -join ',') -eq 'sources\setup.exe (HashMismatch)')
+Check 'log: modified, download an original' (@($log | Where-Object { $_ -match 'has been modified - download an original Windows 10 or 11 ISO' }).Count -eq 1)
 
 # ---- the job
 $Script:Web.Pages[$pages[2].Url] = "Version 22H2 " + (& $row 'English 64-bit' $shaB)
@@ -126,14 +215,14 @@ $x = $Script:XMain.Replace('__PAGES__', $Script:XPages)
 $Script:U = @{}
 foreach ($m in [regex]::Matches($x, 'x:Name="([^"]+)"')) { $Script:U[$m.Groups[1].Value] = [pscustomobject]@{ Text=''; Foreground=$null; Visibility=''; IsChecked=$false; Content='' } }
 Check 'page 1: SHA-256 button, result and hash box' ($Script:U.ContainsKey('IsoCheckBtn') -and $Script:U.ContainsKey('IsoCheckText') -and $Script:U.ContainsKey('IsoCheckNote') -and $Script:U.ContainsKey('IsoHashBox') -and $Script:U.ContainsKey('IsoCheckPanel'))
-Check 'page 1: explains the check' ($Script:XPages -match 'its SHA-256 is compared with the ones Microsoft publishes')
+Check 'page 1: explains the check' ($Script:XPages -match 'its SHA-256 is compared with the ones Microsoft publishes' -and $Script:XPages -match 'the Microsoft signatures of its setup and boot files are checked' -and $Script:XPages -match 'Content="Check the ISO"')
 $Script:S = Import-State
 $Script:U.IsoBox.Text = Join-Path $tmp 'missing.iso'
 Update-IsoCheck
 Check 'no file: nothing shown' ($Script:U.IsoCheckPanel.Visibility -eq 'Collapsed')
 $Script:U.IsoBox.Text = $isoA
 Update-IsoCheck
-Check 'another ISO than the one checked: not checked yet' ($Script:U.IsoCheckPanel.Visibility -eq 'Visible' -and $Script:U.IsoCheckText.Text -like 'SHA-256 not checked yet*' -and $Script:U.IsoHashBox.Visibility -eq 'Collapsed')
+Check 'another ISO than the one checked: not checked yet' ($Script:U.IsoCheckPanel.Visibility -eq 'Visible' -and $Script:U.IsoCheckText.Text -like 'Not checked yet*' -and $Script:U.IsoHashBox.Visibility -eq 'Collapsed')
 $Script:U.IsoBox.Text = "`"$isoB`""
 Update-IsoCheck
 Check "original: green, product and SHA-256 ($($Script:U.IsoCheckText.Text))" ($Script:U.IsoCheckText.Text -eq 'Original Microsoft ISO: Windows 10 22H2 - English 64-bit' -and $Script:U.IsoCheckText.Foreground -eq '#3DDC97' -and $Script:U.IsoHashBox.Text -eq $shaB -and $Script:U.IsoHashBox.Visibility -eq 'Visible' -and $Script:U.IsoCheckNote.Text -like "*download page (checked *")
@@ -145,6 +234,19 @@ Update-IsoCheck
 $note = $Script:U.IsoCheckNote.Text
 Check 'not verified: yellow, with the advice' ($Script:U.IsoCheckText.Text -like 'Not verified*' -and $Script:U.IsoCheckText.Foreground -eq '#FFC857' -and $note -match 'download an original Windows 11 ISO from Microsoft')
 Check 'advice: offline and subscription download' ($note -match 'could not be reached' -and $note -match 'Visual Studio subscription')
+Check 'advice: the signed files, not the Windows image' ($note -like 'Its setup and boot files are signed by Microsoft (4 checked), but the Windows image*')
+$Script:S.IsoCheck = $resM; $Script:U.IsoBox.Text = $isoM
+Update-IsoCheck
+Check "Media Creation Tool ISO: cyan, explained ($($Script:U.IsoCheckText.Text))" ($Script:U.IsoCheckText.Text -like 'Made with the Media Creation Tool*' -and $Script:U.IsoCheckText.Foreground -eq '#5CC8FF' -and $Script:U.IsoCheckNote.Text -match 'that is normal' -and $Script:U.IsoCheckNote.Text -match '\(4 checked\)')
+$Script:S.IsoCheck = $resX; $Script:U.IsoBox.Text = $isoX
+Update-IsoCheck
+Check "modified ISO: red, the files and the advice ($($Script:U.IsoCheckNote.Text))" ($Script:U.IsoCheckText.Text -like 'Modified*' -and $Script:U.IsoCheckText.Foreground -eq '#FF5C7A' -and $Script:U.IsoCheckNote.Text -eq 'Not signed by Microsoft: sources\setup.exe (HashMismatch). Download an original Windows 11 ISO from Microsoft (button above) and use that one.')
+$Script:LangNow = 'pt'
+Update-IsoCheck
+Check "modified ISO translated ($($Script:U.IsoCheckText.Text))" ($Script:U.IsoCheckText.Text -like 'Modificada*' -and $Script:U.IsoCheckNote.Text -match 'Transfira uma ISO original do Windows 11')
+$Script:LangNow = 'en'
+$Script:S.IsoCheck = $resC; $Script:U.IsoBox.Text = $isoC
+Update-IsoCheck
 $Script:LangNow = 'pt'
 Update-IsoCheck
 Check "advice translated ($($Script:U.IsoCheckText.Text))" ($Script:U.IsoCheckText.Text -like 'N*o verificada*' -and $Script:U.IsoCheckNote.Text -match 'transfira uma ISO original do Windows 11')
@@ -190,7 +292,17 @@ Check 'Run everything on media already unpacked from that ISO: no check' (($Scri
 $Script:Jobs = @()
 $Script:U.IsoBox.Text = $isoC
 Invoke-IsoCheckClick
-Check 'Check SHA-256 button: only the check' (($Script:Jobs -join ',') -eq 'CheckIso' -and $null -eq $Script:LastThen)
+Check 'Check the ISO button: only the check' (($Script:Jobs -join ',') -eq 'CheckIso' -and $null -eq $Script:LastThen)
+
+$Script:Jobs = @(); $Script:Asked = @(); $Script:IsoAccepted = @{}
+$Script:S.Unpacked = $false; $Script:S.IsoCheck = $resM; $Script:U.IsoBox.Text = $isoM
+Invoke-UnpackClick
+Check 'Media Creation Tool ISO: unpacked at once, no question' (($Script:Jobs -join ',') -eq 'Unpack' -and $Script:Asked.Count -eq 0)
+$Script:Jobs = @(); $Script:Answer = $false
+$Script:S.IsoCheck = $resX; $Script:U.IsoBox.Text = $isoX
+Invoke-UnpackClick
+& $Script:LastThen
+Check 'modified ISO: asked first, No stops' (($Script:Jobs -join ',') -eq 'CheckIso' -and $Script:Asked.Count -eq 1 -and $Script:Asked[0] -match '^Modified: files in this ISO are not signed by Microsoft' -and $Script:Asked[0] -match 'Unpack this ISO anyway\?')
 
 Set-Item Function:\Get-KnownIsoHashes -Value $keepKnown
 Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue

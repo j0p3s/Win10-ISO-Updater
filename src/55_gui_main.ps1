@@ -6,13 +6,13 @@ function Test-Unpacked {
     $Script:U.Nav1.IsChecked = $true
     return $false
 }
-# The SHA-256 check of $Iso first (skipped for a file found original before), then $Then - for an ISO Microsoft
-# does not list only when the user goes on anyway ($Ask), once per ISO while the program is open.
+# The check of $Iso first (skipped for a file found original, or made with the Media Creation Tool, before), then
+# $Then - for any other ISO only when the user goes on anyway ($Ask), once per ISO while the program is open.
 function Invoke-IsoCheckThen([string]$Iso, [string]$Ask, [scriptblock]$Then) {
     $Script:IsoCheckPath = $Iso; $Script:IsoAsk = $Ask; $Script:IsoThen = $Then
     if (-not $Script:IsoAccepted) { $Script:IsoAccepted = @{} }
     $c = Get-IsoCheckFor $Iso
-    if ($c -and ($c.Status -eq 'original' -or $Script:IsoAccepted[[string]$c.Key])) { $Script:IsoThen = $null; & $Then; return }
+    if ($c -and ([string]$c.Status -in 'original', 'mct' -or $Script:IsoAccepted[[string]$c.Key])) { $Script:IsoThen = $null; & $Then; return }
     Start-Work 'CheckIso' @{ Iso = $Iso } { Complete-IsoCheck }
 }
 function Complete-IsoCheck {
@@ -20,8 +20,9 @@ function Complete-IsoCheck {
     if (-not $then) { return }
     $c = Get-IsoCheckFor $Script:IsoCheckPath
     if (-not $c) { return }
-    if ($c.Status -ne 'original') {
-        $msg = (T 'Not verified: the SHA-256 is not one Microsoft lists for its Windows 10 and 11 ISOs.') + "`n`n" + (Get-IsoAdvice $c) + "`n`n" + $Script:IsoAsk
+    if ([string]$c.Status -notin 'original', 'mct') {
+        $v = Get-IsoCheckView $c
+        $msg = $v.Text + "`n`n" + $v.Note + "`n`n" + $Script:IsoAsk
         if (-not (Confirm-Ui $msg 'Warning')) { return }
         $Script:IsoAccepted[[string]$c.Key] = $true
     }

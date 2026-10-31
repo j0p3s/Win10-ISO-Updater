@@ -1,6 +1,6 @@
 @echo off
 :: ===========================================================================
-::  Windows-ISO-updater-GUI_v4.3.1.cmd  -  one file, graphical interface
+::  Windows-ISO-updater-GUI_v4.4.0.cmd  -  one file, graphical interface
 ::  Windows ISO Updater: the file name carries the version (vX.X.X).
 ::  - unpacks a Windows 10 or Windows 11 ISO and detects its build
 ::  - downloads its updates from the Microsoft Update Catalog
@@ -26,7 +26,7 @@ exit /b
 
 :admin_ok
 set "W10U_SELF=%~f0"
-echo Starting Windows ISO Updater v4.3.1 ...  (this window hides when the program opens)
+echo Starting Windows ISO Updater v4.4.0 ...  (this window hides when the program opens)
 "%PSEXE%" -NoProfile -STA -ExecutionPolicy Bypass -Command "$t=[IO.File]::ReadAllText($env:W10U_SELF);$i=$t.IndexOf('#'+'PS-BEGIN');Invoke-Expression $t.Substring($i)"
 if errorlevel 1 pause
 exit /b
@@ -42,7 +42,7 @@ $ProgressPreference    = 'SilentlyContinue'
 
 $Script:AppName      = 'Windows-ISO-Updater'
 $Script:AppTitle     = 'Windows ISO Updater'
-$Script:AppVersion   = '4.3.1'
+$Script:AppVersion   = '4.4.0'
 $Script:Root         = Split-Path -Parent $env:W10U_SELF
 $ToolsDir            = Join-Path $Script:Root 'tools'
 $IsoPath             = $null
@@ -933,18 +933,61 @@ function Test-SubscriptionIsoName([string]$Name) {
 function Get-IsoFileKey($File) {
     return '{0}|{1}|{2}' -f $File.FullName.ToLowerInvariant(), $File.Length, $File.LastWriteTimeUtc.Ticks
 }
-# Checks $Iso; the result is in $Script:S.IsoCheck. Status: original / unknown. Online: $true (pages read),
-# $false (not reachable - only the list in this file was used), $null (not needed: found in that list).
+# The files of the setup media that carry Microsoft's own (embedded) signature: setup and the boot managers.
+# An ISO the Media Creation Tool made on the PC can't be in Microsoft's SHA-256 list, but these files in it are
+# Microsoft's. They don't cover the Windows image (install.esd / install.wim), which isn't signed as a whole.
+$Script:IsoSignedFiles = @('setup.exe', 'sources\setup.exe', 'sources\setupprep.exe', 'sources\setuphost.exe', 'bootmgr.efi',
+                           'efi\boot\bootx64.efi', 'efi\boot\bootaa64.efi', 'efi\boot\bootia32.efi', 'efi\microsoft\boot\cdboot.efi')
+# Checked / Bad (file and why) / Esd: install.esd, the Windows image of an ISO built from Microsoft's download
+# files (the Media Creation Tool) - the ISOs Microsoft offers for download have install.wim.
+function Test-IsoFolderSignatures([string]$Root) {
+    $checked = @(); $bad = @()
+    foreach ($rel in $Script:IsoSignedFiles) {
+        $p = Join-Path $Root $rel
+        if (-not (Test-Path -LiteralPath $p -PathType Leaf)) { continue }
+        $sig = Get-AuthenticodeSignature -LiteralPath $p
+        $st = [string]$sig.Status
+        if ($st -eq 'NotSupportedFileFormat') { Add-Log "ISO check: $rel - signature can't be read on this Windows"; continue }
+        $subj = if ($sig.SignerCertificate) { [string]$sig.SignerCertificate.Subject } else { '' }
+        $checked += $rel
+        if ($st -ne 'Valid') { $bad += "$rel ($st)" }
+        elseif ($subj -notmatch 'O=Microsoft Corporation') { $bad += "$rel (signed by $($subj -replace '^CN=([^,]+).*$', '$1'))" }
+    }
+    if (-not (@($checked) -match '^(sources\\)?setup\.exe$') -and -not (@($bad) -match '^(sources\\)?setup\.exe ')) { $bad += 'setup.exe (missing)' }
+    if (-not (@($checked) -match '\.efi$') -and -not (@($bad) -match '\.efi ')) { $bad += 'efi\boot\boot*.efi (missing)' }
+    return [pscustomobject]@{ Checked = @($checked); Bad = @($bad); Esd = (Test-Path -LiteralPath (Join-Path $Root 'sources\install.esd') -PathType Leaf) }
+}
+# Runs $Do with the root of the mounted ISO ("E:\"); an ISO that was already mounted stays mounted.
+function Invoke-WithMountedIso([string]$Iso, [scriptblock]$Do) {
+    $img = Get-DiskImage -ImagePath $Iso
+    $was = [bool]$img.Attached
+    if (-not $was) { $img = Mount-DiskImage -ImagePath $Iso -PassThru; Start-Sleep -Seconds 2 }
+    try {
+        $vol = $img | Get-Volume
+        if (-not $vol.DriveLetter) { throw 'The ISO mounted without a drive letter (auto-mount disabled?).' }
+        return (& $Do "$($vol.DriveLetter):\")
+    } finally {
+        if (-not $was) { Dismount-DiskImage -ImagePath $Iso | Out-Null }
+    }
+}
+# Checks $Iso; the result is in $Script:S.IsoCheck. Status:
+#   original - its SHA-256 is one Microsoft lists
+#   mct      - not listed, built from Microsoft's download files (install.esd, the Media Creation Tool) and its
+#              setup and boot files are signed by Microsoft
+#   badsig   - not listed, and setup or boot files are not signed by Microsoft (or are missing): modified
+#   unknown  - not listed; its signatures are in SigChecked / SigBad when the ISO could be opened (SigDone)
+# Online: $true (pages read), $false (not reachable - only the list in this file was used), $null (not needed).
 function Test-IsoOriginal([string]$Iso) {
     $f = Get-Item -LiteralPath $Iso -ErrorAction Stop
     $key = Get-IsoFileKey $f
     $prev = $Script:S.IsoCheck
-    if ($prev -and [string]$prev.Key -eq $key -and [string]$prev.Status -eq 'original') {
-        Write-Ok "Original Microsoft ISO: $($prev.Product) - $($prev.Label) (SHA-256 checked $($prev.When))."
+    $same = $prev -and [string]$prev.Key -eq $key
+    if ($same -and [string]$prev.Status -in 'original', 'mct', 'badsig') {
+        Write-IsoCheckResult $prev
         return $prev
     }
     Write-Step "SHA-256 of $($f.Name) ($(Format-Size $f.Length))"
-    if ($prev -and [string]$prev.Key -eq $key -and [string]$prev.Sha256 -match '^[0-9A-F]{64}$') { $sha = [string]$prev.Sha256; Write-Info 'Already computed - looking it up again.' }
+    if ($same -and [string]$prev.Sha256 -match '^[0-9A-F]{64}$') { $sha = [string]$prev.Sha256; Write-Info 'Already computed - looking it up again.' }
     else {
         Write-Host 'Reading the ISO to compute its SHA-256' -NoNewline
         $t0 = Get-Date
@@ -954,7 +997,7 @@ function Test-IsoOriginal([string]$Iso) {
     }
     $r = [ordered]@{ Key = $key; Path = $f.FullName; Name = $f.Name; Size = $f.Length; Sha256 = $sha; Status = 'unknown'
                      Product = ''; Label = ''; Source = ''; Listed = ''; Online = $null; When = (Get-Date).ToString('yyyy-MM-dd HH:mm', $Script:Inv)
-                     Subscription = (Test-SubscriptionIsoName $f.Name) }
+                     Subscription = (Test-SubscriptionIsoName $f.Name); SigDone = $false; SigChecked = @(); SigBad = @(); Esd = $false }
     $hit = @(Get-KnownIsoHashList | Where-Object { $_.Sha256 -eq $sha }) | Select-Object -First 1
     if ($hit) { $r.Source = 'list' }
     else {
@@ -967,17 +1010,48 @@ function Test-IsoOriginal([string]$Iso) {
     }
     if ($hit) {
         $r.Status = 'original'; $r.Product = $hit.Product; $r.Label = $hit.Label; $r.Listed = $hit.Listed
-        $from = if ($r.Source -eq 'list') { "Microsoft's list as of $($hit.Listed)" } else { 'microsoft.com' }
-        Write-Ok "Original Microsoft ISO: $($r.Product) - $($r.Label) (SHA-256 found on $from)."
     } else {
-        Write-Warn "The SHA-256 of $($f.Name) is not one Microsoft lists for its Windows 10 and 11 ISOs."
-        if ($r.Online -eq $false) { Write-Warn 'microsoft.com could not be reached, so only the list in this program was used - check again when online for the newest ISOs.' }
-        if ($r.Subscription) { Write-Info 'Its name is the one of a Visual Studio subscription / Volume Licensing download: compare the SHA-256 above with the one shown on that portal.' }
-        Write-Info 'ISOs made with the Media Creation Tool are built on the PC and are never in the list, and an older ISO Microsoft no longer offers may be missing too. Otherwise it may be modified - download an original Windows 10 or 11 ISO from microsoft.com.'
+        if ($same -and $prev.SigDone) { $r.SigDone = $true; $r.SigChecked = @($prev.SigChecked | Where-Object { $_ }); $r.SigBad = @($prev.SigBad | Where-Object { $_ }); $r.Esd = [bool]$prev.Esd }
+        else {
+            Write-Host 'Checking the Microsoft signatures of the setup and boot files in the ISO' -NoNewline
+            try {
+                $sig = Invoke-WithMountedIso $f.FullName { param($Root) Test-IsoFolderSignatures $Root }
+                $r.SigDone = $true; $r.SigChecked = @($sig.Checked); $r.SigBad = @($sig.Bad); $r.Esd = [bool]$sig.Esd
+            } catch { Write-Warn "The ISO could not be opened to check the signatures of its files: $($_.Exception.Message)" }
+        }
+        if ($r.SigDone -and @($r.SigBad).Count) { $r.Status = 'badsig' }
+        elseif ($r.SigDone -and $r.Esd -and -not $r.Subscription) { $r.Status = 'mct' }
     }
+    Write-IsoCheckResult $r
     $Script:S.IsoCheck = $r
     Save-State
     return $r
+}
+function Write-IsoCheckResult($R) {
+    $ok = @($R.SigChecked | Where-Object { $_ }); $bad = @($R.SigBad | Where-Object { $_ })      # a list read back from state.json may be $null
+    $signed = if ($ok.Count) { 'Setup and boot files signed by Microsoft: ' + ($ok -join ', ') + '.' } else { '' }
+    switch ([string]$R.Status) {
+        'original' {
+            $from = if ($R.Source -eq 'list') { "Microsoft's list as of $($R.Listed)" } else { 'microsoft.com' }
+            Write-Ok "Original Microsoft ISO: $($R.Product) - $($R.Label) (SHA-256 found on $from)."
+        }
+        'mct' {
+            Write-Info "$($R.Name) was made with the Media Creation Tool (its Windows image is install.esd): it is built on the PC, so its SHA-256 is never in Microsoft's list - nothing wrong."
+            Write-Ok $signed
+            Write-Info 'The Windows image itself (install.esd) is not signed as a whole, so it is not covered by this check.'
+        }
+        'badsig' {
+            Write-Warn "Not signed by Microsoft: $($bad -join ', ')."
+            Write-Warn "$($R.Name) has been modified - download an original Windows 10 or 11 ISO from microsoft.com."
+        }
+        default {
+            Write-Warn "The SHA-256 of $($R.Name) is not one Microsoft lists for its Windows 10 and 11 ISOs."
+            if ($R.Online -eq $false) { Write-Warn 'microsoft.com could not be reached, so only the list in this program was used - check again when online for the newest ISOs.' }
+            if ($signed) { Write-Ok "$signed The Windows image itself is not covered by this check." }
+            if ($R.Subscription) { Write-Info 'Its name is the one of a Visual Studio subscription / Volume Licensing download: compare the SHA-256 above with the one shown on that portal.' }
+            Write-Info 'An older ISO Microsoft no longer offers may be missing from the list too. Otherwise it may be modified - download an original Windows 10 or 11 ISO from microsoft.com.'
+        }
+    }
 }
 #endregion
 
@@ -5352,7 +5426,7 @@ __RES__
           <TextBlock Text="W10" Foreground="White" FontWeight="Bold" FontSize="12" HorizontalAlignment="Center" VerticalAlignment="Center"/>
         </Border>
         <StackPanel Margin="12,0,0,0" VerticalAlignment="Center">
-          <TextBlock FontSize="15" FontWeight="SemiBold"><Run Text="Windows ISO Updater"/><Run x:Name="VerRun" Text="  v4.3.1" Foreground="#5B6478" FontWeight="Normal" FontSize="12"/></TextBlock>
+          <TextBlock FontSize="15" FontWeight="SemiBold"><Run Text="Windows ISO Updater"/><Run x:Name="VerRun" Text="  v4.4.0" Foreground="#5B6478" FontWeight="Normal" FontSize="12"/></TextBlock>
           <TextBlock Text="updates + drivers + signed NVIDIA mods + autounattend + $OEM$  ->  bootable ISO" Foreground="#8A94A8" FontSize="11"/>
         </StackPanel>
       </StackPanel>
@@ -5539,14 +5613,14 @@ $Script:XPages = @'
             </StackPanel></Border>
             <Border Style="{StaticResource Card}"><StackPanel>
               <TextBlock Style="{StaticResource H2}" Text="ISO file"/>
-              <TextBlock Style="{StaticResource Sub}" Margin="0,0,0,10" Text="Use an original ISO from Microsoft. Before it is unpacked, its SHA-256 is compared with the ones Microsoft publishes for its Windows 10 and 11 ISOs - the list in this program and, when online, the download pages on microsoft.com. An ISO that is not there may have been modified."/>
+              <TextBlock Style="{StaticResource Sub}" Margin="0,0,0,10" Text="Use an original ISO from Microsoft. Before it is unpacked, its SHA-256 is compared with the ones Microsoft publishes for its Windows 10 and 11 ISOs - the list in this program and, when online, the download pages on microsoft.com. When it is not there (an ISO made with the Media Creation Tool never is), the Microsoft signatures of its setup and boot files are checked."/>
               <Grid><Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
                 <TextBox x:Name="IsoBox" Margin="0,0,8,0"/>
                 <Button x:Name="IsoBrowse" Grid.Column="1" Style="{StaticResource Btn}" Content="Browse..." Margin="0"/>
               </Grid>
               <WrapPanel Margin="0,14,0,0">
                 <Button x:Name="UnpackBtn" Style="{StaticResource Primary}" Content="Unpack and analyze"/>
-                <Button x:Name="IsoCheckBtn" Style="{StaticResource Btn}" Content="Check SHA-256"/>
+                <Button x:Name="IsoCheckBtn" Style="{StaticResource Btn}" Content="Check the ISO"/>
                 <Button x:Name="AnalyzeBtn" Style="{StaticResource Btn}" Content="Re-read image info"/>
                 <Button x:Name="GetIsoBtn" Style="{StaticResource Btn}" Content="Download Windows 10 from Microsoft"/>
               </WrapPanel>
@@ -6049,10 +6123,10 @@ Clear	Limpar
 Choose Windows 10 or Windows 11 and pick its ISO. It is copied into the work folder and its build and editions are detected - the version follows the ISO you unpack.	Escolha o Windows 10 ou o Windows 11 e selecione a respetiva ISO. &#xC9; copiada para a pasta de trabalho e a compila&#xE7;&#xE3;o e as edi&#xE7;&#xF5;es s&#xE3;o detetadas - a vers&#xE3;o segue a ISO que extrair.
 Windows version	Vers&#xE3;o do Windows
 ISO file	Ficheiro ISO
-Use an original ISO from Microsoft. Before it is unpacked, its SHA-256 is compared with the ones Microsoft publishes for its Windows 10 and 11 ISOs - the list in this program and, when online, the download pages on microsoft.com. An ISO that is not there may have been modified.	Use uma ISO original da Microsoft. Antes de ser extra&#xED;da, o seu SHA-256 &#xE9; comparado com os que a Microsoft publica para as ISOs do Windows 10 e 11 - a lista deste programa e, com liga&#xE7;&#xE3;o &#xE0; Internet, as p&#xE1;ginas de transfer&#xEA;ncia em microsoft.com. Uma ISO que n&#xE3;o esteja l&#xE1; pode ter sido modificada.
+Use an original ISO from Microsoft. Before it is unpacked, its SHA-256 is compared with the ones Microsoft publishes for its Windows 10 and 11 ISOs - the list in this program and, when online, the download pages on microsoft.com. When it is not there (an ISO made with the Media Creation Tool never is), the Microsoft signatures of its setup and boot files are checked.	Use uma ISO original da Microsoft. Antes de ser extra&#xED;da, o seu SHA-256 &#xE9; comparado com os que a Microsoft publica para as ISOs do Windows 10 e 11 - a lista deste programa e, com liga&#xE7;&#xE3;o &#xE0; Internet, as p&#xE1;ginas de transfer&#xEA;ncia em microsoft.com. Quando n&#xE3;o est&#xE1; l&#xE1; (uma ISO criada com a Ferramenta de Cria&#xE7;&#xE3;o de Multim&#xE9;dia nunca est&#xE1;), s&#xE3;o verificadas as assinaturas da Microsoft dos ficheiros de instala&#xE7;&#xE3;o e de arranque.
 Browse...	Procurar...
 Unpack and analyze	Extrair e analisar
-Check SHA-256	Verificar SHA-256
+Check the ISO	Verificar a ISO
 Re-read image info	Voltar a ler a imagem
 Download Windows 10 from Microsoft	Transferir o Windows 10 da Microsoft
 SHA-256 of the ISO - select it to copy	SHA-256 da ISO - selecione-o para copiar
@@ -6195,7 +6269,7 @@ Re-sign drivers	Voltar a assinar controladores
 Slipstream	Integra&#xE7;&#xE3;o
 Build ISO	Criar ISO
 Apply fixes	Aplicar corre&#xE7;&#xF5;es
-SHA-256 check	Verifica&#xE7;&#xE3;o SHA-256
+ISO check	Verifica&#xE7;&#xE3;o da ISO
 no ISO yet	ainda sem ISO
 {0}  |  {1}  |  {2}  |  {3} edition(s)	{0}  |  {1}  |  {2}  |  {3} edi&#xE7;&#xE3;o(&#xF5;es)
 {0} free	{0} livres
@@ -6219,11 +6293,16 @@ Windows 11: the newest updates in the Microsoft Update Catalog are used (21H2, w
 microsoft.com could not be reached, so only the list in this program was used - check again when online, the newest ISOs may be on the page.	N&#xE3;o foi poss&#xED;vel contactar microsoft.com, por isso s&#xF3; foi usada a lista deste programa - verifique de novo com liga&#xE7;&#xE3;o &#xE0; Internet, as ISOs mais recentes podem estar na p&#xE1;gina.
 Its name is the one of a Visual Studio subscription or Volume Licensing download, which are original too but not on the public pages: compare the SHA-256 with the one shown on that portal.	O nome &#xE9; o de uma transfer&#xEA;ncia de uma subscri&#xE7;&#xE3;o do Visual Studio ou do Licenciamento por Volume, que tamb&#xE9;m s&#xE3;o originais mas n&#xE3;o est&#xE3;o nas p&#xE1;ginas p&#xFA;blicas: compare o SHA-256 com o indicado nesse portal.
 An ISO made with the Media Creation Tool is built on the PC and is never listed, and an older ISO Microsoft no longer offers may be missing too. Otherwise it may have been modified: download an original Windows {0} ISO from Microsoft (button above) and use that one.	Uma ISO criada com a Ferramenta de Cria&#xE7;&#xE3;o de Multim&#xE9;dia &#xE9; gerada no PC e nunca est&#xE1; na lista, e uma ISO mais antiga que a Microsoft j&#xE1; n&#xE3;o disponibiliza tamb&#xE9;m pode faltar. Caso contr&#xE1;rio, pode ter sido modificada: transfira uma ISO original do Windows {0} da Microsoft (bot&#xE3;o acima) e use essa.
-SHA-256 not checked yet - it is checked when you unpack the ISO, or now with Check SHA-256.	SHA-256 ainda n&#xE3;o verificado - &#xE9; verificado quando extrair a ISO, ou j&#xE1; com Verificar SHA-256.
-Original Microsoft ISO: {0} - {1}	ISO original da Microsoft: {0} - {1}
 Its SHA-256 is one Microsoft published on its download page (seen there on {0}).	O seu SHA-256 &#xE9; um dos que a Microsoft publicou na p&#xE1;gina de transfer&#xEA;ncia (visto l&#xE1; em {0}).
 Its SHA-256 is on Microsoft's download page (checked {0}).	O seu SHA-256 est&#xE1; na p&#xE1;gina de transfer&#xEA;ncia da Microsoft (verificado em {0}).
+Original Microsoft ISO: {0} - {1}	ISO original da Microsoft: {0} - {1}
+Made with the Media Creation Tool - setup and boot files signed by Microsoft	Criada com a Ferramenta de Cria&#xE7;&#xE3;o de Multim&#xE9;dia - ficheiros de instala&#xE7;&#xE3;o e de arranque assinados pela Microsoft
+The Media Creation Tool builds the ISO on the PC from Microsoft's download, so its SHA-256 is never in Microsoft's list - that is normal. Its setup and boot files ({0} checked) carry Microsoft's signature; the Windows image in it (install.esd) isn't signed as a whole, so it isn't covered.	A Ferramenta de Cria&#xE7;&#xE3;o de Multim&#xE9;dia cria a ISO no PC a partir da transfer&#xEA;ncia da Microsoft, por isso o seu SHA-256 nunca est&#xE1; na lista da Microsoft - &#xE9; normal. Os ficheiros de instala&#xE7;&#xE3;o e de arranque ({0} verificados) t&#xEA;m a assinatura da Microsoft; a imagem do Windows (install.esd) n&#xE3;o &#xE9; assinada como um todo, por isso n&#xE3;o fica coberta.
+Modified: files in this ISO are not signed by Microsoft	Modificada: h&#xE1; ficheiros nesta ISO que n&#xE3;o est&#xE3;o assinados pela Microsoft
+Not signed by Microsoft: {0}. Download an original Windows {1} ISO from Microsoft (button above) and use that one.	Sem assinatura da Microsoft: {0}. Transfira uma ISO original do Windows {1} da Microsoft (bot&#xE3;o acima) e use essa.
+Its setup and boot files are signed by Microsoft ({0} checked), but the Windows image in it can't be checked this way.	Os ficheiros de instala&#xE7;&#xE3;o e de arranque est&#xE3;o assinados pela Microsoft ({0} verificados), mas a imagem do Windows n&#xE3;o pode ser verificada desta forma.
 Not verified: the SHA-256 is not one Microsoft lists for its Windows 10 and 11 ISOs.	N&#xE3;o verificada: o SHA-256 n&#xE3;o &#xE9; nenhum dos que a Microsoft indica para as ISOs do Windows 10 e 11.
+Not checked yet - the ISO is checked when you unpack it, or now with Check the ISO.	Ainda n&#xE3;o verificada - a ISO &#xE9; verificada quando a extrair, ou j&#xE1; com Verificar a ISO.
 {0}  -  build {1}  -  {2}  -  {3} edition(s)	{0}  -  compila&#xE7;&#xE3;o {1}  -  {2}  -  {3} edi&#xE7;&#xE3;o(&#xF5;es)
 No automatic updates for this build - drivers, signed packages, answer file and $OEM$ still work.	Sem atualiza&#xE7;&#xF5;es autom&#xE1;ticas para esta compila&#xE7;&#xE3;o - controladores, pacotes assinados, ficheiro de respostas e $OEM$ continuam a funcionar.
 Updates up to {0} (the last month Microsoft allows offline for Windows 10).	Atualiza&#xE7;&#xF5;es at&#xE9; {0} (o &#xFA;ltimo m&#xEA;s que a Microsoft permite integrar offline no Windows 10).
@@ -6393,10 +6472,10 @@ Clear	Borrar
 Choose Windows 10 or Windows 11 and pick its ISO. It is copied into the work folder and its build and editions are detected - the version follows the ISO you unpack.	Elija Windows 10 o Windows 11 y seleccione su ISO. Se copia en la carpeta de trabajo y se detectan su compilaci&#xF3;n y sus ediciones; la versi&#xF3;n sigue a la ISO que extraiga.
 Windows version	Versi&#xF3;n de Windows
 ISO file	Archivo ISO
-Use an original ISO from Microsoft. Before it is unpacked, its SHA-256 is compared with the ones Microsoft publishes for its Windows 10 and 11 ISOs - the list in this program and, when online, the download pages on microsoft.com. An ISO that is not there may have been modified.	Use una ISO original de Microsoft. Antes de extraerla, su SHA-256 se compara con los que Microsoft publica para sus ISO de Windows 10 y 11: la lista de este programa y, con conexi&#xF3;n a Internet, las p&#xE1;ginas de descarga de microsoft.com. Una ISO que no est&#xE9; ah&#xED; puede haber sido modificada.
+Use an original ISO from Microsoft. Before it is unpacked, its SHA-256 is compared with the ones Microsoft publishes for its Windows 10 and 11 ISOs - the list in this program and, when online, the download pages on microsoft.com. When it is not there (an ISO made with the Media Creation Tool never is), the Microsoft signatures of its setup and boot files are checked.	Use una ISO original de Microsoft. Antes de extraerla, su SHA-256 se compara con los que Microsoft publica para sus ISO de Windows 10 y 11: la lista de este programa y, con conexi&#xF3;n a Internet, las p&#xE1;ginas de descarga de microsoft.com. Si no est&#xE1; ah&#xED; (una ISO creada con la Herramienta de creaci&#xF3;n de medios nunca lo est&#xE1;), se comprueban las firmas de Microsoft de sus archivos de instalaci&#xF3;n y de arranque.
 Browse...	Examinar...
 Unpack and analyze	Extraer y analizar
-Check SHA-256	Comprobar SHA-256
+Check the ISO	Comprobar la ISO
 Re-read image info	Volver a leer la imagen
 Download Windows 10 from Microsoft	Descargar Windows 10 de Microsoft
 SHA-256 of the ISO - select it to copy	SHA-256 de la ISO: selecci&#xF3;nelo para copiarlo
@@ -6539,7 +6618,7 @@ Re-sign drivers	Volver a firmar controladores
 Slipstream	Integraci&#xF3;n
 Build ISO	Crear ISO
 Apply fixes	Aplicar correcciones
-SHA-256 check	Comprobaci&#xF3;n SHA-256
+ISO check	Comprobaci&#xF3;n de la ISO
 no ISO yet	a&#xFA;n sin ISO
 {0}  |  {1}  |  {2}  |  {3} edition(s)	{0}  |  {1}  |  {2}  |  {3} edici&#xF3;n(es)
 {0} free	{0} libres
@@ -6563,11 +6642,16 @@ Windows 11: the newest updates in the Microsoft Update Catalog are used (21H2, w
 microsoft.com could not be reached, so only the list in this program was used - check again when online, the newest ISOs may be on the page.	No se pudo acceder a microsoft.com, as&#xED; que solo se us&#xF3; la lista de este programa; vuelva a comprobarlo con conexi&#xF3;n, las ISO m&#xE1;s recientes pueden estar en la p&#xE1;gina.
 Its name is the one of a Visual Studio subscription or Volume Licensing download, which are original too but not on the public pages: compare the SHA-256 with the one shown on that portal.	Su nombre es el de una descarga de una suscripci&#xF3;n de Visual Studio o de Licencias por Volumen, que tambi&#xE9;n son originales pero no est&#xE1;n en las p&#xE1;ginas p&#xFA;blicas: compare el SHA-256 con el que se muestra en ese portal.
 An ISO made with the Media Creation Tool is built on the PC and is never listed, and an older ISO Microsoft no longer offers may be missing too. Otherwise it may have been modified: download an original Windows {0} ISO from Microsoft (button above) and use that one.	Una ISO creada con la Herramienta de creaci&#xF3;n de medios se genera en el PC y nunca est&#xE1; en la lista, y una ISO m&#xE1;s antigua que Microsoft ya no ofrece tambi&#xE9;n puede faltar. Si no, puede haber sido modificada: descargue una ISO original de Windows {0} de Microsoft (bot&#xF3;n de arriba) y use esa.
-SHA-256 not checked yet - it is checked when you unpack the ISO, or now with Check SHA-256.	SHA-256 a&#xFA;n sin comprobar: se comprueba al extraer la ISO, o ahora con Comprobar SHA-256.
-Original Microsoft ISO: {0} - {1}	ISO original de Microsoft: {0} - {1}
 Its SHA-256 is one Microsoft published on its download page (seen there on {0}).	Su SHA-256 es uno de los que Microsoft public&#xF3; en su p&#xE1;gina de descarga (visto all&#xED; el {0}).
 Its SHA-256 is on Microsoft's download page (checked {0}).	Su SHA-256 est&#xE1; en la p&#xE1;gina de descarga de Microsoft (comprobado el {0}).
+Original Microsoft ISO: {0} - {1}	ISO original de Microsoft: {0} - {1}
+Made with the Media Creation Tool - setup and boot files signed by Microsoft	Creada con la Herramienta de creaci&#xF3;n de medios: archivos de instalaci&#xF3;n y de arranque firmados por Microsoft
+The Media Creation Tool builds the ISO on the PC from Microsoft's download, so its SHA-256 is never in Microsoft's list - that is normal. Its setup and boot files ({0} checked) carry Microsoft's signature; the Windows image in it (install.esd) isn't signed as a whole, so it isn't covered.	La Herramienta de creaci&#xF3;n de medios crea la ISO en el PC a partir de la descarga de Microsoft, as&#xED; que su SHA-256 nunca est&#xE1; en la lista de Microsoft; es normal. Sus archivos de instalaci&#xF3;n y de arranque ({0} comprobados) llevan la firma de Microsoft; la imagen de Windows (install.esd) no est&#xE1; firmada en conjunto, as&#xED; que no queda cubierta.
+Modified: files in this ISO are not signed by Microsoft	Modificada: hay archivos en esta ISO que no est&#xE1;n firmados por Microsoft
+Not signed by Microsoft: {0}. Download an original Windows {1} ISO from Microsoft (button above) and use that one.	Sin firma de Microsoft: {0}. Descargue una ISO original de Windows {1} de Microsoft (bot&#xF3;n de arriba) y use esa.
+Its setup and boot files are signed by Microsoft ({0} checked), but the Windows image in it can't be checked this way.	Sus archivos de instalaci&#xF3;n y de arranque est&#xE1;n firmados por Microsoft ({0} comprobados), pero la imagen de Windows no se puede comprobar de esta forma.
 Not verified: the SHA-256 is not one Microsoft lists for its Windows 10 and 11 ISOs.	No verificada: el SHA-256 no es ninguno de los que Microsoft indica para sus ISO de Windows 10 y 11.
+Not checked yet - the ISO is checked when you unpack it, or now with Check the ISO.	A&#xFA;n sin comprobar: la ISO se comprueba al extraerla, o ahora con Comprobar la ISO.
 {0}  -  build {1}  -  {2}  -  {3} edition(s)	{0}  -  compilaci&#xF3;n {1}  -  {2}  -  {3} edici&#xF3;n(es)
 No automatic updates for this build - drivers, signed packages, answer file and $OEM$ still work.	No hay actualizaciones autom&#xE1;ticas para esta compilaci&#xF3;n; los controladores, los paquetes firmados, el archivo de respuesta y $OEM$ siguen funcionando.
 Updates up to {0} (the last month Microsoft allows offline for Windows 10).	Actualizaciones hasta {0} (el &#xFA;ltimo mes que Microsoft permite integrar sin conexi&#xF3;n en Windows 10).
@@ -6737,10 +6821,10 @@ Clear	Effacer
 Choose Windows 10 or Windows 11 and pick its ISO. It is copied into the work folder and its build and editions are detected - the version follows the ISO you unpack.	Choisissez Windows 10 ou Windows 11 et s&#xE9;lectionnez son ISO. Elle est copi&#xE9;e dans le dossier de travail et sa build et ses &#xE9;ditions sont d&#xE9;tect&#xE9;es - la version suit l'ISO que vous extrayez.
 Windows version	Version de Windows
 ISO file	Fichier ISO
-Use an original ISO from Microsoft. Before it is unpacked, its SHA-256 is compared with the ones Microsoft publishes for its Windows 10 and 11 ISOs - the list in this program and, when online, the download pages on microsoft.com. An ISO that is not there may have been modified.	Utilisez une ISO originale de Microsoft. Avant son extraction, son SHA-256 est compar&#xE9; &#xE0; ceux que Microsoft publie pour ses ISO de Windows 10 et 11 - la liste de ce programme et, en ligne, les pages de t&#xE9;l&#xE9;chargement de microsoft.com. Une ISO qui n'y figure pas a peut-&#xEA;tre &#xE9;t&#xE9; modifi&#xE9;e.
+Use an original ISO from Microsoft. Before it is unpacked, its SHA-256 is compared with the ones Microsoft publishes for its Windows 10 and 11 ISOs - the list in this program and, when online, the download pages on microsoft.com. When it is not there (an ISO made with the Media Creation Tool never is), the Microsoft signatures of its setup and boot files are checked.	Utilisez une ISO originale de Microsoft. Avant son extraction, son SHA-256 est compar&#xE9; &#xE0; ceux que Microsoft publie pour ses ISO de Windows 10 et 11 - la liste de ce programme et, en ligne, les pages de t&#xE9;l&#xE9;chargement de microsoft.com. S'il n'y figure pas (une ISO cr&#xE9;&#xE9;e avec l'outil de cr&#xE9;ation de m&#xE9;dia n'y figure jamais), les signatures Microsoft de ses fichiers d'installation et de d&#xE9;marrage sont v&#xE9;rifi&#xE9;es.
 Browse...	Parcourir...
 Unpack and analyze	Extraire et analyser
-Check SHA-256	V&#xE9;rifier le SHA-256
+Check the ISO	V&#xE9;rifier l'ISO
 Re-read image info	Relire l'image
 Download Windows 10 from Microsoft	T&#xE9;l&#xE9;charger Windows 10 chez Microsoft
 SHA-256 of the ISO - select it to copy	SHA-256 de l'ISO - s&#xE9;lectionnez-le pour le copier
@@ -6883,7 +6967,7 @@ Re-sign drivers	Signer &#xE0; nouveau les pilotes
 Slipstream	Int&#xE9;gration
 Build ISO	Cr&#xE9;er l'ISO
 Apply fixes	Appliquer les corrections
-SHA-256 check	V&#xE9;rification SHA-256
+ISO check	V&#xE9;rification de l'ISO
 no ISO yet	pas encore d'ISO
 {0}  |  {1}  |  {2}  |  {3} edition(s)	{0}  |  {1}  |  {2}  |  {3} &#xE9;dition(s)
 {0} free	{0} libres
@@ -6907,11 +6991,16 @@ Windows 11: the newest updates in the Microsoft Update Catalog are used (21H2, w
 microsoft.com could not be reached, so only the list in this program was used - check again when online, the newest ISOs may be on the page.	microsoft.com est inaccessible, seule la liste de ce programme a donc &#xE9;t&#xE9; utilis&#xE9;e - v&#xE9;rifiez &#xE0; nouveau en ligne, les ISO les plus r&#xE9;centes peuvent figurer sur la page.
 Its name is the one of a Visual Studio subscription or Volume Licensing download, which are original too but not on the public pages: compare the SHA-256 with the one shown on that portal.	Son nom est celui d'un t&#xE9;l&#xE9;chargement d'abonnement Visual Studio ou de licences en volume, qui sont aussi originales mais absentes des pages publiques : comparez le SHA-256 avec celui indiqu&#xE9; sur ce portail.
 An ISO made with the Media Creation Tool is built on the PC and is never listed, and an older ISO Microsoft no longer offers may be missing too. Otherwise it may have been modified: download an original Windows {0} ISO from Microsoft (button above) and use that one.	Une ISO cr&#xE9;&#xE9;e avec l'outil de cr&#xE9;ation de m&#xE9;dia est g&#xE9;n&#xE9;r&#xE9;e sur le PC et n'est jamais dans la liste, et une ISO plus ancienne que Microsoft ne propose plus peut aussi manquer. Sinon, elle a peut-&#xEA;tre &#xE9;t&#xE9; modifi&#xE9;e : t&#xE9;l&#xE9;chargez une ISO originale de Windows {0} chez Microsoft (bouton ci-dessus) et utilisez-la.
-SHA-256 not checked yet - it is checked when you unpack the ISO, or now with Check SHA-256.	SHA-256 pas encore v&#xE9;rifi&#xE9; - il est v&#xE9;rifi&#xE9; &#xE0; l'extraction de l'ISO, ou maintenant avec V&#xE9;rifier le SHA-256.
-Original Microsoft ISO: {0} - {1}	ISO originale de Microsoft : {0} - {1}
 Its SHA-256 is one Microsoft published on its download page (seen there on {0}).	Son SHA-256 fait partie de ceux que Microsoft a publi&#xE9;s sur sa page de t&#xE9;l&#xE9;chargement (vu le {0}).
 Its SHA-256 is on Microsoft's download page (checked {0}).	Son SHA-256 figure sur la page de t&#xE9;l&#xE9;chargement de Microsoft (v&#xE9;rifi&#xE9; le {0}).
+Original Microsoft ISO: {0} - {1}	ISO originale de Microsoft : {0} - {1}
+Made with the Media Creation Tool - setup and boot files signed by Microsoft	Cr&#xE9;&#xE9;e avec l'outil de cr&#xE9;ation de m&#xE9;dia - fichiers d'installation et de d&#xE9;marrage sign&#xE9;s par Microsoft
+The Media Creation Tool builds the ISO on the PC from Microsoft's download, so its SHA-256 is never in Microsoft's list - that is normal. Its setup and boot files ({0} checked) carry Microsoft's signature; the Windows image in it (install.esd) isn't signed as a whole, so it isn't covered.	L'outil de cr&#xE9;ation de m&#xE9;dia cr&#xE9;e l'ISO sur le PC &#xE0; partir du t&#xE9;l&#xE9;chargement de Microsoft, son SHA-256 n'est donc jamais dans la liste de Microsoft - c'est normal. Ses fichiers d'installation et de d&#xE9;marrage ({0} v&#xE9;rifi&#xE9;s) portent la signature de Microsoft ; l'image Windows (install.esd) n'est pas sign&#xE9;e dans son ensemble, elle n'est donc pas couverte.
+Modified: files in this ISO are not signed by Microsoft	Modifi&#xE9;e : des fichiers de cette ISO ne sont pas sign&#xE9;s par Microsoft
+Not signed by Microsoft: {0}. Download an original Windows {1} ISO from Microsoft (button above) and use that one.	Sans signature Microsoft : {0}. T&#xE9;l&#xE9;chargez une ISO originale de Windows {1} chez Microsoft (bouton ci-dessus) et utilisez-la.
+Its setup and boot files are signed by Microsoft ({0} checked), but the Windows image in it can't be checked this way.	Ses fichiers d'installation et de d&#xE9;marrage sont sign&#xE9;s par Microsoft ({0} v&#xE9;rifi&#xE9;s), mais l'image Windows ne peut pas &#xEA;tre v&#xE9;rifi&#xE9;e de cette fa&#xE7;on.
 Not verified: the SHA-256 is not one Microsoft lists for its Windows 10 and 11 ISOs.	Non v&#xE9;rifi&#xE9;e : le SHA-256 ne fait partie d'aucun de ceux que Microsoft indique pour ses ISO de Windows 10 et 11.
+Not checked yet - the ISO is checked when you unpack it, or now with Check the ISO.	Pas encore v&#xE9;rifi&#xE9;e - l'ISO est v&#xE9;rifi&#xE9;e &#xE0; son extraction, ou maintenant avec V&#xE9;rifier l'ISO.
 {0}  -  build {1}  -  {2}  -  {3} edition(s)	{0}  -  build {1}  -  {2}  -  {3} &#xE9;dition(s)
 No automatic updates for this build - drivers, signed packages, answer file and $OEM$ still work.	Pas de mises &#xE0; jour automatiques pour cette build - les pilotes, les paquets sign&#xE9;s, le fichier de r&#xE9;ponses et $OEM$ fonctionnent quand m&#xEA;me.
 Updates up to {0} (the last month Microsoft allows offline for Windows 10).	Mises &#xE0; jour jusqu'&#xE0; {0} (le dernier mois que Microsoft permet d'int&#xE9;grer hors ligne pour Windows 10).
@@ -7081,10 +7170,10 @@ Clear	Leeren
 Choose Windows 10 or Windows 11 and pick its ISO. It is copied into the work folder and its build and editions are detected - the version follows the ISO you unpack.	W&#xE4;hlen Sie Windows 10 oder Windows 11 und dessen ISO. Sie wird in den Arbeitsordner kopiert, Build und Editionen werden erkannt - die Version richtet sich nach der ISO, die Sie entpacken.
 Windows version	Windows-Version
 ISO file	ISO-Datei
-Use an original ISO from Microsoft. Before it is unpacked, its SHA-256 is compared with the ones Microsoft publishes for its Windows 10 and 11 ISOs - the list in this program and, when online, the download pages on microsoft.com. An ISO that is not there may have been modified.	Verwenden Sie eine Original-ISO von Microsoft. Vor dem Entpacken wird ihr SHA-256 mit den Werten verglichen, die Microsoft f&#xFC;r seine Windows 10- und 11-ISOs ver&#xF6;ffentlicht - die Liste in diesem Programm und, wenn online, die Downloadseiten auf microsoft.com. Eine ISO, die dort nicht steht, wurde m&#xF6;glicherweise ver&#xE4;ndert.
+Use an original ISO from Microsoft. Before it is unpacked, its SHA-256 is compared with the ones Microsoft publishes for its Windows 10 and 11 ISOs - the list in this program and, when online, the download pages on microsoft.com. When it is not there (an ISO made with the Media Creation Tool never is), the Microsoft signatures of its setup and boot files are checked.	Verwenden Sie eine Original-ISO von Microsoft. Vor dem Entpacken wird ihr SHA-256 mit den Werten verglichen, die Microsoft f&#xFC;r seine Windows 10- und 11-ISOs ver&#xF6;ffentlicht - die Liste in diesem Programm und, wenn online, die Downloadseiten auf microsoft.com. Steht er dort nicht (eine mit dem Media Creation Tool erstellte ISO steht nie dort), werden die Microsoft-Signaturen ihrer Setup- und Startdateien gepr&#xFC;ft.
 Browse...	Durchsuchen...
 Unpack and analyze	Entpacken und analysieren
-Check SHA-256	SHA-256 pr&#xFC;fen
+Check the ISO	ISO pr&#xFC;fen
 Re-read image info	Abbild neu einlesen
 Download Windows 10 from Microsoft	Windows 10 bei Microsoft herunterladen
 SHA-256 of the ISO - select it to copy	SHA-256 der ISO - zum Kopieren markieren
@@ -7227,7 +7316,7 @@ Re-sign drivers	Treiber neu signieren
 Slipstream	Integrieren
 Build ISO	ISO erstellen
 Apply fixes	Korrekturen anwenden
-SHA-256 check	SHA-256-Pr&#xFC;fung
+ISO check	ISO-Pr&#xFC;fung
 no ISO yet	noch keine ISO
 {0}  |  {1}  |  {2}  |  {3} edition(s)	{0}  |  {1}  |  {2}  |  {3} Edition(en)
 {0} free	{0} frei
@@ -7251,11 +7340,16 @@ Windows 11: the newest updates in the Microsoft Update Catalog are used (21H2, w
 microsoft.com could not be reached, so only the list in this program was used - check again when online, the newest ISOs may be on the page.	microsoft.com war nicht erreichbar, daher wurde nur die Liste in diesem Programm verwendet - pr&#xFC;fen Sie erneut, wenn Sie online sind, die neuesten ISOs stehen eventuell auf der Seite.
 Its name is the one of a Visual Studio subscription or Volume Licensing download, which are original too but not on the public pages: compare the SHA-256 with the one shown on that portal.	Der Name entspricht einem Download aus einem Visual Studio-Abonnement oder dem Volumenlizenz-Portal - auch diese sind original, stehen aber nicht auf den &#xF6;ffentlichen Seiten: Vergleichen Sie den SHA-256 mit dem dort angezeigten.
 An ISO made with the Media Creation Tool is built on the PC and is never listed, and an older ISO Microsoft no longer offers may be missing too. Otherwise it may have been modified: download an original Windows {0} ISO from Microsoft (button above) and use that one.	Eine mit dem Media Creation Tool erstellte ISO wird auf dem PC erzeugt und steht nie in der Liste, und auch eine &#xE4;ltere ISO, die Microsoft nicht mehr anbietet, kann fehlen. Andernfalls wurde sie m&#xF6;glicherweise ver&#xE4;ndert: Laden Sie eine Original-ISO von Windows {0} bei Microsoft herunter (Schaltfl&#xE4;che oben) und verwenden Sie diese.
-SHA-256 not checked yet - it is checked when you unpack the ISO, or now with Check SHA-256.	SHA-256 noch nicht gepr&#xFC;ft - er wird beim Entpacken der ISO gepr&#xFC;ft oder jetzt mit SHA-256 pr&#xFC;fen.
-Original Microsoft ISO: {0} - {1}	Original-ISO von Microsoft: {0} - {1}
 Its SHA-256 is one Microsoft published on its download page (seen there on {0}).	Ihr SHA-256 ist einer der Werte, die Microsoft auf seiner Downloadseite ver&#xF6;ffentlicht hat (dort gesehen am {0}).
 Its SHA-256 is on Microsoft's download page (checked {0}).	Ihr SHA-256 steht auf der Downloadseite von Microsoft (gepr&#xFC;ft am {0}).
+Original Microsoft ISO: {0} - {1}	Original-ISO von Microsoft: {0} - {1}
+Made with the Media Creation Tool - setup and boot files signed by Microsoft	Mit dem Media Creation Tool erstellt - Setup- und Startdateien von Microsoft signiert
+The Media Creation Tool builds the ISO on the PC from Microsoft's download, so its SHA-256 is never in Microsoft's list - that is normal. Its setup and boot files ({0} checked) carry Microsoft's signature; the Windows image in it (install.esd) isn't signed as a whole, so it isn't covered.	Das Media Creation Tool erstellt die ISO auf dem PC aus dem Download von Microsoft, daher steht ihr SHA-256 nie in der Liste von Microsoft - das ist normal. Ihre Setup- und Startdateien ({0} gepr&#xFC;ft) tragen die Signatur von Microsoft; das Windows-Abbild darin (install.esd) ist nicht als Ganzes signiert und wird daher nicht erfasst.
+Modified: files in this ISO are not signed by Microsoft	Ver&#xE4;ndert: Dateien in dieser ISO sind nicht von Microsoft signiert
+Not signed by Microsoft: {0}. Download an original Windows {1} ISO from Microsoft (button above) and use that one.	Nicht von Microsoft signiert: {0}. Laden Sie eine Original-ISO von Windows {1} bei Microsoft herunter (Schaltfl&#xE4;che oben) und verwenden Sie diese.
+Its setup and boot files are signed by Microsoft ({0} checked), but the Windows image in it can't be checked this way.	Ihre Setup- und Startdateien sind von Microsoft signiert ({0} gepr&#xFC;ft), das Windows-Abbild darin l&#xE4;sst sich so aber nicht pr&#xFC;fen.
 Not verified: the SHA-256 is not one Microsoft lists for its Windows 10 and 11 ISOs.	Nicht best&#xE4;tigt: Der SHA-256 ist keiner der Werte, die Microsoft f&#xFC;r seine Windows 10- und 11-ISOs angibt.
+Not checked yet - the ISO is checked when you unpack it, or now with Check the ISO.	Noch nicht gepr&#xFC;ft - die ISO wird beim Entpacken gepr&#xFC;ft oder jetzt mit ISO pr&#xFC;fen.
 {0}  -  build {1}  -  {2}  -  {3} edition(s)	{0}  -  Build {1}  -  {2}  -  {3} Edition(en)
 No automatic updates for this build - drivers, signed packages, answer file and $OEM$ still work.	Keine automatischen Updates f&#xFC;r diesen Build - Treiber, signierte Pakete, Antwortdatei und $OEM$ funktionieren weiterhin.
 Updates up to {0} (the last month Microsoft allows offline for Windows 10).	Updates bis {0} (der letzte Monat, den Microsoft f&#xFC;r Windows 10 offline zul&#xE4;sst).
@@ -7425,10 +7519,10 @@ Clear	Cancella
 Choose Windows 10 or Windows 11 and pick its ISO. It is copied into the work folder and its build and editions are detected - the version follows the ISO you unpack.	Scegli Windows 10 o Windows 11 e seleziona la sua ISO. Viene copiata nella cartella di lavoro e ne vengono rilevate build ed edizioni - la versione segue la ISO che estrai.
 Windows version	Versione di Windows
 ISO file	File ISO
-Use an original ISO from Microsoft. Before it is unpacked, its SHA-256 is compared with the ones Microsoft publishes for its Windows 10 and 11 ISOs - the list in this program and, when online, the download pages on microsoft.com. An ISO that is not there may have been modified.	Usa una ISO originale di Microsoft. Prima dell'estrazione, il suo SHA-256 viene confrontato con quelli che Microsoft pubblica per le ISO di Windows 10 e 11 - l'elenco di questo programma e, se sei online, le pagine di download su microsoft.com. Una ISO che non &#xE8; l&#xEC; potrebbe essere stata modificata.
+Use an original ISO from Microsoft. Before it is unpacked, its SHA-256 is compared with the ones Microsoft publishes for its Windows 10 and 11 ISOs - the list in this program and, when online, the download pages on microsoft.com. When it is not there (an ISO made with the Media Creation Tool never is), the Microsoft signatures of its setup and boot files are checked.	Usa una ISO originale di Microsoft. Prima dell'estrazione, il suo SHA-256 viene confrontato con quelli che Microsoft pubblica per le ISO di Windows 10 e 11 - l'elenco di questo programma e, se sei online, le pagine di download su microsoft.com. Se non &#xE8; l&#xEC; (una ISO creata con lo Strumento di creazione supporti non lo &#xE8; mai), vengono verificate le firme Microsoft dei suoi file di installazione e di avvio.
 Browse...	Sfoglia...
 Unpack and analyze	Estrai e analizza
-Check SHA-256	Verifica SHA-256
+Check the ISO	Verifica la ISO
 Re-read image info	Rileggi l'immagine
 Download Windows 10 from Microsoft	Scarica Windows 10 da Microsoft
 SHA-256 of the ISO - select it to copy	SHA-256 della ISO - selezionalo per copiarlo
@@ -7571,7 +7665,7 @@ Re-sign drivers	Firma di nuovo i driver
 Slipstream	Integrazione
 Build ISO	Crea ISO
 Apply fixes	Applica correzioni
-SHA-256 check	Verifica SHA-256 della ISO
+ISO check	Verifica della ISO
 no ISO yet	ancora nessuna ISO
 {0}  |  {1}  |  {2}  |  {3} edition(s)	{0}  |  {1}  |  {2}  |  {3} edizione/i
 {0} free	{0} liberi
@@ -7595,11 +7689,16 @@ Windows 11: the newest updates in the Microsoft Update Catalog are used (21H2, w
 microsoft.com could not be reached, so only the list in this program was used - check again when online, the newest ISOs may be on the page.	Impossibile raggiungere microsoft.com, quindi &#xE8; stato usato solo l'elenco di questo programma - verifica di nuovo quando sei online, le ISO pi&#xF9; recenti potrebbero essere sulla pagina.
 Its name is the one of a Visual Studio subscription or Volume Licensing download, which are original too but not on the public pages: compare the SHA-256 with the one shown on that portal.	Il nome &#xE8; quello di un download di un abbonamento Visual Studio o del Volume Licensing, che sono anch'esse originali ma non compaiono nelle pagine pubbliche: confronta lo SHA-256 con quello indicato su quel portale.
 An ISO made with the Media Creation Tool is built on the PC and is never listed, and an older ISO Microsoft no longer offers may be missing too. Otherwise it may have been modified: download an original Windows {0} ISO from Microsoft (button above) and use that one.	Una ISO creata con lo Strumento di creazione supporti viene generata sul PC e non &#xE8; mai nell'elenco, e anche una ISO pi&#xF9; vecchia che Microsoft non offre pi&#xF9; pu&#xF2; mancare. Altrimenti potrebbe essere stata modificata: scarica una ISO originale di Windows {0} da Microsoft (pulsante qui sopra) e usa quella.
-SHA-256 not checked yet - it is checked when you unpack the ISO, or now with Check SHA-256.	SHA-256 non ancora verificato - viene verificato quando estrai la ISO, o subito con Verifica SHA-256.
-Original Microsoft ISO: {0} - {1}	ISO originale di Microsoft: {0} - {1}
 Its SHA-256 is one Microsoft published on its download page (seen there on {0}).	Il suo SHA-256 &#xE8; uno di quelli che Microsoft ha pubblicato sulla sua pagina di download (visto l&#xEC; il {0}).
 Its SHA-256 is on Microsoft's download page (checked {0}).	Il suo SHA-256 &#xE8; sulla pagina di download di Microsoft (verificato il {0}).
+Original Microsoft ISO: {0} - {1}	ISO originale di Microsoft: {0} - {1}
+Made with the Media Creation Tool - setup and boot files signed by Microsoft	Creata con lo Strumento di creazione supporti - file di installazione e di avvio firmati da Microsoft
+The Media Creation Tool builds the ISO on the PC from Microsoft's download, so its SHA-256 is never in Microsoft's list - that is normal. Its setup and boot files ({0} checked) carry Microsoft's signature; the Windows image in it (install.esd) isn't signed as a whole, so it isn't covered.	Lo Strumento di creazione supporti crea la ISO sul PC dal download di Microsoft, quindi il suo SHA-256 non &#xE8; mai nell'elenco di Microsoft - &#xE8; normale. I suoi file di installazione e di avvio ({0} verificati) hanno la firma di Microsoft; l'immagine di Windows (install.esd) non &#xE8; firmata nel suo insieme, quindi non &#xE8; coperta.
+Modified: files in this ISO are not signed by Microsoft	Modificata: alcuni file di questa ISO non sono firmati da Microsoft
+Not signed by Microsoft: {0}. Download an original Windows {1} ISO from Microsoft (button above) and use that one.	Senza firma Microsoft: {0}. Scarica una ISO originale di Windows {1} da Microsoft (pulsante qui sopra) e usa quella.
+Its setup and boot files are signed by Microsoft ({0} checked), but the Windows image in it can't be checked this way.	I suoi file di installazione e di avvio sono firmati da Microsoft ({0} verificati), ma l'immagine di Windows non si pu&#xF2; verificare in questo modo.
 Not verified: the SHA-256 is not one Microsoft lists for its Windows 10 and 11 ISOs.	Non verificata: lo SHA-256 non &#xE8; nessuno di quelli che Microsoft indica per le ISO di Windows 10 e 11.
+Not checked yet - the ISO is checked when you unpack it, or now with Check the ISO.	Non ancora verificata - la ISO viene verificata quando la estrai, o subito con Verifica la ISO.
 {0}  -  build {1}  -  {2}  -  {3} edition(s)	{0}  -  build {1}  -  {2}  -  {3} edizione/i
 No automatic updates for this build - drivers, signed packages, answer file and $OEM$ still work.	Nessun aggiornamento automatico per questa build - driver, pacchetti firmati, file di risposta e $OEM$ funzionano comunque.
 Updates up to {0} (the last month Microsoft allows offline for Windows 10).	Aggiornamenti fino a {0} (l'ultimo mese che Microsoft consente offline per Windows 10).
@@ -8017,7 +8116,7 @@ function Complete-Work {
 function Set-Busy([bool]$On) {
     $labels = @{ Unpack = (T 'Unpack'); Analyze = (T 'Analyze'); Download = (T 'Download updates'); ScanHost = (T 'Driver scan'); CommitHost = (T 'Copy drivers')
                  ScanFolder = (T 'Folder scan'); CommitImport = (T 'Import drivers'); Sign = (T 'Re-sign drivers'); Service = (T 'Slipstream'); Build = (T 'Build ISO')
-                 All = (T 'Run everything'); Tools = (T 'Tools'); Clean = (T 'Clean up'); Check = (T 'Install check'); Fix = (T 'Apply fixes'); CheckIso = (T 'SHA-256 check') }
+                 All = (T 'Run everything'); Tools = (T 'Tools'); Clean = (T 'Clean up'); Check = (T 'Install check'); Fix = (T 'Apply fixes'); CheckIso = (T 'ISO check') }
     $Script:JobLabel = $labels[$Script:JobName]
     if (-not $Script:JobLabel) { $Script:JobLabel = $Script:JobName }
     $Script:U.Pages.IsEnabled = -not $On
@@ -8139,6 +8238,32 @@ function Get-IsoAdvice($C) {
     $t += (T 'An ISO made with the Media Creation Tool is built on the PC and is never listed, and an older ISO Microsoft no longer offers may be missing too. Otherwise it may have been modified: download an original Windows {0} ISO from Microsoft (button above) and use that one.') -f $os
     return ($t -join ' ')
 }
+# What page 1 and the question before unpacking say about a checked ISO: Text, its color, Note.
+function Get-IsoCheckView($C) {
+    $os = if ([string]$Script:Cfg.WinVersion -eq '11') { '11' } else { '10' }
+    $n = @($C.SigChecked | Where-Object { $_ }).Count      # a list read back from state.json may be $null
+    switch ([string]$C.Status) {
+        'original' {
+            $note = if ($C.Source -eq 'list') { (T 'Its SHA-256 is one Microsoft published on its download page (seen there on {0}).') -f $C.Listed }
+                    else { (T 'Its SHA-256 is on Microsoft''s download page (checked {0}).') -f $C.When }
+            return @{ Text = (T 'Original Microsoft ISO: {0} - {1}') -f $C.Product, $C.Label; Color = '#3DDC97'; Note = $note }
+        }
+        'mct' {
+            return @{ Text = T 'Made with the Media Creation Tool - setup and boot files signed by Microsoft'; Color = '#5CC8FF'
+                      Note = (T 'The Media Creation Tool builds the ISO on the PC from Microsoft''s download, so its SHA-256 is never in Microsoft''s list - that is normal. Its setup and boot files ({0} checked) carry Microsoft''s signature; the Windows image in it (install.esd) isn''t signed as a whole, so it isn''t covered.') -f $n }
+        }
+        'badsig' {
+            return @{ Text = T 'Modified: files in this ISO are not signed by Microsoft'; Color = '#FF5C7A'
+                      Note = (T 'Not signed by Microsoft: {0}. Download an original Windows {1} ISO from Microsoft (button above) and use that one.') -f (@($C.SigBad | Where-Object { $_ }) -join ', '), $os }
+        }
+        default {
+            $note = @()
+            if ($n) { $note += (T 'Its setup and boot files are signed by Microsoft ({0} checked), but the Windows image in it can''t be checked this way.') -f $n }
+            $note += Get-IsoAdvice $C
+            return @{ Text = T 'Not verified: the SHA-256 is not one Microsoft lists for its Windows 10 and 11 ISOs.'; Color = '#FFC857'; Note = ($note -join ' ') }
+        }
+    }
+}
 function Update-IsoCheck {
     $U = $Script:U
     $iso = ([string]$U.IsoBox.Text).Trim().Trim('"')
@@ -8147,22 +8272,16 @@ function Update-IsoCheck {
     $c = Get-IsoCheckFor $iso
     $U.IsoHashBox.Visibility = if ($c) { 'Visible' } else { 'Collapsed' }
     if (-not $c) {
-        $U.IsoCheckText.Text = T 'SHA-256 not checked yet - it is checked when you unpack the ISO, or now with Check SHA-256.'
+        $U.IsoCheckText.Text = T 'Not checked yet - the ISO is checked when you unpack it, or now with Check the ISO.'
         $U.IsoCheckText.Foreground = New-Brush '#E6EAF2'
         $U.IsoCheckNote.Text = ''
         return
     }
     $U.IsoHashBox.Text = [string]$c.Sha256
-    if ($c.Status -eq 'original') {
-        $U.IsoCheckText.Text = (T 'Original Microsoft ISO: {0} - {1}') -f $c.Product, $c.Label
-        $U.IsoCheckText.Foreground = New-Brush '#3DDC97'
-        $U.IsoCheckNote.Text = if ($c.Source -eq 'list') { (T 'Its SHA-256 is one Microsoft published on its download page (seen there on {0}).') -f $c.Listed }
-                               else { (T 'Its SHA-256 is on Microsoft''s download page (checked {0}).') -f $c.When }
-    } else {
-        $U.IsoCheckText.Text = T 'Not verified: the SHA-256 is not one Microsoft lists for its Windows 10 and 11 ISOs.'
-        $U.IsoCheckText.Foreground = New-Brush '#FFC857'
-        $U.IsoCheckNote.Text = Get-IsoAdvice $c
-    }
+    $v = Get-IsoCheckView $c
+    $U.IsoCheckText.Text = $v.Text
+    $U.IsoCheckText.Foreground = New-Brush $v.Color
+    $U.IsoCheckNote.Text = $v.Note
 }
 function Update-Ui {
     $Script:Loading = $true
@@ -8404,13 +8523,13 @@ function Test-Unpacked {
     $Script:U.Nav1.IsChecked = $true
     return $false
 }
-# The SHA-256 check of $Iso first (skipped for a file found original before), then $Then - for an ISO Microsoft
-# does not list only when the user goes on anyway ($Ask), once per ISO while the program is open.
+# The check of $Iso first (skipped for a file found original, or made with the Media Creation Tool, before), then
+# $Then - for any other ISO only when the user goes on anyway ($Ask), once per ISO while the program is open.
 function Invoke-IsoCheckThen([string]$Iso, [string]$Ask, [scriptblock]$Then) {
     $Script:IsoCheckPath = $Iso; $Script:IsoAsk = $Ask; $Script:IsoThen = $Then
     if (-not $Script:IsoAccepted) { $Script:IsoAccepted = @{} }
     $c = Get-IsoCheckFor $Iso
-    if ($c -and ($c.Status -eq 'original' -or $Script:IsoAccepted[[string]$c.Key])) { $Script:IsoThen = $null; & $Then; return }
+    if ($c -and ([string]$c.Status -in 'original', 'mct' -or $Script:IsoAccepted[[string]$c.Key])) { $Script:IsoThen = $null; & $Then; return }
     Start-Work 'CheckIso' @{ Iso = $Iso } { Complete-IsoCheck }
 }
 function Complete-IsoCheck {
@@ -8418,8 +8537,9 @@ function Complete-IsoCheck {
     if (-not $then) { return }
     $c = Get-IsoCheckFor $Script:IsoCheckPath
     if (-not $c) { return }
-    if ($c.Status -ne 'original') {
-        $msg = (T 'Not verified: the SHA-256 is not one Microsoft lists for its Windows 10 and 11 ISOs.') + "`n`n" + (Get-IsoAdvice $c) + "`n`n" + $Script:IsoAsk
+    if ([string]$c.Status -notin 'original', 'mct') {
+        $v = Get-IsoCheckView $c
+        $msg = $v.Text + "`n`n" + $v.Note + "`n`n" + $Script:IsoAsk
         if (-not (Confirm-Ui $msg 'Warning')) { return }
         $Script:IsoAccepted[[string]$c.Key] = $true
     }

@@ -1,5 +1,37 @@
 # Changelog
 
+## v4.4.0 — 2026-10-31
+
+The ISO check now also handles ISOs made with the **Media Creation Tool**, which can't be checked by SHA-256 because the tool builds the ISO on the PC. When the SHA-256 isn't one Microsoft lists, the Microsoft signatures of the ISO's setup and boot files are checked instead.
+
+**Upgrading from 4.3:** download `Windows-ISO-updater-GUI_v4.4.0.cmd` and delete the old `.cmd`. Settings, the `signing` folder and the work folder are kept. An ISO 4.3 found *Not verified* is checked again (signatures) the next time it is unpacked, or with **Check the ISO**.
+
+### Added
+- **Signatures of the setup and boot files.** When an ISO's SHA-256 isn't in Microsoft's list or on microsoft.com, the ISO is mounted read-only for a few seconds:
+  - `setup.exe`, `sources\setup.exe`, `setupprep.exe`, `setuphost.exe`, `bootmgr.efi` and the UEFI boot files (`efi\boot\boot*.efi`, `cdboot.efi`) must each carry a valid signature of Microsoft Corporation;
+  - a missing setup or UEFI boot file counts as a fault too;
+  - an ISO the user mounted stays mounted.
+  - The Windows image itself (`install.esd` / `install.wim`) isn't signed as a whole, so page 1 says this check doesn't cover it.
+- **Media Creation Tool ISOs** are recognised by their Windows image, `install.esd` (Microsoft's download ISOs have `install.wim`). When every signature is fine, page 1 shows **Made with the Media Creation Tool - setup and boot files signed by Microsoft** (blue) and explains why the SHA-256 can't be in a list. *Unpack* and *Run everything* go on without asking, and the result is kept, so the ISO isn't read or looked up again.
+- **Modified ISOs:** when a setup or boot file isn't signed by Microsoft, page 1 shows **Modified: files in this ISO are not signed by Microsoft** (red) with the files, and advises downloading an original Windows 10 or 11 ISO from Microsoft. *Unpack* and *Run everything* ask first.
+- *Not verified* now also says when the setup and boot files are signed by Microsoft.
+- The button is now **Check the ISO** (it was *Check SHA-256*).
+- All new texts are in the six interface languages.
+
+### Code and tests
+- `src/29_engine_isocheck.ps1`:
+  - `Test-IsoFolderSignatures` checks the signatures;
+  - `Invoke-WithMountedIso` mounts the ISO, the same way unpacking does;
+  - `Test-IsoOriginal` has two new results, `mct` and `badsig`, and keeps the signatures with the result;
+  - `Write-IsoCheckResult` writes the log lines.
+- `src/50_gui.ps1`: `Get-IsoCheckView` gives the text, color and note for page 1 and the question.
+- `tests/isocheck.tests.ps1` (71 checks) covers:
+  - signatures with a stand-in for `Get-AuthenticodeSignature`: valid, changed file, another signer, untrusted chain, unreadable format, missing setup or boot file;
+  - mounting and dismounting, including after an error, and an ISO already mounted;
+  - Media Creation Tool and modified ISOs, kept and not checked again, and signature lists read back from `state.json` as empty;
+  - page 1 colors and texts, translated;
+  - no question for a Media Creation Tool ISO, and a question for a modified one.
+
 ## v4.3.1 — 2026-10-31
 
 Fix: 4.2.0 and 4.3.0 didn't open on Windows. The console showed *"Windows ISO Updater could not start: Argument types do not match"* at `foreach ($x in @($Texts))`.
