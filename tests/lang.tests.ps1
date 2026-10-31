@@ -73,6 +73,65 @@ $de = "$($el.Text) | $($btn.Content) | $($grid.Columns[0].Header)"
 $Script:LangNow = 'en'; Set-UiTexts $texts
 Check "switching French -> German -> English ($fr / $de / $($el.Text))" ($fr -eq "Pr$([char]0xEA)t | Parcourir... | $([char]0xC9)dition | KB" -and $de -eq 'Bereit | Durchsuchen... | Edition' -and $el.Text -eq 'Ready' -and $btn.Content -eq 'Browse...')
 
+# ---- a whole window: Get-UiTexts walks the element tree and Set-UiTexts puts the language on it. Stand-ins
+# for the WPF classes, so the real functions run on objects of the same shape: the list Get-UiTexts returns
+# once made v4.2.0 / v4.3.0 stop at start ("Argument types do not match" - @() over a List[object] from New-Object).
+Add-Type -TypeDefinition @'
+using System.Collections.Generic;
+namespace Windows {
+    public class DependencyObject { public List<object> Kids = new List<object>(); }
+    public class FrameworkElement : DependencyObject { public object ToolTip; public string Name = ""; }
+    public class Window : Controls.ContentControl { }
+    public static class LogicalTreeHelper { public static IEnumerable<object> GetChildren(object o) { var d = o as DependencyObject; return d == null ? new List<object>() : d.Kids; } }
+}
+namespace Windows.Automation {
+    public static class AutomationProperties {
+        static Dictionary<object, string> names = new Dictionary<object, string>();
+        public static string GetName(DependencyObject o) { string v; return names.TryGetValue(o, out v) ? v : ""; }
+        public static void SetName(DependencyObject o, string v) { names[o] = v; }
+    }
+}
+namespace Windows.Documents {
+    public class Run : DependencyObject { public string Text = ""; public string Name = ""; public object Parent; }
+    public class InlineCollection { public List<Run> Items = new List<Run>(); public int Count { get { return Items.Count; } } public Run FirstInline { get { return Items.Count > 0 ? Items[0] : null; } } }
+}
+namespace Windows.Controls {
+    public class TextBlock : FrameworkElement { public string Text = ""; public Windows.Documents.InlineCollection Inlines = new Windows.Documents.InlineCollection(); }
+    public class ContentControl : FrameworkElement { public object Content; }
+    public class Button : ContentControl { }
+    public class HeaderedContentControl : ContentControl { public object Header; }
+    public class HeaderedItemsControl : FrameworkElement { public object Header; }
+    public class TextBox : FrameworkElement { public string Text = ""; }
+    public class DataGridColumn { public string SortMemberPath = ""; public object Header; }
+    public class DataGrid : FrameworkElement { public List<DataGridColumn> Columns = new List<DataGridColumn>(); }
+}
+'@
+$win = New-Object Windows.Window
+$tb = New-Object Windows.Controls.TextBlock; $tb.Text = 'Ready'
+$bt = New-Object Windows.Controls.Button; $bt.Content = 'Browse...'; $bt.ToolTip = 'Light theme'
+[Windows.Automation.AutomationProperties]::SetName($bt, 'Switch to the light theme')
+$tab = New-Object Windows.Controls.HeaderedContentControl; $tab.Header = 'Language'; $tab.Content = $tb
+$box = New-Object Windows.Controls.TextBox; $box.ToolTip = 'SHA-256 of the ISO - select it to copy'
+$dg = New-Object Windows.Controls.DataGrid; $col = New-Object Windows.Controls.DataGridColumn; $col.SortMemberPath = 'Edition'; $col.Header = 'Edition'; $dg.Columns.Add($col)
+$win.Kids.AddRange([object[]]@($tab, $bt, $box, $dg)); $tab.Kids.Add($tb)
+foreach ($i in 1..400) { $more = New-Object Windows.Controls.TextBlock; $more.Text = 'Ready'; $win.Kids.Add($more) }   # a window's worth of texts
+$Script:LangNow = 'pt'
+try {
+    $wt = Get-UiTexts $win
+    Set-UiTexts $wt
+    $err = ''
+} catch { $err = $_.Exception.Message }
+Check "a whole window: texts read and put in Portuguese ($(if ($err) { $err } else { "$($tb.Text) | $($bt.Content) | $($tab.Header) | $($dg.Columns[0].Header)" }))" (-not $err -and $tb.Text -ceq (T 'Ready') -and $tb.Text -cne 'Ready' -and $bt.Content -ceq (T 'Browse...') -and $tab.Header -ceq (T 'Language') -and
+    $bt.ToolTip -ceq (T 'Light theme') -and $box.ToolTip -ceq (T 'SHA-256 of the ISO - select it to copy') -and [Windows.Automation.AutomationProperties]::GetName($bt) -ceq (T 'Switch to the light theme') -and $dg.Columns[0].Header -ceq (T 'Edition'))
+$Script:LangNow = 'en'
+try { Set-UiTexts $wt; $err = '' } catch { $err = $_.Exception.Message }
+Check "a whole window: back to English ($err)" (-not $err -and $tb.Text -eq 'Ready' -and $bt.Content -eq 'Browse...' -and $box.ToolTip -eq 'SHA-256 of the ISO - select it to copy')
+$wl = New-Object System.Collections.Generic.List[object]; $wl.Add([pscustomobject]@{ El = $tb; Prop = 'Text'; En = 'Ready' })
+$Script:LangNow = 'de'
+try { Set-UiTexts $wl; Add-GridHeaderTranslation $wl; $err = '' } catch { $err = $_.Exception.Message }
+Check "texts in a List[object] made by New-Object ($err)" (-not $err -and $tb.Text -eq 'Bereit')
+$Script:LangNow = 'en'
+
 # ---- the window code: no message or confirmation left as a bare English literal
 $gui = (Get-Content (Join-Path $src '50_gui.ps1') -Raw) + (Get-Content (Join-Path $src '55_gui_main.ps1') -Raw)
 $bare = @([regex]::Matches($gui, "(Show-Msg|Confirm-Ui|Select-Folder|Select-File)\s+['""][A-Za-z]") | ForEach-Object Value)

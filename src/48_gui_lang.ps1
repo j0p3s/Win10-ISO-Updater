@@ -48,7 +48,7 @@ function T([string]$Text) {
 # Every text a window shows from its XAML: element, property and the English text. Kept for the main
 # window, so the language can change at once without building the window again.
 function Get-UiTexts($Root) {
-    $list = New-Object System.Collections.Generic.List[object]
+    $list = [System.Collections.Generic.List[object]]::new()     # not New-Object: @() over that list fails ("Argument types do not match")
     $stack = New-Object System.Collections.Stack
     $stack.Push($Root)
     while ($stack.Count) {
@@ -73,7 +73,7 @@ function Get-UiTexts($Root) {
 # Puts the texts in the language in use. List columns are named after their data (Edition, Size ...),
 # translated when they are made and here when the language changes.
 function Set-UiTexts($Texts) {
-    foreach ($x in @($Texts)) {
+    foreach ($x in $Texts) {
         switch ($x.Prop) {
             'AutomationName' { [Windows.Automation.AutomationProperties]::SetName($x.El, (T $x.En)) }
             'Columns' { foreach ($c in @($x.El.Columns)) { if ($c.SortMemberPath) { $c.Header = T $c.SortMemberPath } } }
