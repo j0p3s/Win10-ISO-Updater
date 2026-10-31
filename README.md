@@ -109,9 +109,9 @@ Before an ISO is unpacked — **Unpack and analyze** on page 1, or **Run everyth
 Page 1 explains this above the ISO box and shows the result under it, with the SHA-256 (select it to copy):
 
 - **Original Microsoft ISO: Windows 11 25H2 - English International** (green), and where the value was found;
-- **Not verified** (yellow), with what to do: **download an original Windows 10 or 11 ISO from Microsoft** with the button next to it, and use that one. Unpack and Run everything ask before going on with such an ISO (once per ISO while the window is open).
+- **Not verified** (yellow), with what to do: **download an original Windows 10 or 11 ISO from Microsoft** with the *Download Windows 10 / 11 from Microsoft* button above it, and use that one. Unpack and Run everything ask before going on with such an ISO (once per ISO while the window is open).
 
-The ISO is read once (about a minute for a 6 GB ISO on an SSD, with a progress bar): the result is kept with the file's size and date, so unpacking again or Run everything later don't read it again. **Check SHA-256** checks the ISO without unpacking it.
+The ISO is read once (under a minute for a 6 GB ISO on an SSD, with a progress bar): the result is kept with the file's size and date, so unpacking again or Run everything later don't read it again. **Check SHA-256** checks the ISO without unpacking it.
 
 Not every original ISO is on the public pages:
 

@@ -37,27 +37,35 @@ def read_page(url):
     return urllib.request.urlopen(req, timeout=90).read().decode('utf-8', 'replace')
 
 
+def read_slowly(url):
+    """read_page for web.archive.org, which refuses (429) or drops the connection when read too fast."""
+    for wait in (6, 30, 90, 180):
+        time.sleep(wait)
+        try:
+            return read_page(url)
+        except urllib.error.HTTPError as e:
+            if e.code != 429:
+                return ''
+        except (urllib.error.URLError, OSError):
+            pass
+    return None
+
+
 def read_archived(url, cache):
     """One copy per month of url from the Internet Archive -> [(yyyy-mm-dd, html)]."""
     os.makedirs(cache, exist_ok=True)
-    cdx = 'https://web.archive.org/cdx/search/cdx?' + urllib.parse.urlencode(
-        {'url': url.split('://', 1)[1], 'output': 'json', 'filter': 'statuscode:200', 'collapse': 'timestamp:6', 'from': '202407'})
-    snaps = json.loads(read_page(cdx))[1:]
+    cdx = read_slowly('https://web.archive.org/cdx/search/cdx?' + urllib.parse.urlencode(
+        {'url': url.split('://', 1)[1], 'output': 'json', 'filter': 'statuscode:200', 'collapse': 'timestamp:6', 'from': '202407'}))
+    if not cdx:
+        print(f'  the archive has no list of copies of {url} right now, skipped')
+        return []
     out = []
-    for snap in snaps:
+    for snap in json.loads(cdx)[1:]:
         ts, orig = snap[1], snap[2]
         f = os.path.join(cache, f'{ts}_{re.sub(r"[^A-Za-z0-9]+", "_", orig)[-40:]}.html')
         if not os.path.exists(f):
-            for wait in (0, 30, 90, 180):
-                time.sleep(wait or 6)
-                try:
-                    text = read_page(f'https://web.archive.org/web/{ts}id_/{orig}')
-                    break
-                except urllib.error.HTTPError as e:
-                    if e.code != 429:
-                        text = ''
-                        break
-            else:
+            text = read_slowly(f'https://web.archive.org/web/{ts}id_/{orig}')
+            if text is None:
                 print(f'  {ts}: the archive keeps refusing, skipped')
                 continue
             with open(f, 'w', encoding='utf-8') as h:
