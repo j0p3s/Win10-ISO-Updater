@@ -1,5 +1,36 @@
 # Changelog
 
+## v4.3.0 — 2026-10-31
+
+Page 1 checks that the ISO is an original from Microsoft, and says what to do when it isn't.
+
+**Upgrading from 4.2:** download `Windows-ISO-updater-GUI_v4.3.0.cmd` and delete the old `.cmd`. Settings, the `signing` folder and the work folder are kept. An ISO you already unpacked is checked the next time it is unpacked, or now with **Check SHA-256** on page 1.
+
+### Added
+- **Original ISO check** (SHA-256) before an ISO is unpacked, by *Unpack and analyze* or *Run everything*:
+  - the SHA-256 is compared with the values Microsoft publishes in the *Verify your download* table of its download pages for Windows 11, Windows 11 Arm64 and Windows 10;
+  - first against the list built into the tool, then, when the value isn't there, against the pages on microsoft.com read at that moment (a brand-new ISO is found too);
+  - no other source is trusted, and the SHA-256 is not sent anywhere.
+- **Page 1:**
+  - a note above the ISO box on why an original ISO matters and how it is checked;
+  - the result under the ISO: **Original Microsoft ISO: Windows 11 25H2 - English International** (green) with where the value was found, or **Not verified** (yellow);
+  - the SHA-256 in a box, to select and copy;
+  - a **Check SHA-256** button that checks the ISO without unpacking it.
+- **When the check fails**, page 1, the log and a question before unpacking say what to do: download an original Windows 10 or 11 ISO from Microsoft (the button next to it) and use that one. Unpack and Run everything go on only when you answer Yes (asked once per ISO while the window is open). The advice also covers:
+  - Visual Studio subscription / Volume Licensing downloads, recognised by their file names (`en-us_windows_10_..._dvd_1a2b3c4d.iso`, `SW_DVD9_...`): original, but listed only on that portal — compare the SHA-256 there;
+  - Media Creation Tool ISOs, which are built on the PC and are never listed;
+  - no internet: only the built-in list was used — check again when online.
+- The ISO is read once (with a progress bar): the result is kept in `state.json` with the file's size and date, so unpacking again or *Run everything* don't read it again. A file that changed is read again.
+- All new texts in the six interface languages.
+
+### Code and tests
+- New `src/29_engine_isocheck.ps1`: Microsoft's tables (`Read-IsoHashPage`, `Get-MicrosoftIsoHashes`, read as a browser that isn't on Windows, since the Windows 10 page lists the ISOs only then), the built-in list (`Get-KnownIsoHashList`), the SHA-256 read in 4 MB parts with progress (`Get-FileSha256`), subscription file names, and `Test-IsoOriginal`, which keeps the result. New job `CheckIso`.
+- New `src/isohashes.py` and `src/iso-hashes.json`: the SHA-256 values from Microsoft's pages, added to and never removed, so an ISO stays verifiable after Microsoft replaces it. `--archive` also reads the Internet Archive's monthly copies of the same pages. The build turns the list into `Get-KnownIsoHashes`.
+- New `tests/isocheck.tests.ps1` (45 checks): Microsoft's own table markup (`tests/fixtures/ms-windows11-hashes.html`), the built-in list, the SHA-256 against `Get-FileHash`, microsoft.com online, offline and without a table, the result kept and not read again, a changed file, subscription file names, the job, page 1 (texts, colors, the advice, translated) and the question before *Unpack* and *Run everything*.
+
+### README
+- New section *Original ISO check*; page 1, privacy, files, troubleshooting and the source files updated.
+
 ## v4.2.0 — 2026-10-30
 
 The interface in more languages: Portuguese, Spanish, French, German and Italian, besides English.

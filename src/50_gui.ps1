@@ -289,7 +289,7 @@ function Complete-Work {
 function Set-Busy([bool]$On) {
     $labels = @{ Unpack = (T 'Unpack'); Analyze = (T 'Analyze'); Download = (T 'Download updates'); ScanHost = (T 'Driver scan'); CommitHost = (T 'Copy drivers')
                  ScanFolder = (T 'Folder scan'); CommitImport = (T 'Import drivers'); Sign = (T 'Re-sign drivers'); Service = (T 'Slipstream'); Build = (T 'Build ISO')
-                 All = (T 'Run everything'); Tools = (T 'Tools'); Clean = (T 'Clean up'); Check = (T 'Install check'); Fix = (T 'Apply fixes') }
+                 All = (T 'Run everything'); Tools = (T 'Tools'); Clean = (T 'Clean up'); Check = (T 'Install check'); Fix = (T 'Apply fixes'); CheckIso = (T 'SHA-256 check') }
     $Script:JobLabel = $labels[$Script:JobName]
     if (-not $Script:JobLabel) { $Script:JobLabel = $Script:JobName }
     $Script:U.Pages.IsEnabled = -not $On
@@ -394,6 +394,48 @@ function Update-WinVersion {
     $U.CutoffNote.Text = if ($os -eq '10') { T '2025-10 is the last Windows 10 update Microsoft allows offline. ESU updates (Nov 2025+) come from Windows Update after setup on enrolled PCs.' }
                          else { T 'Windows 11: the newest updates in the Microsoft Update Catalog are used (21H2, which is out of servicing: its last ones, 2024-10).' }
 }
+# SHA-256 check on page 1: the last result (IsoCheck in the state) when it is for the file in the box.
+function Get-IsoCheckFor([string]$Iso) {
+    $c = $Script:S.IsoCheck
+    if (-not $c -or -not $Iso) { return $null }
+    try { $f = Get-Item -LiteralPath $Iso -ErrorAction Stop } catch { return $null }
+    if ($f.PSIsContainer -or [string]$c.Key -ne (Get-IsoFileKey $f)) { return $null }
+    return $c
+}
+# What to do about an ISO whose SHA-256 Microsoft does not list.
+function Get-IsoAdvice($C) {
+    $os = if ([string]$Script:Cfg.WinVersion -eq '11') { '11' } else { '10' }
+    $t = @()
+    if ($C -and $C.Online -eq $false) { $t += T 'microsoft.com could not be reached, so only the list in this program was used - check again when online, the newest ISOs may be on the page.' }
+    if ($C -and $C.Subscription) { $t += T 'Its name is the one of a Visual Studio subscription or Volume Licensing download, which are original too but not on the public pages: compare the SHA-256 with the one shown on that portal.' }
+    $t += (T 'An ISO made with the Media Creation Tool is built on the PC and is never listed. Any other ISO may have been modified: download an original Windows {0} ISO from Microsoft (button above) and use that one.') -f $os
+    return ($t -join ' ')
+}
+function Update-IsoCheck {
+    $U = $Script:U
+    $iso = ([string]$U.IsoBox.Text).Trim().Trim('"')
+    if (-not $iso -or -not (Test-Path -LiteralPath $iso -PathType Leaf)) { $U.IsoCheckPanel.Visibility = 'Collapsed'; return }
+    $U.IsoCheckPanel.Visibility = 'Visible'
+    $c = Get-IsoCheckFor $iso
+    $U.IsoHashBox.Visibility = if ($c) { 'Visible' } else { 'Collapsed' }
+    if (-not $c) {
+        $U.IsoCheckText.Text = T 'SHA-256 not checked yet - it is checked when you unpack the ISO, or now with Check SHA-256.'
+        $U.IsoCheckText.Foreground = New-Brush '#E6EAF2'
+        $U.IsoCheckNote.Text = ''
+        return
+    }
+    $U.IsoHashBox.Text = [string]$c.Sha256
+    if ($c.Status -eq 'original') {
+        $U.IsoCheckText.Text = (T 'Original Microsoft ISO: {0} - {1}') -f $c.Product, $c.Label
+        $U.IsoCheckText.Foreground = New-Brush '#3DDC97'
+        $U.IsoCheckNote.Text = if ($c.Source -eq 'list') { (T 'Its SHA-256 is one Microsoft published on its download page (seen there on {0}).') -f $c.Listed }
+                               else { (T 'Its SHA-256 is on Microsoft''s download page (checked {0}).') -f $c.When }
+    } else {
+        $U.IsoCheckText.Text = T 'Not verified: the SHA-256 is not one Microsoft lists for its Windows 10 and 11 ISOs.'
+        $U.IsoCheckText.Foreground = New-Brush '#FFC857'
+        $U.IsoCheckNote.Text = Get-IsoAdvice $c
+    }
+}
 function Update-Ui {
     $Script:Loading = $true
     try {
@@ -406,6 +448,7 @@ function Update-Ui {
         $U.EdJobsBox.Text = [string](Get-EditionJobs 4 1e6).Wanted
         $U.WorkBox.Text = [string]$Cfg.WorkDir
         if (-not $U.IsoBox.Text -and $S.SourceIso) { $U.IsoBox.Text = $S.SourceIso }
+        Update-IsoCheck
 
         # 1 source
         $imgs = @($S.Images)

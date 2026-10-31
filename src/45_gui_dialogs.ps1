@@ -13,15 +13,22 @@ $Script:XPages = @'
             </StackPanel></Border>
             <Border Style="{StaticResource Card}"><StackPanel>
               <TextBlock Style="{StaticResource H2}" Text="ISO file"/>
+              <TextBlock Style="{StaticResource Sub}" Margin="0,0,0,10" Text="Use an original ISO from Microsoft. Before it is unpacked, its SHA-256 is compared with the ones Microsoft publishes for its Windows 10 and 11 ISOs - the list in this program and, when online, the download pages on microsoft.com. An ISO that is not there may have been modified."/>
               <Grid><Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
                 <TextBox x:Name="IsoBox" Margin="0,0,8,0"/>
                 <Button x:Name="IsoBrowse" Grid.Column="1" Style="{StaticResource Btn}" Content="Browse..." Margin="0"/>
               </Grid>
               <WrapPanel Margin="0,14,0,0">
                 <Button x:Name="UnpackBtn" Style="{StaticResource Primary}" Content="Unpack and analyze"/>
+                <Button x:Name="IsoCheckBtn" Style="{StaticResource Btn}" Content="Check SHA-256"/>
                 <Button x:Name="AnalyzeBtn" Style="{StaticResource Btn}" Content="Re-read image info"/>
                 <Button x:Name="GetIsoBtn" Style="{StaticResource Btn}" Content="Download Windows 10 from Microsoft"/>
               </WrapPanel>
+              <StackPanel x:Name="IsoCheckPanel" Margin="0,12,0,0" Visibility="Collapsed">
+                <TextBlock x:Name="IsoCheckText" FontWeight="SemiBold" TextWrapping="Wrap"/>
+                <TextBlock x:Name="IsoCheckNote" Style="{StaticResource Sub}" Margin="0,4,0,0"/>
+                <TextBox x:Name="IsoHashBox" IsReadOnly="True" FontFamily="Consolas" Margin="0,8,0,0" Visibility="Collapsed" ToolTip="SHA-256 of the ISO - select it to copy"/>
+              </StackPanel>
             </StackPanel></Border>
             <Border Style="{StaticResource Card}"><StackPanel>
               <TextBlock Style="{StaticResource H2}" Text="Detected image"/>

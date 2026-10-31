@@ -35,6 +35,7 @@ $suites = @(
     @{ File = 'output-path.tests.ps1';           Args = @() }                   # output ISO path from the Build page
     @{ File = 'build.tests.ps1';                 Args = @() }                   # ISO build: .part file, old ISO kept, ISO in use, free space
     @{ File = 'download.tests.ps1';              Args = @() }                   # servicing stack lookup in a side job while the rest downloads
+    @{ File = 'isocheck.tests.ps1';              Args = @() }                   # SHA-256 of the ISO against Microsoft's lists, page 1, check before unpacking
 )
 $failed = @()
 foreach ($s in $suites) {

@@ -1,12 +1,12 @@
 # Windows ISO Updater
 
-![version](https://img.shields.io/badge/version-4.2.0-2F9BFF) ![platform](https://img.shields.io/badge/Windows-10%20%7C%2011-8B5CF6) ![license](https://img.shields.io/badge/license-MIT-3DDC97) [![tests](https://github.com/j0p3s/Windows-ISO-Updater/actions/workflows/tests.yml/badge.svg)](https://github.com/j0p3s/Windows-ISO-Updater/actions/workflows/tests.yml)
+![version](https://img.shields.io/badge/version-4.3.0-2F9BFF) ![platform](https://img.shields.io/badge/Windows-10%20%7C%2011-8B5CF6) ![license](https://img.shields.io/badge/license-MIT-3DDC97) [![tests](https://github.com/j0p3s/Windows-ISO-Updater/actions/workflows/tests.yml/badge.svg)](https://github.com/j0p3s/Windows-ISO-Updater/actions/workflows/tests.yml)
 
 **One file. Double-click. Get a fully updated Windows 10 or Windows 11 ISO with your drivers, your signed NVIDIA mod, your answer file and your `$OEM$` folder baked in.**
 
 `Windows-ISO-updater-GUI_vX.X.X.cmd` (the version is part of the file name) is a single-file tool with a dark or light graphical interface in **English, Portuguese, Spanish, French, German or Italian** that:
 
-1. **Unpacks a Windows 10 or Windows 11 ISO** (pick the version on page 1) and detects its build, editions, language and architecture
+1. **Unpacks a Windows 10 or Windows 11 ISO** (pick the version on page 1) and detects its build, editions, language and architecture — after checking that it is an **original ISO from Microsoft** (SHA-256)
 2. **Downloads every update it needs** from the Microsoft Update Catalog (cumulative update, servicing stack, Safe OS and Setup Dynamic Updates, .NET)
 3. **Slipstreams drivers** from this PC or from a `Drivers-Backup` folder (storage and network drivers also go into `boot.wim` and WinRE)
 4. **Re-signs modded drivers** (NVCleanstall hardware-ID mods, edited INF files) with your own certificate and installs them during setup
@@ -16,7 +16,7 @@
 
 Missing tools (`oscdimg`, `makecat`, `Inf2Cat`, `signtool`) are downloaded automatically from Microsoft and verified.
 
-**Contents:** [Screenshots](#screenshots) · [Quick start](#quick-start) · [The pages](#the-pages) · [Speed](#speed) · [Modded drivers](#modded-drivers-nvidia--nvcleanstall) · [Install check](#install-check) · [Display, accessibility and language](#display-and-accessibility) · [Supported Windows versions](#supported-windows-versions) · [Privacy](#privacy-what-stays-on-your-pc) · [Files the tool creates](#files-the-tool-creates) · [Troubleshooting](#troubleshooting) · [Building from source](#building-from-source) · [Changelog](#changelog) · [Legal notice](#legal-notice)
+**Contents:** [Screenshots](#screenshots) · [Quick start](#quick-start) · [The pages](#the-pages) · [Original ISO check](#original-iso-check) · [Speed](#speed) · [Modded drivers](#modded-drivers-nvidia--nvcleanstall) · [Install check](#install-check) · [Display, accessibility and language](#display-and-accessibility) · [Supported Windows versions](#supported-windows-versions) · [Privacy](#privacy-what-stays-on-your-pc) · [Files the tool creates](#files-the-tool-creates) · [Troubleshooting](#troubleshooting) · [Building from source](#building-from-source) · [Changelog](#changelog) · [Legal notice](#legal-notice)
 
 ---
 
@@ -59,7 +59,7 @@ The console line at start shows the version (`Starting Windows ISO Updater v3.5.
 
 | # | Page | What it does |
 |---|------|--------------|
-| 1 | **Source ISO** | Windows 10 or Windows 11 (the choice follows the ISO you unpack), the download link for it, and unpacking the ISO into the work folder with its build, editions, language and architecture |
+| 1 | **Source ISO** | Windows 10 or Windows 11 (the choice follows the ISO you unpack), the download link for it, the [SHA-256 check](#original-iso-check) that tells whether the ISO is an original from Microsoft, and unpacking the ISO into the work folder with its build, editions, language and architecture |
 | 2 | **Editions** | Tick the editions to update. Unticked ones can be left out, which makes the ISO smaller and the build faster |
 | 3 | **Windows updates** | Finds and downloads the newest LCU, SSU, Safe OS DU, Setup DU, .NET 4.8.1 and .NET CU (SHA-1 checked). Optional .NET 3.5 and `/ResetBase` |
 | 4 | **Drivers** | *Add drivers from this PC* (`Export-WindowsDriver`) or *Import a drivers folder* (for example `Drivers-Backup` made by `Drivers.cmd`). All subfolders are scanned, and drivers for the wrong architecture are left out. Older versions of a driver that is there in a newer version too (Windows keeps them in its driver store) are unticked: column *Older* |
@@ -98,6 +98,28 @@ Two buttons in the **top right corner**, next to minimize:
 The ISO is written to a temporary `.part` file and renamed when oscdimg has finished, so a failed build never deletes an older ISO of the same name. Before oscdimg starts, the tool checks that the output drive has room for the ISO and that the file isn't mounted or open somewhere.
 
 ---
+
+## Original ISO check
+
+Before an ISO is unpacked — **Unpack and analyze** on page 1, or **Run everything** — its **SHA-256** is compared with the values Microsoft publishes in the *Verify your download* table of its download pages for Windows 11, Windows 11 Arm64 and Windows 10:
+
+1. first the list built into the tool (`src/iso-hashes.json`: every value those pages showed, also for older ISOs Microsoft no longer lists);
+2. when the value is not there, the three pages on microsoft.com themselves, read at that moment, so a brand-new ISO is found too.
+
+Page 1 explains this above the ISO box and shows the result under it, with the SHA-256 (select it to copy):
+
+- **Original Microsoft ISO: Windows 11 25H2 - English International** (green), and where the value was found;
+- **Not verified** (yellow), with what to do: **download an original Windows 10 or 11 ISO from Microsoft** with the button next to it, and use that one. Unpack and Run everything ask before going on with such an ISO (once per ISO while the window is open).
+
+The ISO is read once (about a minute for a 6 GB ISO on an SSD, with a progress bar): the result is kept with the file's size and date, so unpacking again or Run everything later don't read it again. **Check SHA-256** checks the ISO without unpacking it.
+
+Not every original ISO is on the public pages:
+
+- **Visual Studio subscription / Volume Licensing** downloads (file names like `en-us_windows_10_..._x64_dvd_1a2b3c4d.iso` or `SW_DVD9_...`) are listed only on that portal: compare the SHA-256 shown on page 1 with the one there. The tool recognises those names and says so.
+- An ISO made with the **Media Creation Tool** is built on your PC from Microsoft's files, so its SHA-256 is never in a list.
+- Without internet only the built-in list is used, and page 1 says so — check again when online.
+
+No other source is trusted, and the SHA-256 is not sent anywhere: the pages are only read.
 
 ## Speed
 
@@ -257,7 +279,7 @@ Any other image can still get drivers, signed packages, an answer file and `$OEM
 
 ## Privacy: what stays on your PC
 
-The tool talks only to Microsoft (Update Catalog, download servers, symbol server, nuget.org for the signing tools). Only if you choose the generate-cat-file signing engine, it also downloads that tool's source code from github.com. It sends nothing about you or your PC anywhere.
+The tool talks only to Microsoft (Update Catalog, download servers, the ISO download pages for the [SHA-256 check](#original-iso-check), symbol server, nuget.org for the signing tools). Only if you choose the generate-cat-file signing engine, it also downloads that tool's source code from github.com. It sends nothing about you or your PC anywhere.
 
 What is private — **never share or upload it:**
 
@@ -279,7 +301,7 @@ The repository's [`.gitignore`](.gitignore) excludes all of that, so a fork or p
 | `~/.w10u-gencat` in your WSL distribution | generate-cat-file built there, only with that engine — remove it with `rm -rf ~/.w10u-gencat` |
 | `signing\` (next to the .cmd) | `DriverSigning.pfx` (**private**) + `DriverSigning.cer` |
 | `Windows-ISO-Updater.settings.json` | Your options (the same file for every version; `Win10-ISO-Updater.settings.json` from 3.3 and older is read once) |
-| `C:\W10U\` (work folder) | Unpacked media, updates, drivers, signed copies, logs, `state.json`, output ISO — all removed by *Clean up → Everything* |
+| `C:\W10U\` (work folder) | Unpacked media, updates, drivers, signed copies, logs, `state.json` (also the SHA-256 check of the last ISO), output ISO — all removed by *Clean up → Everything* |
 
 Logs: `C:\W10U\logs\engine.log` and `dism.log` (`dism-boot.log` for boot.wim when it runs in the background). During install, the driver script writes `C:\Windows\Temp\SetupComplete-drivers.log`.
 
@@ -289,6 +311,7 @@ Logs: `C:\W10U\logs\engine.log` and `dism.log` (`dism-boot.log` for boot.wim whe
 
 | Problem | Fix |
 |---------|-----|
+| Page 1 says **Not verified** for an ISO from Microsoft | Without internet, press **Check SHA-256** again when online (a new ISO is only on microsoft.com). A Visual Studio subscription / Volume Licensing ISO: compare the SHA-256 with the one on that portal. A Media Creation Tool ISO is never listed. Otherwise download the ISO again from Microsoft (button on page 1) |
 | "Mount folder is not empty" | *Options and clean up* → **Clean up now** |
 | Start completely fresh | *Options and clean up* → tick **Everything** → **Clean up now** (settings and the signing certificate are kept) |
 | Cumulative update fails with an ESU-related error | Set the month on page 3 back to `2025-10` |
@@ -330,6 +353,7 @@ python src/build.py
 | `35_engine_service.ps1` | slipstream: WinRE, install.wim (several editions at the same time, each in a background runspace), boot.wim (optionally in a background runspace), media update, time per step |
 | `36_engine_build.ps1` | ISO build: free space and "in use" checks, oscdimg into a `.part` file, SHA-256 |
 | `37_engine_download.ps1` | finds and downloads the updates (servicing stack lookup in a background job) |
+| `29_engine_isocheck.ps1`, `iso-hashes.json`, `isohashes.py` | the original ISO check: SHA-256 of the ISO, Microsoft's tables (the built-in list, built into `Get-KnownIsoHashes`, and the pages on microsoft.com); `python3 src/isohashes.py` adds what the pages list now (run it before a release), `--archive` also reads the Internet Archive's copies of those pages |
 | `38_engine_windows.ps1` | Windows 10 / 11 detection, catalog title patterns, update order (24H2 checkpoints), the DISM for the image (ADK on a Windows 10 PC), Analyze |
 | `31_engine_sign.ps1` | certificate, catalogs, re-signing (isolated copies with only the INF files that need a new catalog), `$OEM$` assembly, `SetupComplete-drivers.cmd` |
 | `39_engine_catalogs.ps1` | the signing engines: MakeCat (`.cdf`), libwdi-style (CryptCAT from C#), generate-cat-file (WSL); one catalog per folder with every file of it, compressed files expanded, Inf2Cat as fallback |
@@ -345,7 +369,7 @@ python src/build.py
 pwsh tests/run-tests.ps1
 ```
 
-Fourteen suites (about 505 checks) run the PowerShell part on Linux / macOS with PowerShell 7: catalog parsing (Windows 10 and Windows 11 titles, the 24H2 checkpoint order, the DISM choice), signing with stand-ins for `signtool` / `Inf2Cat` (an NVCleanstall-style untrusted catalog, live Inf2Cat status from a worker runspace, keeping only this PC's INF files, isolated copies with only the edited INF files, an own catalog for an INF whose catalog is shared (NVIDIA's `nv_dispi.cat`) with its encoding kept, several Inf2Cat runs at the same time, the fallback to the whole folder, batched signing, the time estimate), the signing engines with stand-ins for `makecat`, `expand` and WSL (one catalog per folder with every file in it, compressed files expanded, the `.cdf`, the CryptCAT source compiled, the fallback to Inf2Cat, the engine buttons), `$OEM$` assembly, every install check finding and fix, an answer file made by the autounattend generator (`tests/fixtures`, personal data removed), the page refresh with Windows PowerShell 5.1's JSON behaviour simulated (and the taskbar progress), the dark / light theme (XAML conversion, a light color for every color, text contrast) with the text size and font settings, the interface languages (every text translated in every language, placeholders and formats kept, the language in use, switching), a whole slipstream against a stand-in `dism` (boot.wim and WinRE in the background vs. sequential, several editions at the same time — how many at once, the edition order of the new `install.wim`, WinRE in every edition, a failing edition, no background worker — updates the image already has, `boot.wim` in one pass, older driver versions, a failed WinRE update, the driver set, the Defender option, the time per step), the ISO build against a stand-in `oscdimg` (failed build, ISO in use, free space), and the download step with a stand-in catalog (the servicing stack lookup running while the other updates download). DISM, WPF and real driver installs still need a Windows test run.
+Fifteen suites (about 550 checks) run the PowerShell part on Linux / macOS with PowerShell 7: catalog parsing (Windows 10 and Windows 11 titles, the 24H2 checkpoint order, the DISM choice), signing with stand-ins for `signtool` / `Inf2Cat` (an NVCleanstall-style untrusted catalog, live Inf2Cat status from a worker runspace, keeping only this PC's INF files, isolated copies with only the edited INF files, an own catalog for an INF whose catalog is shared (NVIDIA's `nv_dispi.cat`) with its encoding kept, several Inf2Cat runs at the same time, the fallback to the whole folder, batched signing, the time estimate), the signing engines with stand-ins for `makecat`, `expand` and WSL (one catalog per folder with every file in it, compressed files expanded, the `.cdf`, the CryptCAT source compiled, the fallback to Inf2Cat, the engine buttons), `$OEM$` assembly, every install check finding and fix, an answer file made by the autounattend generator (`tests/fixtures`, personal data removed), the page refresh with Windows PowerShell 5.1's JSON behaviour simulated (and the taskbar progress), the dark / light theme (XAML conversion, a light color for every color, text contrast) with the text size and font settings, the interface languages (every text translated in every language, placeholders and formats kept, the language in use, switching), a whole slipstream against a stand-in `dism` (boot.wim and WinRE in the background vs. sequential, several editions at the same time — how many at once, the edition order of the new `install.wim`, WinRE in every edition, a failing edition, no background worker — updates the image already has, `boot.wim` in one pass, older driver versions, a failed WinRE update, the driver set, the Defender option, the time per step), the ISO build against a stand-in `oscdimg` (failed build, ISO in use, free space), the download step with a stand-in catalog (the servicing stack lookup running while the other updates download), and the original ISO check (Microsoft's table markup, the built-in list, the SHA-256 against `Get-FileHash`, microsoft.com online and offline, the result kept and not read again, subscription file names, page 1 and the question before unpacking). DISM, WPF and real driver installs still need a Windows test run.
 
 ---
 
@@ -355,7 +379,8 @@ The full list of changes is in **[CHANGELOG.md](CHANGELOG.md)**; every release o
 
 | Version | Date | Highlights |
 |---|---|---|
-| **4.2.0** | 2026-10-30 | The interface in Portuguese, Spanish, French, German and Italian (top right, *Language*), switched at once |
+| **4.3.0** | 2026-10-31 | Page 1 checks that the ISO is an original from Microsoft (SHA-256 against Microsoft's published values) and says what to do when it isn't |
+| 4.2.0 | 2026-10-30 | The interface in Portuguese, Spanish, French, German and Italian (top right, *Language*), switched at once |
 | 4.1.0 | 2026-10-30 | Faster slipstream: updates an image already has are skipped (refreshed ISOs), `boot.wim` gets the update in one pass, several editions at the same time; older driver versions unticked; time of every step at the end of the log |
 | 4.0.0 | 2026-10-30 | Choice of signing engine on page 5: **MakeCat** (default, seconds instead of minutes for NVIDIA), libwdi-style, generate-cat-file (WSL), Inf2Cat — from NVIDIA Modded Drivers Signer 2.3.0 |
 | 3.6.0 | 2026-10-30 | The same changes, published for a few minutes before they were numbered 4.0.0 |

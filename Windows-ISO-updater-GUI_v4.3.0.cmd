@@ -1,6 +1,6 @@
 @echo off
 :: ===========================================================================
-::  Windows-ISO-updater-GUI_v4.2.0.cmd  -  one file, graphical interface
+::  Windows-ISO-updater-GUI_v4.3.0.cmd  -  one file, graphical interface
 ::  Windows ISO Updater: the file name carries the version (vX.X.X).
 ::  - unpacks a Windows 10 or Windows 11 ISO and detects its build
 ::  - downloads its updates from the Microsoft Update Catalog
@@ -26,7 +26,7 @@ exit /b
 
 :admin_ok
 set "W10U_SELF=%~f0"
-echo Starting Windows ISO Updater v4.2.0 ...  (this window hides when the program opens)
+echo Starting Windows ISO Updater v4.3.0 ...  (this window hides when the program opens)
 "%PSEXE%" -NoProfile -STA -ExecutionPolicy Bypass -Command "$t=[IO.File]::ReadAllText($env:W10U_SELF);$i=$t.IndexOf('#'+'PS-BEGIN');Invoke-Expression $t.Substring($i)"
 if errorlevel 1 pause
 exit /b
@@ -42,7 +42,7 @@ $ProgressPreference    = 'SilentlyContinue'
 
 $Script:AppName      = 'Windows-ISO-Updater'
 $Script:AppTitle     = 'Windows ISO Updater'
-$Script:AppVersion   = '4.2.0'
+$Script:AppVersion   = '4.3.0'
 $Script:Root         = Split-Path -Parent $env:W10U_SELF
 $ToolsDir            = Join-Path $Script:Root 'tools'
 $IsoPath             = $null
@@ -857,6 +857,286 @@ function Invoke-Download([switch]$Auto) {
     Write-Ok "All packages are in $($Script:P.Updates)"
 }
 #endregion
+
+#region ---------------------------------------------------------------- is the ISO an original from Microsoft? (SHA-256)
+# Microsoft lists the SHA-256 of every ISO on its download pages ("Verify your download"). An ISO is original when
+# its SHA-256 is one of them: the values in Get-KnownIsoHashes (built from src/iso-hashes.json, which keeps the ISOs
+# Microsoft no longer lists) or, when it is not there, on the pages themselves. No other source is trusted.
+# The result is kept in the state (IsoCheck) with the file's size and date, so an ISO is read only once.
+$Script:IsoHashUA = 'Mozilla/5.0 (X11; Linux x86_64; rv:128.0) Gecko/20100101 Firefox/128.0'   # the Windows 10 page lists the ISOs only for browsers that are not on Windows
+function Get-IsoHashPages {
+    return @(
+        @{ Name = 'Windows 11'; Arch = 'x64';   Url = 'https://www.microsoft.com/en-us/software-download/windows11' }
+        @{ Name = 'Windows 11'; Arch = 'Arm64'; Url = 'https://www.microsoft.com/en-us/software-download/windows11arm64' }
+        @{ Name = 'Windows 10'; Arch = '';      Url = 'https://www.microsoft.com/en-us/software-download/windows10ISO' }
+    )
+}
+# The "Verify your download" table of one page -> Sha256 / Product / Label ("English 64-bit").
+function Read-IsoHashPage([string]$Html, $Page) {
+    $prod = [string]$Page.Name
+    $v = [regex]::Match([string]$Html, 'Version (\d{2}H\d)')
+    if ($v.Success) { $prod += ' ' + $v.Groups[1].Value }
+    if ($Page.Arch -eq 'Arm64') { $prod += ' Arm64' }
+    $rows = [regex]::Matches([string]$Html, '<tr>\s*<td>([^<]+)</td>\s*<td>\s*([0-9A-Fa-f]{64})\s*</td>\s*</tr>', 'IgnoreCase')
+    return @(foreach ($r in $rows) {
+        [pscustomobject]@{
+            Sha256 = $r.Groups[2].Value.ToUpperInvariant(); Product = $prod; Listed = ''
+            Label  = ([regex]::Replace([Net.WebUtility]::HtmlDecode($r.Groups[1].Value), '\s+', ' ')).Trim()
+        }
+    })
+}
+# The tables on microsoft.com now. Read = pages read, Failed = pages that could not be read (offline, blocked, changed).
+function Get-MicrosoftIsoHashes {
+    $out = @(); $read = 0; $failed = @()
+    foreach ($pg in Get-IsoHashPages) {
+        try {
+            $html = (Invoke-WebRequest -Uri $pg.Url -UseBasicParsing -UserAgent $Script:IsoHashUA -TimeoutSec 45 -Headers @{ 'Accept-Language' = 'en-US,en;q=0.9' }).Content
+            $rows = @(Read-IsoHashPage $html $pg)
+            if ($rows.Count -eq 0) { $failed += "$($pg.Url) (no SHA-256 table on the page)"; continue }
+            $out += $rows; $read++
+        } catch { $failed += "$($pg.Url) ($($_.Exception.Message))" }
+    }
+    return @{ Hashes = $out; Read = $read; Failed = $failed }
+}
+# The list in this file (src/iso-hashes.json at build time): Sha256 / Product / Label / Listed (first day Microsoft showed it).
+function Get-KnownIsoHashList {
+    if (-not (Get-Command Get-KnownIsoHashes -ErrorAction SilentlyContinue)) { return @() }
+    return @(foreach ($l in ((Get-KnownIsoHashes) -split "`r?`n")) {
+        $f = $l -split "`t"
+        if ($f.Count -lt 4 -or $f[0] -notmatch '^[0-9A-F]{64}$') { continue }
+        [pscustomobject]@{ Sha256 = $f[0]; Product = [Net.WebUtility]::HtmlDecode($f[1]); Label = [Net.WebUtility]::HtmlDecode($f[2]); Listed = $f[3] }
+    })
+}
+function Get-FileSha256([string]$Path) {
+    $alg = $null
+    try { $alg = New-Object Security.Cryptography.SHA256Cng } catch { $alg = [Security.Cryptography.SHA256]::Create() }
+    $fs = New-Object IO.FileStream($Path, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::Read, 1MB, [IO.FileOptions]::SequentialScan)
+    try {
+        $len = $fs.Length; $buf = New-Object byte[] (4MB); $done = 0L; $last = -1
+        while (($n = $fs.Read($buf, 0, $buf.Length)) -gt 0) {
+            [void]$alg.TransformBlock($buf, 0, $n, $null, 0)
+            $done += $n
+            if ($Script:Sync -and $len -gt 0) {
+                $p = [math]::Floor(1000.0 * $done / $len) / 10
+                if ($p -ne $last) { $Script:Sync.Pct = $p; $last = $p }
+            }
+        }
+        [void]$alg.TransformFinalBlock($buf, 0, 0)
+        return ([BitConverter]::ToString($alg.Hash) -replace '-', '')
+    } finally { $fs.Dispose(); $alg.Dispose() }
+}
+# File names of the Visual Studio subscription / Volume Licensing downloads (en-us_windows_10_..._dvd_1a2b3c4d.iso,
+# SW_DVD9_Win_Pro_10_22H2...ISO): those ISOs are original too, but Microsoft lists their SHA-256 only on that portal.
+function Test-SubscriptionIsoName([string]$Name) {
+    return ($Name -match '^[a-z]{2}(-[a-z]{2,4})?_windows_(10|11|server)_.*_dvd_[0-9a-f]{8}\.iso$' -or $Name -match '^SW_DVD\d')
+}
+function Get-IsoFileKey($File) {
+    return '{0}|{1}|{2}' -f $File.FullName.ToLowerInvariant(), $File.Length, $File.LastWriteTimeUtc.Ticks
+}
+# Checks $Iso; the result is in $Script:S.IsoCheck. Status: original / unknown. Online: $true (pages read),
+# $false (not reachable - only the list in this file was used), $null (not needed: found in that list).
+function Test-IsoOriginal([string]$Iso) {
+    $f = Get-Item -LiteralPath $Iso -ErrorAction Stop
+    $key = Get-IsoFileKey $f
+    $prev = $Script:S.IsoCheck
+    if ($prev -and [string]$prev.Key -eq $key -and [string]$prev.Status -eq 'original') {
+        Write-Ok "Original Microsoft ISO: $($prev.Product) - $($prev.Label) (SHA-256 checked $($prev.When))."
+        return $prev
+    }
+    Write-Step "SHA-256 of $($f.Name) ($(Format-Size $f.Length))"
+    if ($prev -and [string]$prev.Key -eq $key -and [string]$prev.Sha256 -match '^[0-9A-F]{64}$') { $sha = [string]$prev.Sha256; Write-Info 'Already computed - looking it up again.' }
+    else {
+        Write-Host 'Reading the ISO to compute its SHA-256' -NoNewline
+        $t0 = Get-Date
+        $sha = Get-FileSha256 $f.FullName
+        if ($Script:Sync) { $Script:Sync.Pct = -1 }
+        Write-Info ('{0}  ({1:mm\:ss})' -f $sha, ((Get-Date) - $t0))
+    }
+    $r = [ordered]@{ Key = $key; Path = $f.FullName; Name = $f.Name; Size = $f.Length; Sha256 = $sha; Status = 'unknown'
+                     Product = ''; Label = ''; Source = ''; Listed = ''; Online = $null; When = (Get-Date).ToString('yyyy-MM-dd HH:mm', $Script:Inv)
+                     Subscription = (Test-SubscriptionIsoName $f.Name) }
+    $hit = @(Get-KnownIsoHashList | Where-Object { $_.Sha256 -eq $sha }) | Select-Object -First 1
+    if ($hit) { $r.Source = 'list' }
+    else {
+        Write-Host 'Reading the SHA-256 lists on microsoft.com' -NoNewline
+        $ms = Get-MicrosoftIsoHashes
+        foreach ($e in @($ms.Failed)) { Add-Log "ISO check: could not read $e" }
+        $r.Online = ($ms.Read -gt 0)
+        $hit = @($ms.Hashes | Where-Object { $_.Sha256 -eq $sha }) | Select-Object -First 1
+        if ($hit) { $r.Source = 'microsoft.com' }
+    }
+    if ($hit) {
+        $r.Status = 'original'; $r.Product = $hit.Product; $r.Label = $hit.Label; $r.Listed = $hit.Listed
+        $from = if ($r.Source -eq 'list') { "Microsoft's list as of $($hit.Listed)" } else { 'microsoft.com' }
+        Write-Ok "Original Microsoft ISO: $($r.Product) - $($r.Label) (SHA-256 found on $from)."
+    } else {
+        Write-Warn "The SHA-256 of $($f.Name) is not one Microsoft lists for its Windows 10 and 11 ISOs."
+        if ($r.Online -eq $false) { Write-Warn 'microsoft.com could not be reached, so only the list in this program was used - check again when online for the newest ISOs.' }
+        if ($r.Subscription) { Write-Info 'Its name is the one of a Visual Studio subscription / Volume Licensing download: compare the SHA-256 above with the one shown on that portal.' }
+        Write-Info 'ISOs made with the Media Creation Tool are built on the PC and are never in the list. Anything else may be modified - download an original Windows 10 or 11 ISO from microsoft.com.'
+    }
+    $Script:S.IsoCheck = $r
+    Save-State
+    return $r
+}
+#endregion
+
+function Get-KnownIsoHashes {
+    return @'
+964F2D179FA13670285B8A2DB7F0CD72983E8BC5DF8554F547550486AD8AFEAB	Windows 10 22H2	Arabic 32-bit	2026-10-31
+237FCBAA234166A836260DFA760F71F1211A6C573130C75D4CCDCA9D7D29F69A	Windows 10 22H2	Arabic 64-bit	2026-10-31
+69E4B7ED9E5D7CEA72C075E63A493C867275608B8F9E9D1FE7D711459B32D1BE	Windows 10 22H2	Brazilian Portuguese 32-bit	2026-10-31
+0CA714572FCB5B8CE480ACC3C93EAF2F34CC6507DF5F693CFF021BF4A32FAC68	Windows 10 22H2	Brazilian Portuguese 64-bit	2026-10-31
+93C43C0F17AB17671EE16F321C0FA5E1506AAADAD0BD84A4207AD8692B78554E	Windows 10 22H2	Bulgarian 32-bit	2026-10-31
+1DFC04F3EC68602B547961A5AFD3758164E0C36A6BF420C564B1B44B375E6070	Windows 10 22H2	Bulgarian 64-bit	2026-10-31
+C828ACCB08886622F5E1A127BB83070BAE0E9235EF0E31573ABC6A8A5CB55286	Windows 10 22H2	Chinese Simplified 32-bit	2026-10-31
+D485D370406CBCB68959718817BD12ED87E537A14C885F84962E07136FC4A049	Windows 10 22H2	Chinese Simplified 64-bit	2026-10-31
+62E61916A5BC6F6B7EB75D132583C4131AB81E4A19038DE527918324585720EE	Windows 10 22H2	Chinese Traditional 32-bit	2026-10-31
+C9594113B52F96783FB6CA8248EBBC972277E26FB215C302BFCCE50DF6C21A79	Windows 10 22H2	Chinese Traditional 64-bit	2026-10-31
+5451422072BF6A231F2CA8CA865B89077EB2E5084DDFAFAD6B1F7949732B25B8	Windows 10 22H2	Croatian 32-bit	2026-10-31
+140462535A28CD006CD97055DABB086F8511F52BEFEECDF8BCB5ADEB64CED3AB	Windows 10 22H2	Croatian 64-bit	2026-10-31
+AF1A11BEA0BA0EC789C546EE0BA0740489065CBBC0B329CC4B00B9214C23E42B	Windows 10 22H2	Czech 32-bit	2026-10-31
+AD5EAAD75971D22C84F433854FE9671EFC360E9EB501F3B2E94A72E74C78F6FE	Windows 10 22H2	Czech 64-bit	2026-10-31
+A2F4C905A75B87372BEC9DA81EDC521EBA16FA0832C269FE7F71B5DA34FE6EFF	Windows 10 22H2	Danish 32-bit	2026-10-31
+74CF090D3F881F1EFCD597E01DC3FA4C6BFC2F5D3CD141CF68C92034E0BA6A57	Windows 10 22H2	Danish 64-bit	2026-10-31
+AC09A473E97864F6DD4E0AF4038BECF7A43FEF790F9AF9802CEF5530DFB69BCE	Windows 10 22H2	Dutch 32-bit	2026-10-31
+51B2F525CF7426FEFD1EF0813C4C07E7D772C61C712E20C879D8ED568D2ABCC9	Windows 10 22H2	Dutch 64-bit	2026-10-31
+AC0B7045B6C3A72A4D46DAAB0944E109A55D9EDE3A11B775FDB57C2DD3FCA2EF	Windows 10 22H2	English 32-bit	2026-10-31
+A6F470CA6D331EB353B815C043E327A347F594F37FF525F17764738FE812852E	Windows 10 22H2	English 64-bit	2026-10-31
+38D093AE08BF80302B900BC91A2CE5205C5086DDEEFAB29E8D529D5607B6B4DB	Windows 10 22H2	English International 32-bit	2026-10-31
+EDC53C5C5FE6926DEA23FC3E884FBCF78CC2B9E76364BE968F806FC6D42B59D2	Windows 10 22H2	English International 64-bit	2026-10-31
+6B59D1F6C02C5215384E5BD1D16B2591710D9F6C430F8C4C1F554973672458F1	Windows 10 22H2	Estonian 32-bit	2026-10-31
+AF649CE2920C4AFF96EF954C1B598C6DEE3E705EDC074565DDDCE3294D29F859	Windows 10 22H2	Estonian 64-bit	2026-10-31
+64F6427BB981BBADC0731AA686D62F157174A638EE9F2E10DF582753085B4E12	Windows 10 22H2	Finnish 32-bit	2026-10-31
+C17F3CFA9EC971DCD64B4A1152A7B563ADE165FB9DEB941F7C791E0F722D2D2F	Windows 10 22H2	Finnish 64-bit	2026-10-31
+F3E3C0EF680B4C0E03A4E7601A4B00F1EA13B8EED501F16B3E0610014E788AB9	Windows 10 22H2	French 32-bit	2026-10-31
+7B7F99E804B50F5E738FFDFC571803CCDCFE139599392496048FD32C5EAEDFF9	Windows 10 22H2	French 64-bit	2026-10-31
+E6E6A19346298D95FBC3D472AF5784755C6F510233B56FE330AD4C7AC3D2F957	Windows 10 22H2	French Canadian 32-bit	2026-10-31
+B8C09E172DBDE8E3DB14E110857AE8724D9BDB73F5B4D37D75929FF394B5CC6B	Windows 10 22H2	French Canadian 64-bit	2026-10-31
+B0BFC1B9B176DF0303ED3A91E7332CD1A8B57B07F25752CEC9493E1333F88075	Windows 10 22H2	German 32-bit	2026-10-31
+D1A41A09E9AE09631A087EDF95D7F4EECAB622F88B3C824D856CFEA47FCC0B4C	Windows 10 22H2	German 64-bit	2026-10-31
+E7F77D3D5D81D4BF7C1EDA65ED2B163DF20265D667577C859F10765E750921F2	Windows 10 22H2	Greek 32-bit	2026-10-31
+EE069CD752B140EFC9AF0A413313C637E13CCCB69225ED9FEDCCEB634B905EC7	Windows 10 22H2	Greek 64-bit	2026-10-31
+6E6FBC9A161BBAA41978466000F30ED363D536F86A337259E0B67A7A55539A3C	Windows 10 22H2	Hebrew 32-bit	2026-10-31
+15CBC5E2CFCE6987892A4466C55F079B77A6EAA862A519F701B3F68661299979	Windows 10 22H2	Hebrew 64-bit	2026-10-31
+F9AC230B1F3908F1883D257EF68E450FE47FE87D59FE84B57AE0EBFBEF3BEFB9	Windows 10 22H2	Hungarian 32-bit	2026-10-31
+DF28F3E76FA2A8D7B05531D2F1E697B877ADEFEB1311A4FCB62692D48235830B	Windows 10 22H2	Hungarian 64-bit	2026-10-31
+DC902370B6C81CF7B48D381E1CE377187668358BE821504FDBF8FFAC3763DD09	Windows 10 22H2	Italian 32-bit	2026-10-31
+99D0376562919567F0BDDDCD43721CCA6B2834FC4EF93E0DB9F05ED26AB1A3DE	Windows 10 22H2	Italian 64-bit	2026-10-31
+1570135083774BB43DB979261312803DAE5112FF94515FC6C35CAD7274518945	Windows 10 22H2	Japanese 32-bit	2026-10-31
+4949E32D1B96C66C79BB8F2227624E74B5DBDA485CA0D4F8A32852F51E67AEA8	Windows 10 22H2	Japanese 64-bit	2026-10-31
+2ECA27FE084B53E7AF674688DCCB8AC5FA4D31DD0B97F372BFEDB75D16B0EE82	Windows 10 22H2	Korean 32-bit	2026-10-31
+C1F5310B1DF11A1B80B6656DFB9A22A3A2D0D427E87F6BF62933C4E0C9584B4F	Windows 10 22H2	Korean 64-bit	2026-10-31
+2CE48FF1506AFDD27F6850C91B7ABF39833D7C6F69F79690A1D6DD7F919E11B2	Windows 10 22H2	Latvian 32-bit	2026-10-31
+6CD568D60EF842C485C38E06D9D2162977AE9A699FA0C09CEC0C0733F30E295C	Windows 10 22H2	Latvian 64-bit	2026-10-31
+3D7B3BB75C50A58D8DEAAB5E057B38DF006732ED57E5C680144B95E172313595	Windows 10 22H2	Lithuanian 32-bit	2026-10-31
+AD62769CAA6C13646E0C6529042FD8C0A53A1A2E71F371079749210261166C5F	Windows 10 22H2	Lithuanian 64-bit	2026-10-31
+B49A74D5202B1B21094CE7101ABE505FA9C0F8B15605F85EC517B39B1B6175D8	Windows 10 22H2	Norwegian 32-bit	2026-10-31
+3C0865B12E9B81E6D138F8CA46F91BCD810CA3583D75F3458237AF65D93D7609	Windows 10 22H2	Norwegian 64-bit	2026-10-31
+78E404ED9EC4BEAFE1161ADDBEC70899547483E592DE609CB6FC64DEA5A004F7	Windows 10 22H2	Polish 32-bit	2026-10-31
+96AAD9E4B20B6E3F5FEA40B981263E854F6C879472369D5CE8324AAE1F6B7556	Windows 10 22H2	Polish 64-bit	2026-10-31
+F889BCE09E2117F32679D41DBD4F4CE7178A5ACC96057928A2836BBB6D7C4FB6	Windows 10 22H2	Portuguese 32-bit	2026-10-31
+83F83B5A9101F5FA21DE4E925ABC7693478D84CD5FBF02CB019393048B5BDBBB	Windows 10 22H2	Portuguese 64-bit	2026-10-31
+E3EBB528AFDD8C946FC5AA4D19B5AAA0CAE6AECB5C6F53A45334A3999E5550FA	Windows 10 22H2	Romanian 32-bit	2026-10-31
+E7D3C523D17468E83D100E5D40C9334ACB49469DB6C2685267F03AE72E2D2544	Windows 10 22H2	Romanian 64-bit	2026-10-31
+7B339135C62CB06C8EB8748922659FC36FBE1DB08C2749B036C00676455A5D00	Windows 10 22H2	Russian 32-bit	2026-10-31
+2A7C440C984EB018F513901E8ED96405213D237938C410C5089C0FAC7BA01898	Windows 10 22H2	Russian 64-bit	2026-10-31
+55B5CB316402BA4A2EE77F3E9FCC5A256F809C79B6BEBF0310014365C3C60DF9	Windows 10 22H2	Serbian Latin 32-bit	2026-10-31
+2A23BE419AB5B2D52E2A69CC3AE39973C565363E81CAD875DD23D8A81E4AC35A	Windows 10 22H2	Serbian Latin 64-bit	2026-10-31
+8950648926476B04367A08F53233664AC325CA6632BEB8DED727BA8638818D52	Windows 10 22H2	Slovak 32-bit	2026-10-31
+68CBE54D09FB3BC3C5C3BF93AB912F3225FF036D2FD2F9E0513D418955521329	Windows 10 22H2	Slovak 64-bit	2026-10-31
+634B23B37068119A974F6E6155EC663974048A51D0A440B2E6FB8F84E4EEE8E5	Windows 10 22H2	Slovenian 32-bit	2026-10-31
+5B44E6EC11915ABEF9EC63756001CEED815216A2E8D0E2A8F8F24C54FB819B20	Windows 10 22H2	Slovenian 64-bit	2026-10-31
+C91F1C1EE9CCD88215CE9AD3EF4303997C78715C5A84C8A4D8C9F67D307A3633	Windows 10 22H2	Spanish (Mexico) 32-bit	2026-10-31
+BF02C401644A4A9249EE206FAA9FD1691F4EC18BB37A9EA4FFE5C010DC147492	Windows 10 22H2	Spanish (Mexico) 64-bit	2026-10-31
+DB414636D7EC65B1AEFCC1242D323E839823DB21FD25A2A9C5DCECC3C16C3309	Windows 10 22H2	Spanish 32-bit	2026-10-31
+0D48C6F236CA9F966ECCD84D9BE01B038516567AABF1C46DCBEE785556B19813	Windows 10 22H2	Spanish 64-bit	2026-10-31
+9B1788454A42E1CA2196E2633DCD7C0BD3F94A9F8D29C60EB064CFA8A966EBD3	Windows 10 22H2	Swedish 32-bit	2026-10-31
+72A5EB42D5824FEE11B1708AED2526B2C3A73A6EC5E0D9C7CDD9552CB3C25BCA	Windows 10 22H2	Swedish 64-bit	2026-10-31
+84D93E48EA10AB2D766F17DA242379146F8395BDCA7F860755B27AF7DBD0F6C3	Windows 10 22H2	Thai 32-bit	2026-10-31
+D823AA445C4B575775918301948A44B7666FC1044CC9BB53B2EE981E9A01FD15	Windows 10 22H2	Thai 64-bit	2026-10-31
+57B51F3F9F36DD2A1586745751218D16ABACD8703A60FF9368C32CCA3CF0C5E9	Windows 10 22H2	Turkish 32-bit	2026-10-31
+F66AD547FB42F9D37DC8E86214E1E326E515AA20843F734C7F8F947E967BEE53	Windows 10 22H2	Turkish 64-bit	2026-10-31
+CEF1AAA637AC8F0E563244DEA7EFBDCF6C85288B131943DABD108182D9B0656C	Windows 10 22H2	Ukrainian 32-bit	2026-10-31
+2AE3B2DCCF609DC3C149FF344AB73B4E8E0B12BF7C97489B64DFC7A162A7C7D9	Windows 10 22H2	Ukrainian 64-bit	2026-10-31
+A75AE3F36CB9FFFFEDCB2D7DED9CEF83FFB710EB1376610D2220684D987CB9A5	Windows 11 26H2	Arabic 64-bit	2026-10-31
+D9AC87C1E9E47E0EB34EED443E5691C31781074E67608A51AEE50D7C7039F684	Windows 11 26H2	Brazilian Portuguese 64-bit	2026-10-31
+FE219A43A408534FB79B170925E750289DE0D80CA52D297B0977DCF5E71B6D87	Windows 11 26H2	Bulgarian 64-bit	2026-10-31
+B795B52D598BF8FDEA5975844731F4A50C5713876CEFC513884354272B023AF0	Windows 11 26H2	Chinese Simplified 64-bit	2026-10-31
+E951AB4EAD95D45E00CDFF6C9C05836F9499D3FD2FDEEAE0E709549F12F9B5DC	Windows 11 26H2	Chinese Traditional 64-bit	2026-10-31
+3874FB17B092E6470D5B5F0175BBB69B228619ABA5DA1612905F6960A2F9EAF6	Windows 11 26H2	Croatian 64-bit	2026-10-31
+9C616600B6845DBD24EB705E35D0EEC4311D0F6A88A35CB2B134FA487244796A	Windows 11 26H2	Czech 64-bit	2026-10-31
+C03816ABF43F868381C3AAF9940E8FB33CB54D244A88E182BFBD1F887F1D74C9	Windows 11 26H2	Danish 64-bit	2026-10-31
+34B3FD033F10560F48366940768AEA5AD5198407BEC3E2EEB9BD730A80D39F26	Windows 11 26H2	Dutch 64-bit	2026-10-31
+BD4307DF32BC8AF33B39CCECB1174AEB345386630F89A2B86C7A4E36B55EA650	Windows 11 26H2	English 64-bit	2026-10-31
+7E3F373BD3C2321B5D5125DFCF718DFBF1A0ABC50A267118669951890DF98A5D	Windows 11 26H2	English International 64-bit	2026-10-31
+2CD0558801F831D0315897BA5C989B9A8192BC975F4E8D5F0C4E51EA0817196B	Windows 11 26H2	Estonian 64-bit	2026-10-31
+32B9D11B13E1A200ED7C08D2E495C4B57C6B38150C8DFC679C5E80BC7A5F8767	Windows 11 26H2	Finnish 64-bit	2026-10-31
+AA515279F02FB2B425EFF341F0A1F158D61288C72CCA5F9D87B79B5A23F7F918	Windows 11 26H2	French 64-bit	2026-10-31
+F32E5538EE3F73206294378109501C9E2E2DA78DCDE66C43F4610B18CEEBC0A7	Windows 11 26H2	French Canadian 64-bit	2026-10-31
+193BBDE65EC84E298A1C798959489C8375ED501CF973C6D37FA52BB22EE8D43B	Windows 11 26H2	German 64-bit	2026-10-31
+40BE4F83598455D8606D442B740AA2942740BC9F6104ADC5D7320651D61DCBC0	Windows 11 26H2	Greek 64-bit	2026-10-31
+6458F3C2458790E0D78436574894F39B455924E83937E7C166D656730C441D29	Windows 11 26H2	Hebrew 64-bit	2026-10-31
+614ACD776E654B26255F0CFCFAC509217E6F98B6FE949FA478AB5514A7697B5F	Windows 11 26H2	Hungarian 64-bit	2026-10-31
+4A155CFF6748F433B017761FF0B5B6029878EC6EF267674418D65E0FED7D0520	Windows 11 26H2	Italian 64-bit	2026-10-31
+923EC1A2EC46CCBE607FC81BEAF9753BFBB6FC62220B7B8BFFD56E66F6DE3A0C	Windows 11 26H2	Japanese 64-bit	2026-10-31
+EC4C80AA16C1910562EA8EEA82B86CCF2012375E0492B180178BB605DE308292	Windows 11 26H2	Korean 64-bit	2026-10-31
+91E8ED6BA3DBFAB3CBE9977C5484572759D57ECBE8B25B7A9E208A4F1594AB7E	Windows 11 26H2	Latvian 64-bit	2026-10-31
+C66F9D4A83E334E528180534E13BE58CAC052E1621408B065BF242E2977A8769	Windows 11 26H2	Lithuanian 64-bit	2026-10-31
+1802913B75B2CF54AB7CCC0A01426C6B5C94BA144A4777DBF37A67CEEB071B25	Windows 11 26H2	Norwegian 64-bit	2026-10-31
+0EADDDD47A6D6D4524DF40CBD9B779C32DF222F7D2000DE2B82A000CA9C5470F	Windows 11 26H2	Polish 64-bit	2026-10-31
+62C0C3B067C9ADAC99DDBD8A98EEF6C7A51D5FFCCC3D97BD02DACCF1D6DFEDB9	Windows 11 26H2	Portuguese 64-bit	2026-10-31
+F29EB5D997A7822AD8E7D6AF2B9D23C9484AC86BDFD17F61CB287797CDA66B13	Windows 11 26H2	Romanian 64-bit	2026-10-31
+3DD71E8F84BFDC0054E1C4383DB2EAC921D21952AC03B2231CB6E9610A2F7423	Windows 11 26H2	Russian 64-bit	2026-10-31
+AA646F5C7E9D2B78208154F21A8EC2A18E7B72998B6F2C022B5FFBBB305EBFA5	Windows 11 26H2	Serbian Latin 64-bit	2026-10-31
+ED796F19C1B2FC0912F4BC3BFE854425C760FB08946D4EE88BC1C3FAB1D1862B	Windows 11 26H2	Slovak 64-bit	2026-10-31
+4702A4052A3E2ECFF5665F84E766EF4CB4A660C712427A8BA083B121840E6D6A	Windows 11 26H2	Slovenian 64-bit	2026-10-31
+83231BCD4C509CFA51EB9A79056C6F1CA40DF09110267832E780A881B9EE8F9E	Windows 11 26H2	Spanish (Mexico) 64-bit	2026-10-31
+9828703784880421E6602504DFD99064E4CB739CC9B20ABA22E3934372A14F9A	Windows 11 26H2	Spanish 64-bit	2026-10-31
+D0E4704500012ACF3551B6C394503638D21C4F1E58B410E7F8FA5D8D61BF3B8B	Windows 11 26H2	Swedish 64-bit	2026-10-31
+127DCC66ED7C1A797863FD3573EF5F2F17BDECB72425E74B7AA5186F50FADA4A	Windows 11 26H2	Thai 64-bit	2026-10-31
+6BE8412702B2C56099A98FD8FD058FFB869DC54035FC54A3BDFCE99ABB631FAF	Windows 11 26H2	Turkish 64-bit	2026-10-31
+2C2C6889E47273690842F8867539D204D3814820E235C520BF63A6140D7CEFE3	Windows 11 26H2	Ukrainian 64-bit	2026-10-31
+92775CAD76E5B90B6BC0D2F7ADA982B5E399CBB59BFA797320872016927848DD	Windows 11 26H2 Arm64	Arabic 64-bit	2026-10-31
+48EEC10EAFF055A62A1516CE83E103DFDBE72A4AAF12A221E99ECB29CAA3FB77	Windows 11 26H2 Arm64	Brazilian Portuguese 64-bit	2026-10-31
+A56988DAE9BE80F1D5737E5F5066260110ED175B02F5ED849CA5BAA99321CC1B	Windows 11 26H2 Arm64	Bulgarian 64-bit	2026-10-31
+CD573DF724862300895D0F5D0836E663756D22CC4E964C752EFDC05B4FC09E8B	Windows 11 26H2 Arm64	Chinese Simplified 64-bit	2026-10-31
+C0486202732B8D91918FF83E014D52D936A37CAC65B80F5B34023AA188F25C6E	Windows 11 26H2 Arm64	Chinese Traditional 64-bit	2026-10-31
+78B7388EA549C3440CC48C7C427CB1C118EC40408A914B6A98D4684C6DEE138E	Windows 11 26H2 Arm64	Croatian 64-bit	2026-10-31
+A299C5B56A5FE93996F4C4EBD390338E00C1208E94F04F14085DC05FEC262F06	Windows 11 26H2 Arm64	Czech 64-bit	2026-10-31
+0DF64FA738E25BEACDF844D9B74DAC7F67345F5003B23787F6AE87E3451BFBF1	Windows 11 26H2 Arm64	Danish 64-bit	2026-10-31
+554267A82102284894E874625C6E8C5FDE0850C9A998D16DC25DB968B9B2D575	Windows 11 26H2 Arm64	Dutch 64-bit	2026-10-31
+8992F2D2CFD2FA647E579E9EB31FC21F34DA8333C29B6170FDE17D2ED6623E9C	Windows 11 26H2 Arm64	English 64-bit	2026-10-31
+500BCB6F272B7C455156470EA06816F558F13B885723F84EE9EAB7534C7DEE61	Windows 11 26H2 Arm64	English International 64-bit	2026-10-31
+F2B835D2894AFE3160B53F2CFC58DAED95DAB80D677596F0A69544FBAE17DD05	Windows 11 26H2 Arm64	Estonian 64-bit	2026-10-31
+0BF586CF3DE2D8ABDFC998B5A5270F3F5BC9586F7342AAB7B0E3D1C212AE730B	Windows 11 26H2 Arm64	Finnish 64-bit	2026-10-31
+D086FB0BC1574188E8533A7422B55A3FE3BC39D0E48DA0E895DEC3F370E472DF	Windows 11 26H2 Arm64	French 64-bit	2026-10-31
+595A083F8B63EFEC1FC2CD5E7875D88C1C7E71D7B34369C3BC359E8A7CE666BF	Windows 11 26H2 Arm64	French Canadian 64-bit	2026-10-31
+10CB224A54AEE8022ED250DA75B00CC8E614B0336D975100A0F80DBBC38ECDC2	Windows 11 26H2 Arm64	German 64-bit	2026-10-31
+390042887EE2FBE34AC831C64E71D9057EB82CD98F989AC585ECF719E7F27F1B	Windows 11 26H2 Arm64	Greek 64-bit	2026-10-31
+BBF9F2284FE7559EA8BDF960851A80231EADA3AA7E740958948B79AB01D23478	Windows 11 26H2 Arm64	Hebrew 64-bit	2026-10-31
+C511B047920A571E5D58D983E5EA3CC6811E20BB9CD6D255B73E85DA88FD5BAB	Windows 11 26H2 Arm64	Hungarian 64-bit	2026-10-31
+DE651996AF788D7F55B8D11BFA45D5B20E22013687EA2C37F3325A8CD4D7C5E5	Windows 11 26H2 Arm64	Italian 64-bit	2026-10-31
+8618E995C48FB6BB4D32C8CDF0E4B280473640736071C53943789F93A03BDD51	Windows 11 26H2 Arm64	Japanese 64-bit	2026-10-31
+833E132E94335A7EECC2B3BB6BA9E16B199413504049CC19743752F402FB9CF7	Windows 11 26H2 Arm64	Korean 64-bit	2026-10-31
+94ABA682D5D3A1CBA7F7A096A0E2A2B7A203513E75DD184AC4DAF3A36B36F273	Windows 11 26H2 Arm64	Latvian 64-bit	2026-10-31
+635899EA6901E7C9CE1C42E629D2E6DAAFF71128ED9D03C63B7DC0999805D613	Windows 11 26H2 Arm64	Lithuanian 64-bit	2026-10-31
+2C85AD913811599893B510A8278BD64CD6A0C1E1238582A57CC81FB28F7A76A3	Windows 11 26H2 Arm64	Norwegian 64-bit	2026-10-31
+6D9B301E9009FE9191A75DC537CE7D648649C3F991511105A89822BC19AED933	Windows 11 26H2 Arm64	Polish 64-bit	2026-10-31
+8F9E526B24BDB89C4EE6BB550D8E42FEE08FD9F657E4941A8F89FEA77CA9BE17	Windows 11 26H2 Arm64	Portuguese 64-bit	2026-10-31
+DEBA3AA801C8EB6C6D354D124A62A4CE8F7C1E52D0C081FD132D0FA5E9017A0E	Windows 11 26H2 Arm64	Romanian 64-bit	2026-10-31
+311879B09B0A990082BF4E47A1533BF994BC5379D9A41E4D386E5202DF2719A1	Windows 11 26H2 Arm64	Russian 64-bit	2026-10-31
+E9994BBD05440CD2FA2DB846710119CF33A5AA2AFD4FF71834D22A52CAB5FFA6	Windows 11 26H2 Arm64	Serbian Latin 64-bit	2026-10-31
+7FE3233A5162BD73F38FF378B824CA466A949354002D09FE47AA9AEE2AB67D10	Windows 11 26H2 Arm64	Slovak 64-bit	2026-10-31
+2178F38D5571B706770C932399F8A6139B58EDB537872A0D9973CE7297A9EB6D	Windows 11 26H2 Arm64	Slovenian 64-bit	2026-10-31
+23D5D42E8CD37FE1BACC37920EAA1AB0BB044AAE0D41EEEB6A77E82A8CA9A483	Windows 11 26H2 Arm64	Spanish (Mexico) 64-bit	2026-10-31
+DBF606CEB4CE1390F9F21AD1D96331848BC6B701CBAB0012785881A1A1C0EC63	Windows 11 26H2 Arm64	Spanish 64-bit	2026-10-31
+0D706BC138C9CD287C30D316FE9E623C5F700D085C430CB5329C8C4A1745E9BF	Windows 11 26H2 Arm64	Swedish 64-bit	2026-10-31
+768E8CE3BC0A5FE1D8102063791F056D52D073D2C3F1A6D47C40C5DC9F5F6560	Windows 11 26H2 Arm64	Thai 64-bit	2026-10-31
+13EEAB6C3DF650A8A219C2266F0768BA8583F8EEDE5D62EEBF2CAEE641CE747E	Windows 11 26H2 Arm64	Turkish 64-bit	2026-10-31
+99B00684F0FFF80C64E305A5559D6BF30356B17303BD8E7FFB379CDE9E7D23E7	Windows 11 26H2 Arm64	Ukrainian 64-bit	2026-10-31
+'@
+}
 
 
 #region ---------------------------------------------------------------- [4] Drivers
@@ -4778,6 +5058,7 @@ function Invoke-Job([string]$Job, $A) {
         Disable-DefenderSkip       # leftover from a run that was killed
         if ($Job -in 'Unpack', 'Download', 'Sign', 'Service', 'Build', 'All') { Enable-DefenderSkip }
         switch ($Job) {
+            'CheckIso'     { $Script:Sync.Result = Test-IsoOriginal ([string]$A.Iso) }
             'Unpack'       { $Script:IsoPath = [string]$A.Iso; Invoke-Unpack }
             'Analyze'      { Invoke-Analyze }
             'Download'     { Invoke-Download -Auto }
@@ -5071,7 +5352,7 @@ __RES__
           <TextBlock Text="W10" Foreground="White" FontWeight="Bold" FontSize="12" HorizontalAlignment="Center" VerticalAlignment="Center"/>
         </Border>
         <StackPanel Margin="12,0,0,0" VerticalAlignment="Center">
-          <TextBlock FontSize="15" FontWeight="SemiBold"><Run Text="Windows ISO Updater"/><Run x:Name="VerRun" Text="  v4.2.0" Foreground="#5B6478" FontWeight="Normal" FontSize="12"/></TextBlock>
+          <TextBlock FontSize="15" FontWeight="SemiBold"><Run Text="Windows ISO Updater"/><Run x:Name="VerRun" Text="  v4.3.0" Foreground="#5B6478" FontWeight="Normal" FontSize="12"/></TextBlock>
           <TextBlock Text="updates + drivers + signed NVIDIA mods + autounattend + $OEM$  ->  bootable ISO" Foreground="#8A94A8" FontSize="11"/>
         </StackPanel>
       </StackPanel>
@@ -5258,15 +5539,22 @@ $Script:XPages = @'
             </StackPanel></Border>
             <Border Style="{StaticResource Card}"><StackPanel>
               <TextBlock Style="{StaticResource H2}" Text="ISO file"/>
+              <TextBlock Style="{StaticResource Sub}" Margin="0,0,0,10" Text="Use an original ISO from Microsoft. Before it is unpacked, its SHA-256 is compared with the ones Microsoft publishes for its Windows 10 and 11 ISOs - the list in this program and, when online, the download pages on microsoft.com. An ISO that is not there may have been modified."/>
               <Grid><Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
                 <TextBox x:Name="IsoBox" Margin="0,0,8,0"/>
                 <Button x:Name="IsoBrowse" Grid.Column="1" Style="{StaticResource Btn}" Content="Browse..." Margin="0"/>
               </Grid>
               <WrapPanel Margin="0,14,0,0">
                 <Button x:Name="UnpackBtn" Style="{StaticResource Primary}" Content="Unpack and analyze"/>
+                <Button x:Name="IsoCheckBtn" Style="{StaticResource Btn}" Content="Check SHA-256"/>
                 <Button x:Name="AnalyzeBtn" Style="{StaticResource Btn}" Content="Re-read image info"/>
                 <Button x:Name="GetIsoBtn" Style="{StaticResource Btn}" Content="Download Windows 10 from Microsoft"/>
               </WrapPanel>
+              <StackPanel x:Name="IsoCheckPanel" Margin="0,12,0,0" Visibility="Collapsed">
+                <TextBlock x:Name="IsoCheckText" FontWeight="SemiBold" TextWrapping="Wrap"/>
+                <TextBlock x:Name="IsoCheckNote" Style="{StaticResource Sub}" Margin="0,4,0,0"/>
+                <TextBox x:Name="IsoHashBox" IsReadOnly="True" FontFamily="Consolas" Margin="0,8,0,0" Visibility="Collapsed" ToolTip="SHA-256 of the ISO - select it to copy"/>
+              </StackPanel>
             </StackPanel></Border>
             <Border Style="{StaticResource Card}"><StackPanel>
               <TextBlock Style="{StaticResource H2}" Text="Detected image"/>
@@ -5761,10 +6049,13 @@ Clear	Limpar
 Choose Windows 10 or Windows 11 and pick its ISO. It is copied into the work folder and its build and editions are detected - the version follows the ISO you unpack.	Escolha o Windows 10 ou o Windows 11 e selecione a respetiva ISO. &#xC9; copiada para a pasta de trabalho e a compila&#xE7;&#xE3;o e as edi&#xE7;&#xF5;es s&#xE3;o detetadas - a vers&#xE3;o segue a ISO que extrair.
 Windows version	Vers&#xE3;o do Windows
 ISO file	Ficheiro ISO
+Use an original ISO from Microsoft. Before it is unpacked, its SHA-256 is compared with the ones Microsoft publishes for its Windows 10 and 11 ISOs - the list in this program and, when online, the download pages on microsoft.com. An ISO that is not there may have been modified.	Use uma ISO original da Microsoft. Antes de ser extra&#xED;da, o seu SHA-256 &#xE9; comparado com os que a Microsoft publica para as ISOs do Windows 10 e 11 - a lista deste programa e, com liga&#xE7;&#xE3;o &#xE0; Internet, as p&#xE1;ginas de transfer&#xEA;ncia em microsoft.com. Uma ISO que n&#xE3;o esteja l&#xE1; pode ter sido modificada.
 Browse...	Procurar...
 Unpack and analyze	Extrair e analisar
+Check SHA-256	Verificar SHA-256
 Re-read image info	Voltar a ler a imagem
 Download Windows 10 from Microsoft	Transferir o Windows 10 da Microsoft
+SHA-256 of the ISO - select it to copy	SHA-256 da ISO - selecione-o para copiar
 Detected image	Imagem detetada
 Nothing unpacked yet.	Ainda nada foi extra&#xED;do.
 Tick the editions to update. With the option below on, unticked editions are left out of the new ISO (smaller and faster).	Marque as edi&#xE7;&#xF5;es a atualizar. Com a op&#xE7;&#xE3;o abaixo ativa, as edi&#xE7;&#xF5;es n&#xE3;o marcadas ficam de fora da nova ISO (mais pequena e mais r&#xE1;pida).
@@ -5904,6 +6195,7 @@ Re-sign drivers	Voltar a assinar controladores
 Slipstream	Integra&#xE7;&#xE3;o
 Build ISO	Criar ISO
 Apply fixes	Aplicar corre&#xE7;&#xF5;es
+SHA-256 check	Verifica&#xE7;&#xE3;o SHA-256
 no ISO yet	ainda sem ISO
 {0}  |  {1}  |  {2}  |  {3} edition(s)	{0}  |  {1}  |  {2}  |  {3} edi&#xE7;&#xE3;o(&#xF5;es)
 {0} free	{0} livres
@@ -5924,6 +6216,14 @@ Updates for Windows 10 1607 / LTSB 2016, 1809 / LTSC 2019, 2004-22H2 and LTSC 20
 The unpacked ISO is Windows {0} - pick a Windows {1} ISO and unpack it to switch.	A ISO extra&#xED;da &#xE9; Windows {0} - escolha uma ISO do Windows {1} e extraia-a para mudar.
 Download Windows {0} from Microsoft	Transferir o Windows {0} da Microsoft
 Windows 11: the newest updates in the Microsoft Update Catalog are used (21H2, which is out of servicing: its last ones, 2024-10).	Windows 11: s&#xE3;o usadas as atualiza&#xE7;&#xF5;es mais recentes do Cat&#xE1;logo do Microsoft Update (21H2, j&#xE1; fora de suporte: as suas &#xFA;ltimas, 2024-10).
+microsoft.com could not be reached, so only the list in this program was used - check again when online, the newest ISOs may be on the page.	N&#xE3;o foi poss&#xED;vel contactar microsoft.com, por isso s&#xF3; foi usada a lista deste programa - verifique de novo com liga&#xE7;&#xE3;o &#xE0; Internet, as ISOs mais recentes podem estar na p&#xE1;gina.
+Its name is the one of a Visual Studio subscription or Volume Licensing download, which are original too but not on the public pages: compare the SHA-256 with the one shown on that portal.	O nome &#xE9; o de uma transfer&#xEA;ncia de uma subscri&#xE7;&#xE3;o do Visual Studio ou do Licenciamento por Volume, que tamb&#xE9;m s&#xE3;o originais mas n&#xE3;o est&#xE3;o nas p&#xE1;ginas p&#xFA;blicas: compare o SHA-256 com o indicado nesse portal.
+An ISO made with the Media Creation Tool is built on the PC and is never listed. Any other ISO may have been modified: download an original Windows {0} ISO from Microsoft (button above) and use that one.	Uma ISO criada com a Ferramenta de Cria&#xE7;&#xE3;o de Multim&#xE9;dia &#xE9; gerada no PC e nunca est&#xE1; na lista. Qualquer outra ISO pode ter sido modificada: transfira uma ISO original do Windows {0} da Microsoft (bot&#xE3;o acima) e use essa.
+SHA-256 not checked yet - it is checked when you unpack the ISO, or now with Check SHA-256.	SHA-256 ainda n&#xE3;o verificado - &#xE9; verificado quando extrair a ISO, ou j&#xE1; com Verificar SHA-256.
+Original Microsoft ISO: {0} - {1}	ISO original da Microsoft: {0} - {1}
+Its SHA-256 is one Microsoft published on its download page (seen there on {0}).	O seu SHA-256 &#xE9; um dos que a Microsoft publicou na p&#xE1;gina de transfer&#xEA;ncia (visto l&#xE1; em {0}).
+Its SHA-256 is on Microsoft's download page (checked {0}).	O seu SHA-256 est&#xE1; na p&#xE1;gina de transfer&#xEA;ncia da Microsoft (verificado em {0}).
+Not verified: the SHA-256 is not one Microsoft lists for its Windows 10 and 11 ISOs.	N&#xE3;o verificada: o SHA-256 n&#xE3;o &#xE9; nenhum dos que a Microsoft indica para as ISOs do Windows 10 e 11.
 {0}  -  build {1}  -  {2}  -  {3} edition(s)	{0}  -  compila&#xE7;&#xE3;o {1}  -  {2}  -  {3} edi&#xE7;&#xE3;o(&#xF5;es)
 No automatic updates for this build - drivers, signed packages, answer file and $OEM$ still work.	Sem atualiza&#xE7;&#xF5;es autom&#xE1;ticas para esta compila&#xE7;&#xE3;o - controladores, pacotes assinados, ficheiro de respostas e $OEM$ continuam a funcionar.
 Updates up to {0} (the last month Microsoft allows offline for Windows 10).	Atualiza&#xE7;&#xF5;es at&#xE9; {0} (o &#xFA;ltimo m&#xEA;s que a Microsoft permite integrar offline no Windows 10).
@@ -5986,6 +6286,7 @@ Older	Antiga
 Unpack an ISO first (page 1).	Extraia primeiro uma ISO (p&#xE1;gina 1).
 Choose an existing .iso file first.	Escolha primeiro um ficheiro .iso existente.
 The work folder already has unpacked media ({0}). Replace it with a fresh copy of this ISO?	A pasta de trabalho j&#xE1; tem um suporte extra&#xED;do ({0}). Substitu&#xED;-lo por uma c&#xF3;pia nova desta ISO?
+Unpack this ISO anyway?	Extrair esta ISO mesmo assim?
 Drivers installed on this PC	Controladores instalados neste PC
 Third-party drivers exported from this PC. Ticked ones are slipstreamed into the ISO.	Controladores de terceiros exportados deste PC. Os marcados s&#xE3;o integrados na ISO.
 Pick the drivers folder - Drivers-Backup made by Drivers.cmd, a folder from another PC or a vendor pack. All subfolders are scanned.	Escolha a pasta de controladores - Drivers-Backup criada pelo Drivers.cmd, uma pasta de outro PC ou um pacote do fabricante. Todas as subpastas s&#xE3;o analisadas.
@@ -6010,6 +6311,7 @@ asked after unpacking	perguntado depois de extrair
 Drivers: {0}   Signed packages: {1}	Controladores: {0}   Pacotes assinados: {1}
 Answer file: {0}   $OEM$: {1}	Ficheiro de respostas: {0}   $OEM$: {1}
 Run everything now? It takes 30-90 minutes - the PC is kept awake until it is done.	Executar tudo agora? Demora 30-90 minutos - o PC fica acordado at&#xE9; terminar.
+Run everything with this ISO anyway?	Executar tudo com esta ISO mesmo assim?
 While a job runs (unpack, download, sign, slipstream, build), Windows Defender does not scan the work folder ({0}). The exclusion is removed when the job ends, and at the next start if the program was closed during a job. Everything in there comes from Microsoft, your drivers and this tool - do not put other downloads in that folder.	Durante uma tarefa (extrair, transferir, assinar, integrar, criar), o Windows Defender n&#xE3;o analisa a pasta de trabalho ({0}). A exclus&#xE3;o &#xE9; removida quando a tarefa termina, e no pr&#xF3;ximo arranque se o programa tiver sido fechado durante uma tarefa. Tudo o que l&#xE1; est&#xE1; vem da Microsoft, dos seus controladores e desta ferramenta - n&#xE3;o coloque l&#xE1; outras transfer&#xEA;ncias.
 Use this only when the ISO is for this PC. INF files for other hardware are removed from the signed copy, so the driver installs only on hardware that matches this PC. NVIDIA's own setup.exe may refuse to run from that copy - pnputil installs the driver anyway. Sign the package again for it to take effect.	Use isto s&#xF3; quando a ISO &#xE9; para este PC. Os ficheiros INF de outro hardware s&#xE3;o removidos da c&#xF3;pia assinada, por isso o controlador s&#xF3; se instala em hardware igual ao deste PC. O pr&#xF3;prio setup.exe da NVIDIA pode recusar-se a correr a partir dessa c&#xF3;pia - o pnputil instala o controlador na mesma. Assine o pacote de novo para ter efeito.
 With Secure Boot on, this ISO only boots on PCs whose UEFI already trusts 'Windows UEFI CA 2023'. Older firmware needs that Secure Boot update first (or Secure Boot off). The image also needs a 2024-04 or newer update.	Com o Arranque Seguro ativo, esta ISO s&#xF3; arranca em PCs cujo UEFI j&#xE1; confia na 'Windows UEFI CA 2023'. Firmware mais antigo precisa primeiro dessa atualiza&#xE7;&#xE3;o do Arranque Seguro (ou do Arranque Seguro desligado). A imagem tamb&#xE9;m precisa de uma atualiza&#xE7;&#xE3;o de 2024-04 ou mais recente.
@@ -6091,10 +6393,13 @@ Clear	Borrar
 Choose Windows 10 or Windows 11 and pick its ISO. It is copied into the work folder and its build and editions are detected - the version follows the ISO you unpack.	Elija Windows 10 o Windows 11 y seleccione su ISO. Se copia en la carpeta de trabajo y se detectan su compilaci&#xF3;n y sus ediciones; la versi&#xF3;n sigue a la ISO que extraiga.
 Windows version	Versi&#xF3;n de Windows
 ISO file	Archivo ISO
+Use an original ISO from Microsoft. Before it is unpacked, its SHA-256 is compared with the ones Microsoft publishes for its Windows 10 and 11 ISOs - the list in this program and, when online, the download pages on microsoft.com. An ISO that is not there may have been modified.	Use una ISO original de Microsoft. Antes de extraerla, su SHA-256 se compara con los que Microsoft publica para sus ISO de Windows 10 y 11: la lista de este programa y, con conexi&#xF3;n a Internet, las p&#xE1;ginas de descarga de microsoft.com. Una ISO que no est&#xE9; ah&#xED; puede haber sido modificada.
 Browse...	Examinar...
 Unpack and analyze	Extraer y analizar
+Check SHA-256	Comprobar SHA-256
 Re-read image info	Volver a leer la imagen
 Download Windows 10 from Microsoft	Descargar Windows 10 de Microsoft
+SHA-256 of the ISO - select it to copy	SHA-256 de la ISO: selecci&#xF3;nelo para copiarlo
 Detected image	Imagen detectada
 Nothing unpacked yet.	Todav&#xED;a no se ha extra&#xED;do nada.
 Tick the editions to update. With the option below on, unticked editions are left out of the new ISO (smaller and faster).	Marque las ediciones que quiere actualizar. Con la opci&#xF3;n de abajo activada, las ediciones sin marcar se quedan fuera de la nueva ISO (m&#xE1;s peque&#xF1;a y m&#xE1;s r&#xE1;pida).
@@ -6234,6 +6539,7 @@ Re-sign drivers	Volver a firmar controladores
 Slipstream	Integraci&#xF3;n
 Build ISO	Crear ISO
 Apply fixes	Aplicar correcciones
+SHA-256 check	Comprobaci&#xF3;n SHA-256
 no ISO yet	a&#xFA;n sin ISO
 {0}  |  {1}  |  {2}  |  {3} edition(s)	{0}  |  {1}  |  {2}  |  {3} edici&#xF3;n(es)
 {0} free	{0} libres
@@ -6254,6 +6560,14 @@ Updates for Windows 10 1607 / LTSB 2016, 1809 / LTSC 2019, 2004-22H2 and LTSC 20
 The unpacked ISO is Windows {0} - pick a Windows {1} ISO and unpack it to switch.	La ISO extra&#xED;da es Windows {0}; elija una ISO de Windows {1} y extr&#xE1;igala para cambiar.
 Download Windows {0} from Microsoft	Descargar Windows {0} de Microsoft
 Windows 11: the newest updates in the Microsoft Update Catalog are used (21H2, which is out of servicing: its last ones, 2024-10).	Windows 11: se usan las actualizaciones m&#xE1;s recientes del Cat&#xE1;logo de Microsoft Update (21H2, ya sin soporte: sus &#xFA;ltimas, 2024-10).
+microsoft.com could not be reached, so only the list in this program was used - check again when online, the newest ISOs may be on the page.	No se pudo acceder a microsoft.com, as&#xED; que solo se us&#xF3; la lista de este programa; vuelva a comprobarlo con conexi&#xF3;n, las ISO m&#xE1;s recientes pueden estar en la p&#xE1;gina.
+Its name is the one of a Visual Studio subscription or Volume Licensing download, which are original too but not on the public pages: compare the SHA-256 with the one shown on that portal.	Su nombre es el de una descarga de una suscripci&#xF3;n de Visual Studio o de Licencias por Volumen, que tambi&#xE9;n son originales pero no est&#xE1;n en las p&#xE1;ginas p&#xFA;blicas: compare el SHA-256 con el que se muestra en ese portal.
+An ISO made with the Media Creation Tool is built on the PC and is never listed. Any other ISO may have been modified: download an original Windows {0} ISO from Microsoft (button above) and use that one.	Una ISO creada con la Herramienta de creaci&#xF3;n de medios se genera en el PC y nunca est&#xE1; en la lista. Cualquier otra ISO puede haber sido modificada: descargue una ISO original de Windows {0} de Microsoft (bot&#xF3;n de arriba) y use esa.
+SHA-256 not checked yet - it is checked when you unpack the ISO, or now with Check SHA-256.	SHA-256 a&#xFA;n sin comprobar: se comprueba al extraer la ISO, o ahora con Comprobar SHA-256.
+Original Microsoft ISO: {0} - {1}	ISO original de Microsoft: {0} - {1}
+Its SHA-256 is one Microsoft published on its download page (seen there on {0}).	Su SHA-256 es uno de los que Microsoft public&#xF3; en su p&#xE1;gina de descarga (visto all&#xED; el {0}).
+Its SHA-256 is on Microsoft's download page (checked {0}).	Su SHA-256 est&#xE1; en la p&#xE1;gina de descarga de Microsoft (comprobado el {0}).
+Not verified: the SHA-256 is not one Microsoft lists for its Windows 10 and 11 ISOs.	No verificada: el SHA-256 no es ninguno de los que Microsoft indica para sus ISO de Windows 10 y 11.
 {0}  -  build {1}  -  {2}  -  {3} edition(s)	{0}  -  compilaci&#xF3;n {1}  -  {2}  -  {3} edici&#xF3;n(es)
 No automatic updates for this build - drivers, signed packages, answer file and $OEM$ still work.	No hay actualizaciones autom&#xE1;ticas para esta compilaci&#xF3;n; los controladores, los paquetes firmados, el archivo de respuesta y $OEM$ siguen funcionando.
 Updates up to {0} (the last month Microsoft allows offline for Windows 10).	Actualizaciones hasta {0} (el &#xFA;ltimo mes que Microsoft permite integrar sin conexi&#xF3;n en Windows 10).
@@ -6316,6 +6630,7 @@ Older	Antigua
 Unpack an ISO first (page 1).	Extraiga primero una ISO (p&#xE1;gina 1).
 Choose an existing .iso file first.	Elija primero un archivo .iso existente.
 The work folder already has unpacked media ({0}). Replace it with a fresh copy of this ISO?	La carpeta de trabajo ya tiene un medio extra&#xED;do ({0}). &#xBF;Reemplazarlo por una copia nueva de esta ISO?
+Unpack this ISO anyway?	&#xBF;Extraer esta ISO de todos modos?
 Drivers installed on this PC	Controladores instalados en este PC
 Third-party drivers exported from this PC. Ticked ones are slipstreamed into the ISO.	Controladores de terceros exportados de este PC. Los marcados se integran en la ISO.
 Pick the drivers folder - Drivers-Backup made by Drivers.cmd, a folder from another PC or a vendor pack. All subfolders are scanned.	Elija la carpeta de controladores: Drivers-Backup creada por Drivers.cmd, una carpeta de otro PC o un paquete del fabricante. Se analizan todas las subcarpetas.
@@ -6340,6 +6655,7 @@ asked after unpacking	se pregunta despu&#xE9;s de extraer
 Drivers: {0}   Signed packages: {1}	Controladores: {0}   Paquetes firmados: {1}
 Answer file: {0}   $OEM$: {1}	Archivo de respuesta: {0}   $OEM$: {1}
 Run everything now? It takes 30-90 minutes - the PC is kept awake until it is done.	&#xBF;Ejecutar todo ahora? Tarda 30-90 minutos; el PC se mantiene despierto hasta que termine.
+Run everything with this ISO anyway?	&#xBF;Ejecutar todo con esta ISO de todos modos?
 While a job runs (unpack, download, sign, slipstream, build), Windows Defender does not scan the work folder ({0}). The exclusion is removed when the job ends, and at the next start if the program was closed during a job. Everything in there comes from Microsoft, your drivers and this tool - do not put other downloads in that folder.	Mientras se ejecuta una tarea (extraer, descargar, firmar, integrar, crear), Windows Defender no analiza la carpeta de trabajo ({0}). La exclusi&#xF3;n se quita cuando termina la tarea, y en el siguiente inicio si el programa se cerr&#xF3; durante una tarea. Todo lo que hay ah&#xED; viene de Microsoft, de sus controladores y de esta herramienta; no ponga otras descargas en esa carpeta.
 Use this only when the ISO is for this PC. INF files for other hardware are removed from the signed copy, so the driver installs only on hardware that matches this PC. NVIDIA's own setup.exe may refuse to run from that copy - pnputil installs the driver anyway. Sign the package again for it to take effect.	Use esto solo cuando la ISO sea para este PC. Los archivos INF de otro hardware se quitan de la copia firmada, as&#xED; que el controlador solo se instala en hardware igual al de este PC. El propio setup.exe de NVIDIA puede negarse a ejecutarse desde esa copia; pnputil instala el controlador de todos modos. Vuelva a firmar el paquete para que tenga efecto.
 With Secure Boot on, this ISO only boots on PCs whose UEFI already trusts 'Windows UEFI CA 2023'. Older firmware needs that Secure Boot update first (or Secure Boot off). The image also needs a 2024-04 or newer update.	Con el Arranque seguro activado, esta ISO solo arranca en PC cuyo UEFI ya conf&#xED;a en 'Windows UEFI CA 2023'. Los firmwares m&#xE1;s antiguos necesitan antes esa actualizaci&#xF3;n del Arranque seguro (o el Arranque seguro desactivado). La imagen tambi&#xE9;n necesita una actualizaci&#xF3;n de 2024-04 o m&#xE1;s reciente.
@@ -6421,10 +6737,13 @@ Clear	Effacer
 Choose Windows 10 or Windows 11 and pick its ISO. It is copied into the work folder and its build and editions are detected - the version follows the ISO you unpack.	Choisissez Windows 10 ou Windows 11 et s&#xE9;lectionnez son ISO. Elle est copi&#xE9;e dans le dossier de travail et sa build et ses &#xE9;ditions sont d&#xE9;tect&#xE9;es - la version suit l'ISO que vous extrayez.
 Windows version	Version de Windows
 ISO file	Fichier ISO
+Use an original ISO from Microsoft. Before it is unpacked, its SHA-256 is compared with the ones Microsoft publishes for its Windows 10 and 11 ISOs - the list in this program and, when online, the download pages on microsoft.com. An ISO that is not there may have been modified.	Utilisez une ISO originale de Microsoft. Avant son extraction, son SHA-256 est compar&#xE9; &#xE0; ceux que Microsoft publie pour ses ISO de Windows 10 et 11 - la liste de ce programme et, en ligne, les pages de t&#xE9;l&#xE9;chargement de microsoft.com. Une ISO qui n'y figure pas a peut-&#xEA;tre &#xE9;t&#xE9; modifi&#xE9;e.
 Browse...	Parcourir...
 Unpack and analyze	Extraire et analyser
+Check SHA-256	V&#xE9;rifier le SHA-256
 Re-read image info	Relire l'image
 Download Windows 10 from Microsoft	T&#xE9;l&#xE9;charger Windows 10 chez Microsoft
+SHA-256 of the ISO - select it to copy	SHA-256 de l'ISO - s&#xE9;lectionnez-le pour le copier
 Detected image	Image d&#xE9;tect&#xE9;e
 Nothing unpacked yet.	Rien n'a encore &#xE9;t&#xE9; extrait.
 Tick the editions to update. With the option below on, unticked editions are left out of the new ISO (smaller and faster).	Cochez les &#xE9;ditions &#xE0; mettre &#xE0; jour. Avec l'option ci-dessous activ&#xE9;e, les &#xE9;ditions non coch&#xE9;es sont exclues de la nouvelle ISO (plus petite et plus rapide).
@@ -6564,6 +6883,7 @@ Re-sign drivers	Signer &#xE0; nouveau les pilotes
 Slipstream	Int&#xE9;gration
 Build ISO	Cr&#xE9;er l'ISO
 Apply fixes	Appliquer les corrections
+SHA-256 check	V&#xE9;rification SHA-256
 no ISO yet	pas encore d'ISO
 {0}  |  {1}  |  {2}  |  {3} edition(s)	{0}  |  {1}  |  {2}  |  {3} &#xE9;dition(s)
 {0} free	{0} libres
@@ -6584,6 +6904,14 @@ Updates for Windows 10 1607 / LTSB 2016, 1809 / LTSC 2019, 2004-22H2 and LTSC 20
 The unpacked ISO is Windows {0} - pick a Windows {1} ISO and unpack it to switch.	L'ISO extraite est Windows {0} - choisissez une ISO de Windows {1} et extrayez-la pour changer.
 Download Windows {0} from Microsoft	T&#xE9;l&#xE9;charger Windows {0} chez Microsoft
 Windows 11: the newest updates in the Microsoft Update Catalog are used (21H2, which is out of servicing: its last ones, 2024-10).	Windows 11 : les mises &#xE0; jour les plus r&#xE9;centes du Catalogue Microsoft Update sont utilis&#xE9;es (21H2, qui n'est plus pris en charge : ses derni&#xE8;res, 2024-10).
+microsoft.com could not be reached, so only the list in this program was used - check again when online, the newest ISOs may be on the page.	microsoft.com est inaccessible, seule la liste de ce programme a donc &#xE9;t&#xE9; utilis&#xE9;e - v&#xE9;rifiez &#xE0; nouveau en ligne, les ISO les plus r&#xE9;centes peuvent figurer sur la page.
+Its name is the one of a Visual Studio subscription or Volume Licensing download, which are original too but not on the public pages: compare the SHA-256 with the one shown on that portal.	Son nom est celui d'un t&#xE9;l&#xE9;chargement d'abonnement Visual Studio ou de licences en volume, qui sont aussi originales mais absentes des pages publiques : comparez le SHA-256 avec celui indiqu&#xE9; sur ce portail.
+An ISO made with the Media Creation Tool is built on the PC and is never listed. Any other ISO may have been modified: download an original Windows {0} ISO from Microsoft (button above) and use that one.	Une ISO cr&#xE9;&#xE9;e avec l'outil de cr&#xE9;ation de m&#xE9;dia est g&#xE9;n&#xE9;r&#xE9;e sur le PC et n'est jamais dans la liste. Toute autre ISO a peut-&#xEA;tre &#xE9;t&#xE9; modifi&#xE9;e : t&#xE9;l&#xE9;chargez une ISO originale de Windows {0} chez Microsoft (bouton ci-dessus) et utilisez-la.
+SHA-256 not checked yet - it is checked when you unpack the ISO, or now with Check SHA-256.	SHA-256 pas encore v&#xE9;rifi&#xE9; - il est v&#xE9;rifi&#xE9; &#xE0; l'extraction de l'ISO, ou maintenant avec V&#xE9;rifier le SHA-256.
+Original Microsoft ISO: {0} - {1}	ISO originale de Microsoft : {0} - {1}
+Its SHA-256 is one Microsoft published on its download page (seen there on {0}).	Son SHA-256 fait partie de ceux que Microsoft a publi&#xE9;s sur sa page de t&#xE9;l&#xE9;chargement (vu le {0}).
+Its SHA-256 is on Microsoft's download page (checked {0}).	Son SHA-256 figure sur la page de t&#xE9;l&#xE9;chargement de Microsoft (v&#xE9;rifi&#xE9; le {0}).
+Not verified: the SHA-256 is not one Microsoft lists for its Windows 10 and 11 ISOs.	Non v&#xE9;rifi&#xE9;e : le SHA-256 ne fait partie d'aucun de ceux que Microsoft indique pour ses ISO de Windows 10 et 11.
 {0}  -  build {1}  -  {2}  -  {3} edition(s)	{0}  -  build {1}  -  {2}  -  {3} &#xE9;dition(s)
 No automatic updates for this build - drivers, signed packages, answer file and $OEM$ still work.	Pas de mises &#xE0; jour automatiques pour cette build - les pilotes, les paquets sign&#xE9;s, le fichier de r&#xE9;ponses et $OEM$ fonctionnent quand m&#xEA;me.
 Updates up to {0} (the last month Microsoft allows offline for Windows 10).	Mises &#xE0; jour jusqu'&#xE0; {0} (le dernier mois que Microsoft permet d'int&#xE9;grer hors ligne pour Windows 10).
@@ -6646,6 +6974,7 @@ Older	Ancienne
 Unpack an ISO first (page 1).	Extrayez d'abord une ISO (page 1).
 Choose an existing .iso file first.	Choisissez d'abord un fichier .iso existant.
 The work folder already has unpacked media ({0}). Replace it with a fresh copy of this ISO?	Le dossier de travail contient d&#xE9;j&#xE0; un support extrait ({0}). Le remplacer par une nouvelle copie de cette ISO ?
+Unpack this ISO anyway?	Extraire quand m&#xEA;me cette ISO ?
 Drivers installed on this PC	Pilotes install&#xE9;s sur ce PC
 Third-party drivers exported from this PC. Ticked ones are slipstreamed into the ISO.	Pilotes tiers export&#xE9;s de ce PC. Ceux qui sont coch&#xE9;s sont int&#xE9;gr&#xE9;s &#xE0; l'ISO.
 Pick the drivers folder - Drivers-Backup made by Drivers.cmd, a folder from another PC or a vendor pack. All subfolders are scanned.	Choisissez le dossier de pilotes - Drivers-Backup cr&#xE9;&#xE9; par Drivers.cmd, un dossier d'un autre PC ou un pack du fabricant. Tous les sous-dossiers sont analys&#xE9;s.
@@ -6670,6 +6999,7 @@ asked after unpacking	demand&#xE9; apr&#xE8;s l'extraction
 Drivers: {0}   Signed packages: {1}	Pilotes : {0}   Paquets sign&#xE9;s : {1}
 Answer file: {0}   $OEM$: {1}	Fichier de r&#xE9;ponses : {0}   $OEM$ : {1}
 Run everything now? It takes 30-90 minutes - the PC is kept awake until it is done.	Tout ex&#xE9;cuter maintenant ? Cela prend 30-90 minutes - le PC reste &#xE9;veill&#xE9; jusqu'&#xE0; la fin.
+Run everything with this ISO anyway?	Tout ex&#xE9;cuter quand m&#xEA;me avec cette ISO ?
 While a job runs (unpack, download, sign, slipstream, build), Windows Defender does not scan the work folder ({0}). The exclusion is removed when the job ends, and at the next start if the program was closed during a job. Everything in there comes from Microsoft, your drivers and this tool - do not put other downloads in that folder.	Pendant une t&#xE2;che (extraire, t&#xE9;l&#xE9;charger, signer, int&#xE9;grer, cr&#xE9;er), Windows Defender n'analyse pas le dossier de travail ({0}). L'exclusion est retir&#xE9;e &#xE0; la fin de la t&#xE2;che, et au prochain d&#xE9;marrage si le programme a &#xE9;t&#xE9; ferm&#xE9; pendant une t&#xE2;che. Tout ce qu'il contient vient de Microsoft, de vos pilotes et de cet outil - n'y mettez pas d'autres t&#xE9;l&#xE9;chargements.
 Use this only when the ISO is for this PC. INF files for other hardware are removed from the signed copy, so the driver installs only on hardware that matches this PC. NVIDIA's own setup.exe may refuse to run from that copy - pnputil installs the driver anyway. Sign the package again for it to take effect.	N'utilisez cette option que si l'ISO est pour ce PC. Les fichiers INF d'autres mat&#xE9;riels sont retir&#xE9;s de la copie sign&#xE9;e, donc le pilote ne s'installe que sur du mat&#xE9;riel identique &#xE0; ce PC. Le setup.exe de NVIDIA peut refuser de s'ex&#xE9;cuter depuis cette copie - pnputil installe le pilote quand m&#xEA;me. Signez &#xE0; nouveau le paquet pour que cela prenne effet.
 With Secure Boot on, this ISO only boots on PCs whose UEFI already trusts 'Windows UEFI CA 2023'. Older firmware needs that Secure Boot update first (or Secure Boot off). The image also needs a 2024-04 or newer update.	Avec le D&#xE9;marrage s&#xE9;curis&#xE9; activ&#xE9;, cette ISO ne d&#xE9;marre que sur les PC dont l'UEFI fait d&#xE9;j&#xE0; confiance &#xE0; 'Windows UEFI CA 2023'. Les firmwares plus anciens ont d'abord besoin de cette mise &#xE0; jour du D&#xE9;marrage s&#xE9;curis&#xE9; (ou du D&#xE9;marrage s&#xE9;curis&#xE9; d&#xE9;sactiv&#xE9;). L'image a aussi besoin d'une mise &#xE0; jour de 2024-04 ou plus r&#xE9;cente.
@@ -6751,10 +7081,13 @@ Clear	Leeren
 Choose Windows 10 or Windows 11 and pick its ISO. It is copied into the work folder and its build and editions are detected - the version follows the ISO you unpack.	W&#xE4;hlen Sie Windows 10 oder Windows 11 und dessen ISO. Sie wird in den Arbeitsordner kopiert, Build und Editionen werden erkannt - die Version richtet sich nach der ISO, die Sie entpacken.
 Windows version	Windows-Version
 ISO file	ISO-Datei
+Use an original ISO from Microsoft. Before it is unpacked, its SHA-256 is compared with the ones Microsoft publishes for its Windows 10 and 11 ISOs - the list in this program and, when online, the download pages on microsoft.com. An ISO that is not there may have been modified.	Verwenden Sie eine Original-ISO von Microsoft. Vor dem Entpacken wird ihr SHA-256 mit den Werten verglichen, die Microsoft f&#xFC;r seine Windows 10- und 11-ISOs ver&#xF6;ffentlicht - die Liste in diesem Programm und, wenn online, die Downloadseiten auf microsoft.com. Eine ISO, die dort nicht steht, wurde m&#xF6;glicherweise ver&#xE4;ndert.
 Browse...	Durchsuchen...
 Unpack and analyze	Entpacken und analysieren
+Check SHA-256	SHA-256 pr&#xFC;fen
 Re-read image info	Abbild neu einlesen
 Download Windows 10 from Microsoft	Windows 10 bei Microsoft herunterladen
+SHA-256 of the ISO - select it to copy	SHA-256 der ISO - zum Kopieren markieren
 Detected image	Erkanntes Abbild
 Nothing unpacked yet.	Noch nichts entpackt.
 Tick the editions to update. With the option below on, unticked editions are left out of the new ISO (smaller and faster).	Haken Sie die Editionen an, die aktualisiert werden sollen. Mit der Option unten bleiben nicht angehakte Editionen aus der neuen ISO drau&#xDF;en (kleiner und schneller).
@@ -6894,6 +7227,7 @@ Re-sign drivers	Treiber neu signieren
 Slipstream	Integrieren
 Build ISO	ISO erstellen
 Apply fixes	Korrekturen anwenden
+SHA-256 check	SHA-256-Pr&#xFC;fung
 no ISO yet	noch keine ISO
 {0}  |  {1}  |  {2}  |  {3} edition(s)	{0}  |  {1}  |  {2}  |  {3} Edition(en)
 {0} free	{0} frei
@@ -6914,6 +7248,14 @@ Updates for Windows 10 1607 / LTSB 2016, 1809 / LTSC 2019, 2004-22H2 and LTSC 20
 The unpacked ISO is Windows {0} - pick a Windows {1} ISO and unpack it to switch.	Die entpackte ISO ist Windows {0} - w&#xE4;hlen Sie eine Windows {1}-ISO und entpacken Sie sie, um zu wechseln.
 Download Windows {0} from Microsoft	Windows {0} bei Microsoft herunterladen
 Windows 11: the newest updates in the Microsoft Update Catalog are used (21H2, which is out of servicing: its last ones, 2024-10).	Windows 11: die neuesten Updates aus dem Microsoft Update-Katalog werden verwendet (21H2, das keinen Support mehr hat: seine letzten, 2024-10).
+microsoft.com could not be reached, so only the list in this program was used - check again when online, the newest ISOs may be on the page.	microsoft.com war nicht erreichbar, daher wurde nur die Liste in diesem Programm verwendet - pr&#xFC;fen Sie erneut, wenn Sie online sind, die neuesten ISOs stehen eventuell auf der Seite.
+Its name is the one of a Visual Studio subscription or Volume Licensing download, which are original too but not on the public pages: compare the SHA-256 with the one shown on that portal.	Der Name entspricht einem Download aus einem Visual Studio-Abonnement oder dem Volumenlizenz-Portal - auch diese sind original, stehen aber nicht auf den &#xF6;ffentlichen Seiten: Vergleichen Sie den SHA-256 mit dem dort angezeigten.
+An ISO made with the Media Creation Tool is built on the PC and is never listed. Any other ISO may have been modified: download an original Windows {0} ISO from Microsoft (button above) and use that one.	Eine mit dem Media Creation Tool erstellte ISO wird auf dem PC erzeugt und steht nie in der Liste. Jede andere ISO wurde m&#xF6;glicherweise ver&#xE4;ndert: Laden Sie eine Original-ISO von Windows {0} bei Microsoft herunter (Schaltfl&#xE4;che oben) und verwenden Sie diese.
+SHA-256 not checked yet - it is checked when you unpack the ISO, or now with Check SHA-256.	SHA-256 noch nicht gepr&#xFC;ft - er wird beim Entpacken der ISO gepr&#xFC;ft oder jetzt mit SHA-256 pr&#xFC;fen.
+Original Microsoft ISO: {0} - {1}	Original-ISO von Microsoft: {0} - {1}
+Its SHA-256 is one Microsoft published on its download page (seen there on {0}).	Ihr SHA-256 ist einer der Werte, die Microsoft auf seiner Downloadseite ver&#xF6;ffentlicht hat (dort gesehen am {0}).
+Its SHA-256 is on Microsoft's download page (checked {0}).	Ihr SHA-256 steht auf der Downloadseite von Microsoft (gepr&#xFC;ft am {0}).
+Not verified: the SHA-256 is not one Microsoft lists for its Windows 10 and 11 ISOs.	Nicht best&#xE4;tigt: Der SHA-256 ist keiner der Werte, die Microsoft f&#xFC;r seine Windows 10- und 11-ISOs angibt.
 {0}  -  build {1}  -  {2}  -  {3} edition(s)	{0}  -  Build {1}  -  {2}  -  {3} Edition(en)
 No automatic updates for this build - drivers, signed packages, answer file and $OEM$ still work.	Keine automatischen Updates f&#xFC;r diesen Build - Treiber, signierte Pakete, Antwortdatei und $OEM$ funktionieren weiterhin.
 Updates up to {0} (the last month Microsoft allows offline for Windows 10).	Updates bis {0} (der letzte Monat, den Microsoft f&#xFC;r Windows 10 offline zul&#xE4;sst).
@@ -6976,6 +7318,7 @@ Older	&#xC4;lter
 Unpack an ISO first (page 1).	Entpacken Sie zuerst eine ISO (Seite 1).
 Choose an existing .iso file first.	W&#xE4;hlen Sie zuerst eine vorhandene .iso-Datei.
 The work folder already has unpacked media ({0}). Replace it with a fresh copy of this ISO?	Der Arbeitsordner enth&#xE4;lt bereits ein entpacktes Medium ({0}). Durch eine frische Kopie dieser ISO ersetzen?
+Unpack this ISO anyway?	Diese ISO trotzdem entpacken?
 Drivers installed on this PC	Auf diesem PC installierte Treiber
 Third-party drivers exported from this PC. Ticked ones are slipstreamed into the ISO.	Von diesem PC exportierte Treiber von Drittanbietern. Die angehakten werden in die ISO integriert.
 Pick the drivers folder - Drivers-Backup made by Drivers.cmd, a folder from another PC or a vendor pack. All subfolders are scanned.	W&#xE4;hlen Sie den Treiberordner - Drivers-Backup von Drivers.cmd, ein Ordner von einem anderen PC oder ein Herstellerpaket. Alle Unterordner werden durchsucht.
@@ -7000,6 +7343,7 @@ asked after unpacking	wird nach dem Entpacken gefragt
 Drivers: {0}   Signed packages: {1}	Treiber: {0}   Signierte Pakete: {1}
 Answer file: {0}   $OEM$: {1}	Antwortdatei: {0}   $OEM$: {1}
 Run everything now? It takes 30-90 minutes - the PC is kept awake until it is done.	Jetzt alles ausf&#xFC;hren? Es dauert 30-90 Minuten - der PC bleibt wach, bis es fertig ist.
+Run everything with this ISO anyway?	Trotzdem alles mit dieser ISO ausf&#xFC;hren?
 While a job runs (unpack, download, sign, slipstream, build), Windows Defender does not scan the work folder ({0}). The exclusion is removed when the job ends, and at the next start if the program was closed during a job. Everything in there comes from Microsoft, your drivers and this tool - do not put other downloads in that folder.	W&#xE4;hrend ein Auftrag l&#xE4;uft (entpacken, herunterladen, signieren, integrieren, erstellen), scannt Windows Defender den Arbeitsordner ({0}) nicht. Die Ausnahme wird entfernt, wenn der Auftrag endet, und beim n&#xE4;chsten Start, falls das Programm w&#xE4;hrend eines Auftrags geschlossen wurde. Alles darin stammt von Microsoft, Ihren Treibern und diesem Werkzeug - legen Sie keine anderen Downloads in diesen Ordner.
 Use this only when the ISO is for this PC. INF files for other hardware are removed from the signed copy, so the driver installs only on hardware that matches this PC. NVIDIA's own setup.exe may refuse to run from that copy - pnputil installs the driver anyway. Sign the package again for it to take effect.	Nutzen Sie das nur, wenn die ISO f&#xFC;r diesen PC ist. INF-Dateien f&#xFC;r andere Hardware werden aus der signierten Kopie entfernt, der Treiber installiert sich also nur auf Hardware wie in diesem PC. NVIDIAs eigenes setup.exe startet aus dieser Kopie eventuell nicht - pnputil installiert den Treiber trotzdem. Signieren Sie das Paket erneut, damit es wirkt.
 With Secure Boot on, this ISO only boots on PCs whose UEFI already trusts 'Windows UEFI CA 2023'. Older firmware needs that Secure Boot update first (or Secure Boot off). The image also needs a 2024-04 or newer update.	Mit aktiviertem Secure Boot startet diese ISO nur auf PCs, deren UEFI 'Windows UEFI CA 2023' bereits vertraut. &#xC4;ltere Firmware braucht zuerst dieses Secure-Boot-Update (oder Secure Boot aus). Das Abbild braucht au&#xDF;erdem ein Update von 2024-04 oder neuer.
@@ -7081,10 +7425,13 @@ Clear	Cancella
 Choose Windows 10 or Windows 11 and pick its ISO. It is copied into the work folder and its build and editions are detected - the version follows the ISO you unpack.	Scegli Windows 10 o Windows 11 e seleziona la sua ISO. Viene copiata nella cartella di lavoro e ne vengono rilevate build ed edizioni - la versione segue la ISO che estrai.
 Windows version	Versione di Windows
 ISO file	File ISO
+Use an original ISO from Microsoft. Before it is unpacked, its SHA-256 is compared with the ones Microsoft publishes for its Windows 10 and 11 ISOs - the list in this program and, when online, the download pages on microsoft.com. An ISO that is not there may have been modified.	Usa una ISO originale di Microsoft. Prima dell'estrazione, il suo SHA-256 viene confrontato con quelli che Microsoft pubblica per le ISO di Windows 10 e 11 - l'elenco di questo programma e, se sei online, le pagine di download su microsoft.com. Una ISO che non &#xE8; l&#xEC; potrebbe essere stata modificata.
 Browse...	Sfoglia...
 Unpack and analyze	Estrai e analizza
+Check SHA-256	Verifica SHA-256
 Re-read image info	Rileggi l'immagine
 Download Windows 10 from Microsoft	Scarica Windows 10 da Microsoft
+SHA-256 of the ISO - select it to copy	SHA-256 della ISO - selezionalo per copiarlo
 Detected image	Immagine rilevata
 Nothing unpacked yet.	Ancora niente estratto.
 Tick the editions to update. With the option below on, unticked editions are left out of the new ISO (smaller and faster).	Spunta le edizioni da aggiornare. Con l'opzione qui sotto attiva, le edizioni non spuntate restano fuori dalla nuova ISO (pi&#xF9; piccola e pi&#xF9; veloce).
@@ -7224,6 +7571,7 @@ Re-sign drivers	Firma di nuovo i driver
 Slipstream	Integrazione
 Build ISO	Crea ISO
 Apply fixes	Applica correzioni
+SHA-256 check	Verifica SHA-256 della ISO
 no ISO yet	ancora nessuna ISO
 {0}  |  {1}  |  {2}  |  {3} edition(s)	{0}  |  {1}  |  {2}  |  {3} edizione/i
 {0} free	{0} liberi
@@ -7244,6 +7592,14 @@ Updates for Windows 10 1607 / LTSB 2016, 1809 / LTSC 2019, 2004-22H2 and LTSC 20
 The unpacked ISO is Windows {0} - pick a Windows {1} ISO and unpack it to switch.	La ISO estratta &#xE8; Windows {0} - scegli una ISO di Windows {1} ed estraila per cambiare.
 Download Windows {0} from Microsoft	Scarica Windows {0} da Microsoft
 Windows 11: the newest updates in the Microsoft Update Catalog are used (21H2, which is out of servicing: its last ones, 2024-10).	Windows 11: vengono usati gli aggiornamenti pi&#xF9; recenti del Catalogo di Microsoft Update (21H2, non pi&#xF9; supportato: i suoi ultimi, 2024-10).
+microsoft.com could not be reached, so only the list in this program was used - check again when online, the newest ISOs may be on the page.	Impossibile raggiungere microsoft.com, quindi &#xE8; stato usato solo l'elenco di questo programma - verifica di nuovo quando sei online, le ISO pi&#xF9; recenti potrebbero essere sulla pagina.
+Its name is the one of a Visual Studio subscription or Volume Licensing download, which are original too but not on the public pages: compare the SHA-256 with the one shown on that portal.	Il nome &#xE8; quello di un download di un abbonamento Visual Studio o del Volume Licensing, che sono anch'esse originali ma non compaiono nelle pagine pubbliche: confronta lo SHA-256 con quello indicato su quel portale.
+An ISO made with the Media Creation Tool is built on the PC and is never listed. Any other ISO may have been modified: download an original Windows {0} ISO from Microsoft (button above) and use that one.	Una ISO creata con lo Strumento di creazione supporti viene generata sul PC e non &#xE8; mai nell'elenco. Qualsiasi altra ISO potrebbe essere stata modificata: scarica una ISO originale di Windows {0} da Microsoft (pulsante qui sopra) e usa quella.
+SHA-256 not checked yet - it is checked when you unpack the ISO, or now with Check SHA-256.	SHA-256 non ancora verificato - viene verificato quando estrai la ISO, o subito con Verifica SHA-256.
+Original Microsoft ISO: {0} - {1}	ISO originale di Microsoft: {0} - {1}
+Its SHA-256 is one Microsoft published on its download page (seen there on {0}).	Il suo SHA-256 &#xE8; uno di quelli che Microsoft ha pubblicato sulla sua pagina di download (visto l&#xEC; il {0}).
+Its SHA-256 is on Microsoft's download page (checked {0}).	Il suo SHA-256 &#xE8; sulla pagina di download di Microsoft (verificato il {0}).
+Not verified: the SHA-256 is not one Microsoft lists for its Windows 10 and 11 ISOs.	Non verificata: lo SHA-256 non &#xE8; nessuno di quelli che Microsoft indica per le ISO di Windows 10 e 11.
 {0}  -  build {1}  -  {2}  -  {3} edition(s)	{0}  -  build {1}  -  {2}  -  {3} edizione/i
 No automatic updates for this build - drivers, signed packages, answer file and $OEM$ still work.	Nessun aggiornamento automatico per questa build - driver, pacchetti firmati, file di risposta e $OEM$ funzionano comunque.
 Updates up to {0} (the last month Microsoft allows offline for Windows 10).	Aggiornamenti fino a {0} (l'ultimo mese che Microsoft consente offline per Windows 10).
@@ -7306,6 +7662,7 @@ Older	Pi&#xF9; vecchio
 Unpack an ISO first (page 1).	Estrai prima una ISO (pagina 1).
 Choose an existing .iso file first.	Scegli prima un file .iso esistente.
 The work folder already has unpacked media ({0}). Replace it with a fresh copy of this ISO?	La cartella di lavoro contiene gi&#xE0; un supporto estratto ({0}). Sostituirlo con una nuova copia di questa ISO?
+Unpack this ISO anyway?	Estrarre comunque questa ISO?
 Drivers installed on this PC	Driver installati su questo PC
 Third-party drivers exported from this PC. Ticked ones are slipstreamed into the ISO.	Driver di terze parti esportati da questo PC. Quelli spuntati vengono integrati nella ISO.
 Pick the drivers folder - Drivers-Backup made by Drivers.cmd, a folder from another PC or a vendor pack. All subfolders are scanned.	Scegli la cartella dei driver - Drivers-Backup creata da Drivers.cmd, una cartella di un altro PC o un pacchetto del produttore. Tutte le sottocartelle vengono analizzate.
@@ -7330,6 +7687,7 @@ asked after unpacking	chiesto dopo l'estrazione
 Drivers: {0}   Signed packages: {1}	Driver: {0}   Pacchetti firmati: {1}
 Answer file: {0}   $OEM$: {1}	File di risposta: {0}   $OEM$: {1}
 Run everything now? It takes 30-90 minutes - the PC is kept awake until it is done.	Eseguire tutto ora? Richiede 30-90 minuti - il PC resta acceso finch&#xE9; non ha finito.
+Run everything with this ISO anyway?	Eseguire comunque tutto con questa ISO?
 While a job runs (unpack, download, sign, slipstream, build), Windows Defender does not scan the work folder ({0}). The exclusion is removed when the job ends, and at the next start if the program was closed during a job. Everything in there comes from Microsoft, your drivers and this tool - do not put other downloads in that folder.	Mentre un'operazione &#xE8; in corso (estrai, scarica, firma, integra, crea), Windows Defender non analizza la cartella di lavoro ({0}). L'esclusione viene rimossa al termine dell'operazione, e al prossimo avvio se il programma &#xE8; stato chiuso durante un'operazione. Tutto ci&#xF2; che contiene viene da Microsoft, dai tuoi driver e da questo strumento - non metterci altri download.
 Use this only when the ISO is for this PC. INF files for other hardware are removed from the signed copy, so the driver installs only on hardware that matches this PC. NVIDIA's own setup.exe may refuse to run from that copy - pnputil installs the driver anyway. Sign the package again for it to take effect.	Usalo solo quando la ISO &#xE8; per questo PC. I file INF per altro hardware vengono rimossi dalla copia firmata, quindi il driver si installa solo su hardware uguale a quello di questo PC. Il setup.exe di NVIDIA potrebbe rifiutarsi di partire da quella copia - pnputil installa comunque il driver. Firma di nuovo il pacchetto perch&#xE9; abbia effetto.
 With Secure Boot on, this ISO only boots on PCs whose UEFI already trusts 'Windows UEFI CA 2023'. Older firmware needs that Secure Boot update first (or Secure Boot off). The image also needs a 2024-04 or newer update.	Con l'Avvio protetto attivo, questa ISO si avvia solo sui PC il cui UEFI considera gi&#xE0; attendibile 'Windows UEFI CA 2023'. I firmware pi&#xF9; vecchi hanno bisogno prima di quell'aggiornamento dell'Avvio protetto (o dell'Avvio protetto disattivato). L'immagine ha bisogno anche di un aggiornamento del 2024-04 o pi&#xF9; recente.
@@ -7659,7 +8017,7 @@ function Complete-Work {
 function Set-Busy([bool]$On) {
     $labels = @{ Unpack = (T 'Unpack'); Analyze = (T 'Analyze'); Download = (T 'Download updates'); ScanHost = (T 'Driver scan'); CommitHost = (T 'Copy drivers')
                  ScanFolder = (T 'Folder scan'); CommitImport = (T 'Import drivers'); Sign = (T 'Re-sign drivers'); Service = (T 'Slipstream'); Build = (T 'Build ISO')
-                 All = (T 'Run everything'); Tools = (T 'Tools'); Clean = (T 'Clean up'); Check = (T 'Install check'); Fix = (T 'Apply fixes') }
+                 All = (T 'Run everything'); Tools = (T 'Tools'); Clean = (T 'Clean up'); Check = (T 'Install check'); Fix = (T 'Apply fixes'); CheckIso = (T 'SHA-256 check') }
     $Script:JobLabel = $labels[$Script:JobName]
     if (-not $Script:JobLabel) { $Script:JobLabel = $Script:JobName }
     $Script:U.Pages.IsEnabled = -not $On
@@ -7764,6 +8122,48 @@ function Update-WinVersion {
     $U.CutoffNote.Text = if ($os -eq '10') { T '2025-10 is the last Windows 10 update Microsoft allows offline. ESU updates (Nov 2025+) come from Windows Update after setup on enrolled PCs.' }
                          else { T 'Windows 11: the newest updates in the Microsoft Update Catalog are used (21H2, which is out of servicing: its last ones, 2024-10).' }
 }
+# SHA-256 check on page 1: the last result (IsoCheck in the state) when it is for the file in the box.
+function Get-IsoCheckFor([string]$Iso) {
+    $c = $Script:S.IsoCheck
+    if (-not $c -or -not $Iso) { return $null }
+    try { $f = Get-Item -LiteralPath $Iso -ErrorAction Stop } catch { return $null }
+    if ($f.PSIsContainer -or [string]$c.Key -ne (Get-IsoFileKey $f)) { return $null }
+    return $c
+}
+# What to do about an ISO whose SHA-256 Microsoft does not list.
+function Get-IsoAdvice($C) {
+    $os = if ([string]$Script:Cfg.WinVersion -eq '11') { '11' } else { '10' }
+    $t = @()
+    if ($C -and $C.Online -eq $false) { $t += T 'microsoft.com could not be reached, so only the list in this program was used - check again when online, the newest ISOs may be on the page.' }
+    if ($C -and $C.Subscription) { $t += T 'Its name is the one of a Visual Studio subscription or Volume Licensing download, which are original too but not on the public pages: compare the SHA-256 with the one shown on that portal.' }
+    $t += (T 'An ISO made with the Media Creation Tool is built on the PC and is never listed. Any other ISO may have been modified: download an original Windows {0} ISO from Microsoft (button above) and use that one.') -f $os
+    return ($t -join ' ')
+}
+function Update-IsoCheck {
+    $U = $Script:U
+    $iso = ([string]$U.IsoBox.Text).Trim().Trim('"')
+    if (-not $iso -or -not (Test-Path -LiteralPath $iso -PathType Leaf)) { $U.IsoCheckPanel.Visibility = 'Collapsed'; return }
+    $U.IsoCheckPanel.Visibility = 'Visible'
+    $c = Get-IsoCheckFor $iso
+    $U.IsoHashBox.Visibility = if ($c) { 'Visible' } else { 'Collapsed' }
+    if (-not $c) {
+        $U.IsoCheckText.Text = T 'SHA-256 not checked yet - it is checked when you unpack the ISO, or now with Check SHA-256.'
+        $U.IsoCheckText.Foreground = New-Brush '#E6EAF2'
+        $U.IsoCheckNote.Text = ''
+        return
+    }
+    $U.IsoHashBox.Text = [string]$c.Sha256
+    if ($c.Status -eq 'original') {
+        $U.IsoCheckText.Text = (T 'Original Microsoft ISO: {0} - {1}') -f $c.Product, $c.Label
+        $U.IsoCheckText.Foreground = New-Brush '#3DDC97'
+        $U.IsoCheckNote.Text = if ($c.Source -eq 'list') { (T 'Its SHA-256 is one Microsoft published on its download page (seen there on {0}).') -f $c.Listed }
+                               else { (T 'Its SHA-256 is on Microsoft''s download page (checked {0}).') -f $c.When }
+    } else {
+        $U.IsoCheckText.Text = T 'Not verified: the SHA-256 is not one Microsoft lists for its Windows 10 and 11 ISOs.'
+        $U.IsoCheckText.Foreground = New-Brush '#FFC857'
+        $U.IsoCheckNote.Text = Get-IsoAdvice $c
+    }
+}
 function Update-Ui {
     $Script:Loading = $true
     try {
@@ -7776,6 +8176,7 @@ function Update-Ui {
         $U.EdJobsBox.Text = [string](Get-EditionJobs 4 1e6).Wanted
         $U.WorkBox.Text = [string]$Cfg.WorkDir
         if (-not $U.IsoBox.Text -and $S.SourceIso) { $U.IsoBox.Text = $S.SourceIso }
+        Update-IsoCheck
 
         # 1 source
         $imgs = @($S.Images)
@@ -8003,13 +8404,43 @@ function Test-Unpacked {
     $Script:U.Nav1.IsChecked = $true
     return $false
 }
+# The SHA-256 check of $Iso first (skipped for a file found original before), then $Then - for an ISO Microsoft
+# does not list only when the user goes on anyway ($Ask), once per ISO while the program is open.
+function Invoke-IsoCheckThen([string]$Iso, [string]$Ask, [scriptblock]$Then) {
+    $Script:IsoCheckPath = $Iso; $Script:IsoAsk = $Ask; $Script:IsoThen = $Then
+    if (-not $Script:IsoAccepted) { $Script:IsoAccepted = @{} }
+    $c = Get-IsoCheckFor $Iso
+    if ($c -and ($c.Status -eq 'original' -or $Script:IsoAccepted[[string]$c.Key])) { $Script:IsoThen = $null; & $Then; return }
+    Start-Work 'CheckIso' @{ Iso = $Iso } { Complete-IsoCheck }
+}
+function Complete-IsoCheck {
+    $then = $Script:IsoThen; $Script:IsoThen = $null
+    if (-not $then) { return }
+    $c = Get-IsoCheckFor $Script:IsoCheckPath
+    if (-not $c) { return }
+    if ($c.Status -ne 'original') {
+        $msg = (T 'Not verified: the SHA-256 is not one Microsoft lists for its Windows 10 and 11 ISOs.') + "`n`n" + (Get-IsoAdvice $c) + "`n`n" + $Script:IsoAsk
+        if (-not (Confirm-Ui $msg 'Warning')) { return }
+        $Script:IsoAccepted[[string]$c.Key] = $true
+    }
+    & $then
+}
+function Invoke-IsoCheckClick {
+    $iso = $Script:U.IsoBox.Text.Trim().Trim('"')
+    if (-not $iso -or -not (Test-Path -LiteralPath $iso -PathType Leaf)) { Show-Msg (T 'Choose an existing .iso file first.') 'Warning'; return }
+    $Script:IsoThen = $null
+    Start-Work 'CheckIso' @{ Iso = $iso }
+}
 function Invoke-UnpackClick {
     $iso = $Script:U.IsoBox.Text.Trim().Trim('"')
     if (-not $iso -or -not (Test-Path -LiteralPath $iso)) { Show-Msg (T 'Choose an existing .iso file first.') 'Warning'; return }
     if ($Script:S.Unpacked -and (Test-Path -LiteralPath (Join-Path $Script:P.Media 'sources'))) {
         if (-not (Confirm-Ui ((T 'The work folder already has unpacked media ({0}). Replace it with a fresh copy of this ISO?') -f (Split-Path ([string]$Script:S.SourceIso) -Leaf)))) { return }
     }
-    Start-Work 'Unpack' @{ Iso = $iso; NoAsk = $true } { if (@($Script:S.Images).Count -gt 1) { $Script:U.Nav2.IsChecked = $true } }
+    $Script:UnpackIso = $iso
+    Invoke-IsoCheckThen $iso (T 'Unpack this ISO anyway?') {
+        Start-Work 'Unpack' @{ Iso = $Script:UnpackIso; NoAsk = $true } { if (@($Script:S.Images).Count -gt 1) { $Script:U.Nav2.IsChecked = $true } }
+    }
 }
 function Invoke-HostDriversClick {
     Start-Work 'ScanHost' @{} {
@@ -8075,7 +8506,10 @@ function Invoke-RunAllClick {
     $lines += (T 'Drivers: {0}   Signed packages: {1}') -f @($Script:S.Drivers).Count, @($Script:S.Signed | Where-Object { $_ }).Count
     $lines += (T 'Answer file: {0}   $OEM$: {1}') -f $(if ($Script:S.Unattend) { $yes } else { $no }), $(if ($Script:S.Oem) { $yes } else { $no })
     if (-not (Confirm-Ui ((T 'Run everything now? It takes 30-90 minutes - the PC is kept awake until it is done.') + "`n`n" + ($lines -join "`n")))) { return }
-    Start-Work 'All' @{ Iso = $iso; Out = $Script:U.OutBox.Text.Trim().Trim('"') }
+    $Script:RunAllArgs = @{ Iso = $iso; Out = $Script:U.OutBox.Text.Trim().Trim('"') }
+    $unpacks = (-not $Script:S.Unpacked) -or $Script:S.Serviced -or ($iso -ne [string]$Script:S.SourceIso)   # as Invoke-RunAll decides
+    if (-not $unpacks) { Start-Work 'All' $Script:RunAllArgs; return }
+    Invoke-IsoCheckThen $iso (T 'Run everything with this ISO anyway?') { Start-Work 'All' $Script:RunAllArgs }
 }
 #endregion
 
@@ -8087,6 +8521,7 @@ try {
         Question = $null; Answer = $null; Result = $null
     })
     $Script:Busy = $false
+    $Script:IsoAccepted = @{}
     $Script:CfgToggles = @('KeepOnlySelected', 'NetFx3', 'NetFx481', 'ResetBase', 'BootDrivers', 'ForceUnsigned', 'NoPrompt', 'Boot2023', 'SplitFat32', 'SignCleanup', 'InstallOemDrivers', 'SignOnlyThisPc', 'SignIsolate', 'ParallelBoot', 'DefenderExclude', 'BootSkipPE')
     $Script:Cfg = Import-Settings
     Initialize-Paths
@@ -8220,6 +8655,8 @@ try {
         if ($f) { $Script:U.IsoBox.Text = $f }
     })
     $U.UnpackBtn.Add_Click({ Invoke-UnpackClick })
+    $U.IsoCheckBtn.Add_Click({ Invoke-IsoCheckClick })
+    $U.IsoBox.Add_TextChanged({ if (-not $Script:Loading) { Update-IsoCheck } })
     $U.AnalyzeBtn.Add_Click({ if (Test-Unpacked) { Start-Work 'Analyze' } })
     $U.GetIsoBtn.Add_Click({ Start-Process $(if ($Script:Cfg.WinVersion -eq '11') { $Script:IsoPageUrl11 } else { $Script:IsoPageUrl }) })
     foreach ($rb in @($U.WinVer10, $U.WinVer11)) {

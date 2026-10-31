@@ -303,6 +303,7 @@ function Invoke-Job([string]$Job, $A) {
         Disable-DefenderSkip       # leftover from a run that was killed
         if ($Job -in 'Unpack', 'Download', 'Sign', 'Service', 'Build', 'All') { Enable-DefenderSkip }
         switch ($Job) {
+            'CheckIso'     { $Script:Sync.Result = Test-IsoOriginal ([string]$A.Iso) }
             'Unpack'       { $Script:IsoPath = [string]$A.Iso; Invoke-Unpack }
             'Analyze'      { Invoke-Analyze }
             'Download'     { Invoke-Download -Auto }

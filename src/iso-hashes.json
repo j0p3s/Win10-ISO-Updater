@@ -1,0 +1,914 @@
+[
+ {
+  "sha256": "964F2D179FA13670285B8A2DB7F0CD72983E8BC5DF8554F547550486AD8AFEAB",
+  "product": "Windows 10 22H2",
+  "label": "Arabic 32-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "237FCBAA234166A836260DFA760F71F1211A6C573130C75D4CCDCA9D7D29F69A",
+  "product": "Windows 10 22H2",
+  "label": "Arabic 64-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "69E4B7ED9E5D7CEA72C075E63A493C867275608B8F9E9D1FE7D711459B32D1BE",
+  "product": "Windows 10 22H2",
+  "label": "Brazilian Portuguese 32-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "0CA714572FCB5B8CE480ACC3C93EAF2F34CC6507DF5F693CFF021BF4A32FAC68",
+  "product": "Windows 10 22H2",
+  "label": "Brazilian Portuguese 64-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "93C43C0F17AB17671EE16F321C0FA5E1506AAADAD0BD84A4207AD8692B78554E",
+  "product": "Windows 10 22H2",
+  "label": "Bulgarian 32-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "1DFC04F3EC68602B547961A5AFD3758164E0C36A6BF420C564B1B44B375E6070",
+  "product": "Windows 10 22H2",
+  "label": "Bulgarian 64-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "C828ACCB08886622F5E1A127BB83070BAE0E9235EF0E31573ABC6A8A5CB55286",
+  "product": "Windows 10 22H2",
+  "label": "Chinese Simplified 32-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "D485D370406CBCB68959718817BD12ED87E537A14C885F84962E07136FC4A049",
+  "product": "Windows 10 22H2",
+  "label": "Chinese Simplified 64-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "62E61916A5BC6F6B7EB75D132583C4131AB81E4A19038DE527918324585720EE",
+  "product": "Windows 10 22H2",
+  "label": "Chinese Traditional 32-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "C9594113B52F96783FB6CA8248EBBC972277E26FB215C302BFCCE50DF6C21A79",
+  "product": "Windows 10 22H2",
+  "label": "Chinese Traditional 64-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "5451422072BF6A231F2CA8CA865B89077EB2E5084DDFAFAD6B1F7949732B25B8",
+  "product": "Windows 10 22H2",
+  "label": "Croatian 32-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "140462535A28CD006CD97055DABB086F8511F52BEFEECDF8BCB5ADEB64CED3AB",
+  "product": "Windows 10 22H2",
+  "label": "Croatian 64-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "AF1A11BEA0BA0EC789C546EE0BA0740489065CBBC0B329CC4B00B9214C23E42B",
+  "product": "Windows 10 22H2",
+  "label": "Czech 32-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "AD5EAAD75971D22C84F433854FE9671EFC360E9EB501F3B2E94A72E74C78F6FE",
+  "product": "Windows 10 22H2",
+  "label": "Czech 64-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "A2F4C905A75B87372BEC9DA81EDC521EBA16FA0832C269FE7F71B5DA34FE6EFF",
+  "product": "Windows 10 22H2",
+  "label": "Danish 32-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "74CF090D3F881F1EFCD597E01DC3FA4C6BFC2F5D3CD141CF68C92034E0BA6A57",
+  "product": "Windows 10 22H2",
+  "label": "Danish 64-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "AC09A473E97864F6DD4E0AF4038BECF7A43FEF790F9AF9802CEF5530DFB69BCE",
+  "product": "Windows 10 22H2",
+  "label": "Dutch 32-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "51B2F525CF7426FEFD1EF0813C4C07E7D772C61C712E20C879D8ED568D2ABCC9",
+  "product": "Windows 10 22H2",
+  "label": "Dutch 64-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "AC0B7045B6C3A72A4D46DAAB0944E109A55D9EDE3A11B775FDB57C2DD3FCA2EF",
+  "product": "Windows 10 22H2",
+  "label": "English 32-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "A6F470CA6D331EB353B815C043E327A347F594F37FF525F17764738FE812852E",
+  "product": "Windows 10 22H2",
+  "label": "English 64-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "38D093AE08BF80302B900BC91A2CE5205C5086DDEEFAB29E8D529D5607B6B4DB",
+  "product": "Windows 10 22H2",
+  "label": "English International 32-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "EDC53C5C5FE6926DEA23FC3E884FBCF78CC2B9E76364BE968F806FC6D42B59D2",
+  "product": "Windows 10 22H2",
+  "label": "English International 64-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "6B59D1F6C02C5215384E5BD1D16B2591710D9F6C430F8C4C1F554973672458F1",
+  "product": "Windows 10 22H2",
+  "label": "Estonian 32-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "AF649CE2920C4AFF96EF954C1B598C6DEE3E705EDC074565DDDCE3294D29F859",
+  "product": "Windows 10 22H2",
+  "label": "Estonian 64-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "64F6427BB981BBADC0731AA686D62F157174A638EE9F2E10DF582753085B4E12",
+  "product": "Windows 10 22H2",
+  "label": "Finnish 32-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "C17F3CFA9EC971DCD64B4A1152A7B563ADE165FB9DEB941F7C791E0F722D2D2F",
+  "product": "Windows 10 22H2",
+  "label": "Finnish 64-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "F3E3C0EF680B4C0E03A4E7601A4B00F1EA13B8EED501F16B3E0610014E788AB9",
+  "product": "Windows 10 22H2",
+  "label": "French 32-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "7B7F99E804B50F5E738FFDFC571803CCDCFE139599392496048FD32C5EAEDFF9",
+  "product": "Windows 10 22H2",
+  "label": "French 64-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "E6E6A19346298D95FBC3D472AF5784755C6F510233B56FE330AD4C7AC3D2F957",
+  "product": "Windows 10 22H2",
+  "label": "French Canadian 32-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "B8C09E172DBDE8E3DB14E110857AE8724D9BDB73F5B4D37D75929FF394B5CC6B",
+  "product": "Windows 10 22H2",
+  "label": "French Canadian 64-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "B0BFC1B9B176DF0303ED3A91E7332CD1A8B57B07F25752CEC9493E1333F88075",
+  "product": "Windows 10 22H2",
+  "label": "German 32-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "D1A41A09E9AE09631A087EDF95D7F4EECAB622F88B3C824D856CFEA47FCC0B4C",
+  "product": "Windows 10 22H2",
+  "label": "German 64-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "E7F77D3D5D81D4BF7C1EDA65ED2B163DF20265D667577C859F10765E750921F2",
+  "product": "Windows 10 22H2",
+  "label": "Greek 32-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "EE069CD752B140EFC9AF0A413313C637E13CCCB69225ED9FEDCCEB634B905EC7",
+  "product": "Windows 10 22H2",
+  "label": "Greek 64-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "6E6FBC9A161BBAA41978466000F30ED363D536F86A337259E0B67A7A55539A3C",
+  "product": "Windows 10 22H2",
+  "label": "Hebrew 32-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "15CBC5E2CFCE6987892A4466C55F079B77A6EAA862A519F701B3F68661299979",
+  "product": "Windows 10 22H2",
+  "label": "Hebrew 64-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "F9AC230B1F3908F1883D257EF68E450FE47FE87D59FE84B57AE0EBFBEF3BEFB9",
+  "product": "Windows 10 22H2",
+  "label": "Hungarian 32-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "DF28F3E76FA2A8D7B05531D2F1E697B877ADEFEB1311A4FCB62692D48235830B",
+  "product": "Windows 10 22H2",
+  "label": "Hungarian 64-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "DC902370B6C81CF7B48D381E1CE377187668358BE821504FDBF8FFAC3763DD09",
+  "product": "Windows 10 22H2",
+  "label": "Italian 32-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "99D0376562919567F0BDDDCD43721CCA6B2834FC4EF93E0DB9F05ED26AB1A3DE",
+  "product": "Windows 10 22H2",
+  "label": "Italian 64-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "1570135083774BB43DB979261312803DAE5112FF94515FC6C35CAD7274518945",
+  "product": "Windows 10 22H2",
+  "label": "Japanese 32-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "4949E32D1B96C66C79BB8F2227624E74B5DBDA485CA0D4F8A32852F51E67AEA8",
+  "product": "Windows 10 22H2",
+  "label": "Japanese 64-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "2ECA27FE084B53E7AF674688DCCB8AC5FA4D31DD0B97F372BFEDB75D16B0EE82",
+  "product": "Windows 10 22H2",
+  "label": "Korean 32-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "C1F5310B1DF11A1B80B6656DFB9A22A3A2D0D427E87F6BF62933C4E0C9584B4F",
+  "product": "Windows 10 22H2",
+  "label": "Korean 64-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "2CE48FF1506AFDD27F6850C91B7ABF39833D7C6F69F79690A1D6DD7F919E11B2",
+  "product": "Windows 10 22H2",
+  "label": "Latvian 32-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "6CD568D60EF842C485C38E06D9D2162977AE9A699FA0C09CEC0C0733F30E295C",
+  "product": "Windows 10 22H2",
+  "label": "Latvian 64-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "3D7B3BB75C50A58D8DEAAB5E057B38DF006732ED57E5C680144B95E172313595",
+  "product": "Windows 10 22H2",
+  "label": "Lithuanian 32-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "AD62769CAA6C13646E0C6529042FD8C0A53A1A2E71F371079749210261166C5F",
+  "product": "Windows 10 22H2",
+  "label": "Lithuanian 64-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "B49A74D5202B1B21094CE7101ABE505FA9C0F8B15605F85EC517B39B1B6175D8",
+  "product": "Windows 10 22H2",
+  "label": "Norwegian 32-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "3C0865B12E9B81E6D138F8CA46F91BCD810CA3583D75F3458237AF65D93D7609",
+  "product": "Windows 10 22H2",
+  "label": "Norwegian 64-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "78E404ED9EC4BEAFE1161ADDBEC70899547483E592DE609CB6FC64DEA5A004F7",
+  "product": "Windows 10 22H2",
+  "label": "Polish 32-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "96AAD9E4B20B6E3F5FEA40B981263E854F6C879472369D5CE8324AAE1F6B7556",
+  "product": "Windows 10 22H2",
+  "label": "Polish 64-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "F889BCE09E2117F32679D41DBD4F4CE7178A5ACC96057928A2836BBB6D7C4FB6",
+  "product": "Windows 10 22H2",
+  "label": "Portuguese 32-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "83F83B5A9101F5FA21DE4E925ABC7693478D84CD5FBF02CB019393048B5BDBBB",
+  "product": "Windows 10 22H2",
+  "label": "Portuguese 64-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "E3EBB528AFDD8C946FC5AA4D19B5AAA0CAE6AECB5C6F53A45334A3999E5550FA",
+  "product": "Windows 10 22H2",
+  "label": "Romanian 32-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "E7D3C523D17468E83D100E5D40C9334ACB49469DB6C2685267F03AE72E2D2544",
+  "product": "Windows 10 22H2",
+  "label": "Romanian 64-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "7B339135C62CB06C8EB8748922659FC36FBE1DB08C2749B036C00676455A5D00",
+  "product": "Windows 10 22H2",
+  "label": "Russian 32-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "2A7C440C984EB018F513901E8ED96405213D237938C410C5089C0FAC7BA01898",
+  "product": "Windows 10 22H2",
+  "label": "Russian 64-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "55B5CB316402BA4A2EE77F3E9FCC5A256F809C79B6BEBF0310014365C3C60DF9",
+  "product": "Windows 10 22H2",
+  "label": "Serbian Latin 32-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "2A23BE419AB5B2D52E2A69CC3AE39973C565363E81CAD875DD23D8A81E4AC35A",
+  "product": "Windows 10 22H2",
+  "label": "Serbian Latin 64-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "8950648926476B04367A08F53233664AC325CA6632BEB8DED727BA8638818D52",
+  "product": "Windows 10 22H2",
+  "label": "Slovak 32-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "68CBE54D09FB3BC3C5C3BF93AB912F3225FF036D2FD2F9E0513D418955521329",
+  "product": "Windows 10 22H2",
+  "label": "Slovak 64-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "634B23B37068119A974F6E6155EC663974048A51D0A440B2E6FB8F84E4EEE8E5",
+  "product": "Windows 10 22H2",
+  "label": "Slovenian 32-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "5B44E6EC11915ABEF9EC63756001CEED815216A2E8D0E2A8F8F24C54FB819B20",
+  "product": "Windows 10 22H2",
+  "label": "Slovenian 64-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "C91F1C1EE9CCD88215CE9AD3EF4303997C78715C5A84C8A4D8C9F67D307A3633",
+  "product": "Windows 10 22H2",
+  "label": "Spanish (Mexico) 32-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "BF02C401644A4A9249EE206FAA9FD1691F4EC18BB37A9EA4FFE5C010DC147492",
+  "product": "Windows 10 22H2",
+  "label": "Spanish (Mexico) 64-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "DB414636D7EC65B1AEFCC1242D323E839823DB21FD25A2A9C5DCECC3C16C3309",
+  "product": "Windows 10 22H2",
+  "label": "Spanish 32-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "0D48C6F236CA9F966ECCD84D9BE01B038516567AABF1C46DCBEE785556B19813",
+  "product": "Windows 10 22H2",
+  "label": "Spanish 64-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "9B1788454A42E1CA2196E2633DCD7C0BD3F94A9F8D29C60EB064CFA8A966EBD3",
+  "product": "Windows 10 22H2",
+  "label": "Swedish 32-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "72A5EB42D5824FEE11B1708AED2526B2C3A73A6EC5E0D9C7CDD9552CB3C25BCA",
+  "product": "Windows 10 22H2",
+  "label": "Swedish 64-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "84D93E48EA10AB2D766F17DA242379146F8395BDCA7F860755B27AF7DBD0F6C3",
+  "product": "Windows 10 22H2",
+  "label": "Thai 32-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "D823AA445C4B575775918301948A44B7666FC1044CC9BB53B2EE981E9A01FD15",
+  "product": "Windows 10 22H2",
+  "label": "Thai 64-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "57B51F3F9F36DD2A1586745751218D16ABACD8703A60FF9368C32CCA3CF0C5E9",
+  "product": "Windows 10 22H2",
+  "label": "Turkish 32-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "F66AD547FB42F9D37DC8E86214E1E326E515AA20843F734C7F8F947E967BEE53",
+  "product": "Windows 10 22H2",
+  "label": "Turkish 64-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "CEF1AAA637AC8F0E563244DEA7EFBDCF6C85288B131943DABD108182D9B0656C",
+  "product": "Windows 10 22H2",
+  "label": "Ukrainian 32-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "2AE3B2DCCF609DC3C149FF344AB73B4E8E0B12BF7C97489B64DFC7A162A7C7D9",
+  "product": "Windows 10 22H2",
+  "label": "Ukrainian 64-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "A75AE3F36CB9FFFFEDCB2D7DED9CEF83FFB710EB1376610D2220684D987CB9A5",
+  "product": "Windows 11 26H2",
+  "label": "Arabic 64-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "D9AC87C1E9E47E0EB34EED443E5691C31781074E67608A51AEE50D7C7039F684",
+  "product": "Windows 11 26H2",
+  "label": "Brazilian Portuguese 64-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "FE219A43A408534FB79B170925E750289DE0D80CA52D297B0977DCF5E71B6D87",
+  "product": "Windows 11 26H2",
+  "label": "Bulgarian 64-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "B795B52D598BF8FDEA5975844731F4A50C5713876CEFC513884354272B023AF0",
+  "product": "Windows 11 26H2",
+  "label": "Chinese Simplified 64-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "E951AB4EAD95D45E00CDFF6C9C05836F9499D3FD2FDEEAE0E709549F12F9B5DC",
+  "product": "Windows 11 26H2",
+  "label": "Chinese Traditional 64-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "3874FB17B092E6470D5B5F0175BBB69B228619ABA5DA1612905F6960A2F9EAF6",
+  "product": "Windows 11 26H2",
+  "label": "Croatian 64-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "9C616600B6845DBD24EB705E35D0EEC4311D0F6A88A35CB2B134FA487244796A",
+  "product": "Windows 11 26H2",
+  "label": "Czech 64-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "C03816ABF43F868381C3AAF9940E8FB33CB54D244A88E182BFBD1F887F1D74C9",
+  "product": "Windows 11 26H2",
+  "label": "Danish 64-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "34B3FD033F10560F48366940768AEA5AD5198407BEC3E2EEB9BD730A80D39F26",
+  "product": "Windows 11 26H2",
+  "label": "Dutch 64-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "BD4307DF32BC8AF33B39CCECB1174AEB345386630F89A2B86C7A4E36B55EA650",
+  "product": "Windows 11 26H2",
+  "label": "English 64-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "7E3F373BD3C2321B5D5125DFCF718DFBF1A0ABC50A267118669951890DF98A5D",
+  "product": "Windows 11 26H2",
+  "label": "English International 64-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "2CD0558801F831D0315897BA5C989B9A8192BC975F4E8D5F0C4E51EA0817196B",
+  "product": "Windows 11 26H2",
+  "label": "Estonian 64-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "32B9D11B13E1A200ED7C08D2E495C4B57C6B38150C8DFC679C5E80BC7A5F8767",
+  "product": "Windows 11 26H2",
+  "label": "Finnish 64-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "AA515279F02FB2B425EFF341F0A1F158D61288C72CCA5F9D87B79B5A23F7F918",
+  "product": "Windows 11 26H2",
+  "label": "French 64-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "F32E5538EE3F73206294378109501C9E2E2DA78DCDE66C43F4610B18CEEBC0A7",
+  "product": "Windows 11 26H2",
+  "label": "French Canadian 64-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "193BBDE65EC84E298A1C798959489C8375ED501CF973C6D37FA52BB22EE8D43B",
+  "product": "Windows 11 26H2",
+  "label": "German 64-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "40BE4F83598455D8606D442B740AA2942740BC9F6104ADC5D7320651D61DCBC0",
+  "product": "Windows 11 26H2",
+  "label": "Greek 64-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "6458F3C2458790E0D78436574894F39B455924E83937E7C166D656730C441D29",
+  "product": "Windows 11 26H2",
+  "label": "Hebrew 64-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "614ACD776E654B26255F0CFCFAC509217E6F98B6FE949FA478AB5514A7697B5F",
+  "product": "Windows 11 26H2",
+  "label": "Hungarian 64-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "4A155CFF6748F433B017761FF0B5B6029878EC6EF267674418D65E0FED7D0520",
+  "product": "Windows 11 26H2",
+  "label": "Italian 64-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "923EC1A2EC46CCBE607FC81BEAF9753BFBB6FC62220B7B8BFFD56E66F6DE3A0C",
+  "product": "Windows 11 26H2",
+  "label": "Japanese 64-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "EC4C80AA16C1910562EA8EEA82B86CCF2012375E0492B180178BB605DE308292",
+  "product": "Windows 11 26H2",
+  "label": "Korean 64-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "91E8ED6BA3DBFAB3CBE9977C5484572759D57ECBE8B25B7A9E208A4F1594AB7E",
+  "product": "Windows 11 26H2",
+  "label": "Latvian 64-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "C66F9D4A83E334E528180534E13BE58CAC052E1621408B065BF242E2977A8769",
+  "product": "Windows 11 26H2",
+  "label": "Lithuanian 64-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "1802913B75B2CF54AB7CCC0A01426C6B5C94BA144A4777DBF37A67CEEB071B25",
+  "product": "Windows 11 26H2",
+  "label": "Norwegian 64-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "0EADDDD47A6D6D4524DF40CBD9B779C32DF222F7D2000DE2B82A000CA9C5470F",
+  "product": "Windows 11 26H2",
+  "label": "Polish 64-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "62C0C3B067C9ADAC99DDBD8A98EEF6C7A51D5FFCCC3D97BD02DACCF1D6DFEDB9",
+  "product": "Windows 11 26H2",
+  "label": "Portuguese 64-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "F29EB5D997A7822AD8E7D6AF2B9D23C9484AC86BDFD17F61CB287797CDA66B13",
+  "product": "Windows 11 26H2",
+  "label": "Romanian 64-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "3DD71E8F84BFDC0054E1C4383DB2EAC921D21952AC03B2231CB6E9610A2F7423",
+  "product": "Windows 11 26H2",
+  "label": "Russian 64-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "AA646F5C7E9D2B78208154F21A8EC2A18E7B72998B6F2C022B5FFBBB305EBFA5",
+  "product": "Windows 11 26H2",
+  "label": "Serbian Latin 64-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "ED796F19C1B2FC0912F4BC3BFE854425C760FB08946D4EE88BC1C3FAB1D1862B",
+  "product": "Windows 11 26H2",
+  "label": "Slovak 64-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "4702A4052A3E2ECFF5665F84E766EF4CB4A660C712427A8BA083B121840E6D6A",
+  "product": "Windows 11 26H2",
+  "label": "Slovenian 64-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "83231BCD4C509CFA51EB9A79056C6F1CA40DF09110267832E780A881B9EE8F9E",
+  "product": "Windows 11 26H2",
+  "label": "Spanish (Mexico) 64-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "9828703784880421E6602504DFD99064E4CB739CC9B20ABA22E3934372A14F9A",
+  "product": "Windows 11 26H2",
+  "label": "Spanish 64-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "D0E4704500012ACF3551B6C394503638D21C4F1E58B410E7F8FA5D8D61BF3B8B",
+  "product": "Windows 11 26H2",
+  "label": "Swedish 64-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "127DCC66ED7C1A797863FD3573EF5F2F17BDECB72425E74B7AA5186F50FADA4A",
+  "product": "Windows 11 26H2",
+  "label": "Thai 64-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "6BE8412702B2C56099A98FD8FD058FFB869DC54035FC54A3BDFCE99ABB631FAF",
+  "product": "Windows 11 26H2",
+  "label": "Turkish 64-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "2C2C6889E47273690842F8867539D204D3814820E235C520BF63A6140D7CEFE3",
+  "product": "Windows 11 26H2",
+  "label": "Ukrainian 64-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "92775CAD76E5B90B6BC0D2F7ADA982B5E399CBB59BFA797320872016927848DD",
+  "product": "Windows 11 26H2 Arm64",
+  "label": "Arabic 64-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "48EEC10EAFF055A62A1516CE83E103DFDBE72A4AAF12A221E99ECB29CAA3FB77",
+  "product": "Windows 11 26H2 Arm64",
+  "label": "Brazilian Portuguese 64-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "A56988DAE9BE80F1D5737E5F5066260110ED175B02F5ED849CA5BAA99321CC1B",
+  "product": "Windows 11 26H2 Arm64",
+  "label": "Bulgarian 64-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "CD573DF724862300895D0F5D0836E663756D22CC4E964C752EFDC05B4FC09E8B",
+  "product": "Windows 11 26H2 Arm64",
+  "label": "Chinese Simplified 64-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "C0486202732B8D91918FF83E014D52D936A37CAC65B80F5B34023AA188F25C6E",
+  "product": "Windows 11 26H2 Arm64",
+  "label": "Chinese Traditional 64-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "78B7388EA549C3440CC48C7C427CB1C118EC40408A914B6A98D4684C6DEE138E",
+  "product": "Windows 11 26H2 Arm64",
+  "label": "Croatian 64-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "A299C5B56A5FE93996F4C4EBD390338E00C1208E94F04F14085DC05FEC262F06",
+  "product": "Windows 11 26H2 Arm64",
+  "label": "Czech 64-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "0DF64FA738E25BEACDF844D9B74DAC7F67345F5003B23787F6AE87E3451BFBF1",
+  "product": "Windows 11 26H2 Arm64",
+  "label": "Danish 64-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "554267A82102284894E874625C6E8C5FDE0850C9A998D16DC25DB968B9B2D575",
+  "product": "Windows 11 26H2 Arm64",
+  "label": "Dutch 64-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "8992F2D2CFD2FA647E579E9EB31FC21F34DA8333C29B6170FDE17D2ED6623E9C",
+  "product": "Windows 11 26H2 Arm64",
+  "label": "English 64-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "500BCB6F272B7C455156470EA06816F558F13B885723F84EE9EAB7534C7DEE61",
+  "product": "Windows 11 26H2 Arm64",
+  "label": "English International 64-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "F2B835D2894AFE3160B53F2CFC58DAED95DAB80D677596F0A69544FBAE17DD05",
+  "product": "Windows 11 26H2 Arm64",
+  "label": "Estonian 64-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "0BF586CF3DE2D8ABDFC998B5A5270F3F5BC9586F7342AAB7B0E3D1C212AE730B",
+  "product": "Windows 11 26H2 Arm64",
+  "label": "Finnish 64-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "D086FB0BC1574188E8533A7422B55A3FE3BC39D0E48DA0E895DEC3F370E472DF",
+  "product": "Windows 11 26H2 Arm64",
+  "label": "French 64-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "595A083F8B63EFEC1FC2CD5E7875D88C1C7E71D7B34369C3BC359E8A7CE666BF",
+  "product": "Windows 11 26H2 Arm64",
+  "label": "French Canadian 64-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "10CB224A54AEE8022ED250DA75B00CC8E614B0336D975100A0F80DBBC38ECDC2",
+  "product": "Windows 11 26H2 Arm64",
+  "label": "German 64-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "390042887EE2FBE34AC831C64E71D9057EB82CD98F989AC585ECF719E7F27F1B",
+  "product": "Windows 11 26H2 Arm64",
+  "label": "Greek 64-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "BBF9F2284FE7559EA8BDF960851A80231EADA3AA7E740958948B79AB01D23478",
+  "product": "Windows 11 26H2 Arm64",
+  "label": "Hebrew 64-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "C511B047920A571E5D58D983E5EA3CC6811E20BB9CD6D255B73E85DA88FD5BAB",
+  "product": "Windows 11 26H2 Arm64",
+  "label": "Hungarian 64-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "DE651996AF788D7F55B8D11BFA45D5B20E22013687EA2C37F3325A8CD4D7C5E5",
+  "product": "Windows 11 26H2 Arm64",
+  "label": "Italian 64-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "8618E995C48FB6BB4D32C8CDF0E4B280473640736071C53943789F93A03BDD51",
+  "product": "Windows 11 26H2 Arm64",
+  "label": "Japanese 64-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "833E132E94335A7EECC2B3BB6BA9E16B199413504049CC19743752F402FB9CF7",
+  "product": "Windows 11 26H2 Arm64",
+  "label": "Korean 64-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "94ABA682D5D3A1CBA7F7A096A0E2A2B7A203513E75DD184AC4DAF3A36B36F273",
+  "product": "Windows 11 26H2 Arm64",
+  "label": "Latvian 64-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "635899EA6901E7C9CE1C42E629D2E6DAAFF71128ED9D03C63B7DC0999805D613",
+  "product": "Windows 11 26H2 Arm64",
+  "label": "Lithuanian 64-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "2C85AD913811599893B510A8278BD64CD6A0C1E1238582A57CC81FB28F7A76A3",
+  "product": "Windows 11 26H2 Arm64",
+  "label": "Norwegian 64-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "6D9B301E9009FE9191A75DC537CE7D648649C3F991511105A89822BC19AED933",
+  "product": "Windows 11 26H2 Arm64",
+  "label": "Polish 64-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "8F9E526B24BDB89C4EE6BB550D8E42FEE08FD9F657E4941A8F89FEA77CA9BE17",
+  "product": "Windows 11 26H2 Arm64",
+  "label": "Portuguese 64-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "DEBA3AA801C8EB6C6D354D124A62A4CE8F7C1E52D0C081FD132D0FA5E9017A0E",
+  "product": "Windows 11 26H2 Arm64",
+  "label": "Romanian 64-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "311879B09B0A990082BF4E47A1533BF994BC5379D9A41E4D386E5202DF2719A1",
+  "product": "Windows 11 26H2 Arm64",
+  "label": "Russian 64-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "E9994BBD05440CD2FA2DB846710119CF33A5AA2AFD4FF71834D22A52CAB5FFA6",
+  "product": "Windows 11 26H2 Arm64",
+  "label": "Serbian Latin 64-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "7FE3233A5162BD73F38FF378B824CA466A949354002D09FE47AA9AEE2AB67D10",
+  "product": "Windows 11 26H2 Arm64",
+  "label": "Slovak 64-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "2178F38D5571B706770C932399F8A6139B58EDB537872A0D9973CE7297A9EB6D",
+  "product": "Windows 11 26H2 Arm64",
+  "label": "Slovenian 64-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "23D5D42E8CD37FE1BACC37920EAA1AB0BB044AAE0D41EEEB6A77E82A8CA9A483",
+  "product": "Windows 11 26H2 Arm64",
+  "label": "Spanish (Mexico) 64-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "DBF606CEB4CE1390F9F21AD1D96331848BC6B701CBAB0012785881A1A1C0EC63",
+  "product": "Windows 11 26H2 Arm64",
+  "label": "Spanish 64-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "0D706BC138C9CD287C30D316FE9E623C5F700D085C430CB5329C8C4A1745E9BF",
+  "product": "Windows 11 26H2 Arm64",
+  "label": "Swedish 64-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "768E8CE3BC0A5FE1D8102063791F056D52D073D2C3F1A6D47C40C5DC9F5F6560",
+  "product": "Windows 11 26H2 Arm64",
+  "label": "Thai 64-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "13EEAB6C3DF650A8A219C2266F0768BA8583F8EEDE5D62EEBF2CAEE641CE747E",
+  "product": "Windows 11 26H2 Arm64",
+  "label": "Turkish 64-bit",
+  "listed": "2026-10-31"
+ },
+ {
+  "sha256": "99B00684F0FFF80C64E305A5559D6BF30356B17303BD8E7FFB379CDE9E7D23E7",
+  "product": "Windows 11 26H2 Arm64",
+  "label": "Ukrainian 64-bit",
+  "listed": "2026-10-31"
+ }
+]
