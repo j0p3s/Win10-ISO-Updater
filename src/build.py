@@ -4,7 +4,7 @@ The version is read from $Script:AppVersion in src/10_engine_head.ps1 - the one 
 It ends up in the file name, in the header of the .cmd and in the window.
 Older builds (Windows-ISO-updater-GUI_v*.cmd, and the pre-3.4 Win10-ISO-Updater.cmd) are removed.
 """
-import glob, os, re, sys
+import glob, json, os, re, sys
 
 SRC = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(SRC)
@@ -120,9 +120,24 @@ unattend = edit(unattend, "$_.ImageIndex -eq [int]$val })", "$_.ImageIndex -eq $
 def part(name):
     return open(os.path.join(SRC, name), encoding='ascii').read().replace('\r\n', '\n').rstrip('\n')
 
+# ---- SHA-256 of Microsoft's Windows ISOs (src/iso-hashes.json, collected by src/isohashes.py) become Get-KnownIsoHashes,
+# one line per ISO "SHA256<TAB>product<TAB>label<TAB>first day listed".
+def known_iso_hashes():
+    known = json.load(open(os.path.join(SRC, 'iso-hashes.json'), encoding='utf-8'))
+    esc = lambda v: ''.join(c if 32 <= ord(c) < 127 and c not in '&\t' else '&#x%X;' % ord(c) for c in v)
+    lines = []
+    for k in known:
+        if not re.fullmatch(r'[0-9A-F]{64}', k['sha256']):
+            sys.exit(f"iso-hashes.json: not a SHA-256: {k['sha256']!r}")
+        lines.append('\t'.join([k['sha256'], esc(k['product']), esc(k['label']), k['listed']]))
+    if len(set(l[:64] for l in lines)) != len(lines):
+        sys.exit('iso-hashes.json: a SHA-256 is listed twice')
+    return '\n'.join(['function Get-KnownIsoHashes {', "    return @'"] + lines + ["'@", '}'])
+
 engine = '\n\n'.join([
     part('10_engine_head.ps1'),
     settings, detect_catalog, unpack, part('38_engine_windows.ps1'), part('37_engine_download.ps1'),
+    part('29_engine_isocheck.ps1'), known_iso_hashes(),
     drivers_a, drivers_b, '#endregion', unattend, part('35_engine_service.ps1'), part('36_engine_build.ps1'),
     part('30_engine_tools.ps1'), part('31_engine_sign.ps1'), part('39_engine_catalogs.ps1'), part('33_engine_check.ps1'), part('34_engine_check2.ps1'), part('32_engine_jobs.ps1'),
 ])

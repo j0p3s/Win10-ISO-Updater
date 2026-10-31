@@ -20,3 +20,4 @@ Win10-ISO-Updater.settings.json
 tests/v2body.ps1
 tests/findings.txt
 __pycache__/
+.isohash-cache/

@@ -6,13 +6,43 @@ function Test-Unpacked {
     $Script:U.Nav1.IsChecked = $true
     return $false
 }
+# The SHA-256 check of $Iso first (skipped for a file found original before), then $Then - for an ISO Microsoft
+# does not list only when the user goes on anyway ($Ask), once per ISO while the program is open.
+function Invoke-IsoCheckThen([string]$Iso, [string]$Ask, [scriptblock]$Then) {
+    $Script:IsoCheckPath = $Iso; $Script:IsoAsk = $Ask; $Script:IsoThen = $Then
+    if (-not $Script:IsoAccepted) { $Script:IsoAccepted = @{} }
+    $c = Get-IsoCheckFor $Iso
+    if ($c -and ($c.Status -eq 'original' -or $Script:IsoAccepted[[string]$c.Key])) { $Script:IsoThen = $null; & $Then; return }
+    Start-Work 'CheckIso' @{ Iso = $Iso } { Complete-IsoCheck }
+}
+function Complete-IsoCheck {
+    $then = $Script:IsoThen; $Script:IsoThen = $null
+    if (-not $then) { return }
+    $c = Get-IsoCheckFor $Script:IsoCheckPath
+    if (-not $c) { return }
+    if ($c.Status -ne 'original') {
+        $msg = (T 'Not verified: the SHA-256 is not one Microsoft lists for its Windows 10 and 11 ISOs.') + "`n`n" + (Get-IsoAdvice $c) + "`n`n" + $Script:IsoAsk
+        if (-not (Confirm-Ui $msg 'Warning')) { return }
+        $Script:IsoAccepted[[string]$c.Key] = $true
+    }
+    & $then
+}
+function Invoke-IsoCheckClick {
+    $iso = $Script:U.IsoBox.Text.Trim().Trim('"')
+    if (-not $iso -or -not (Test-Path -LiteralPath $iso -PathType Leaf)) { Show-Msg (T 'Choose an existing .iso file first.') 'Warning'; return }
+    $Script:IsoThen = $null
+    Start-Work 'CheckIso' @{ Iso = $iso }
+}
 function Invoke-UnpackClick {
     $iso = $Script:U.IsoBox.Text.Trim().Trim('"')
     if (-not $iso -or -not (Test-Path -LiteralPath $iso)) { Show-Msg (T 'Choose an existing .iso file first.') 'Warning'; return }
     if ($Script:S.Unpacked -and (Test-Path -LiteralPath (Join-Path $Script:P.Media 'sources'))) {
         if (-not (Confirm-Ui ((T 'The work folder already has unpacked media ({0}). Replace it with a fresh copy of this ISO?') -f (Split-Path ([string]$Script:S.SourceIso) -Leaf)))) { return }
     }
-    Start-Work 'Unpack' @{ Iso = $iso; NoAsk = $true } { if (@($Script:S.Images).Count -gt 1) { $Script:U.Nav2.IsChecked = $true } }
+    $Script:UnpackIso = $iso
+    Invoke-IsoCheckThen $iso (T 'Unpack this ISO anyway?') {
+        Start-Work 'Unpack' @{ Iso = $Script:UnpackIso; NoAsk = $true } { if (@($Script:S.Images).Count -gt 1) { $Script:U.Nav2.IsChecked = $true } }
+    }
 }
 function Invoke-HostDriversClick {
     Start-Work 'ScanHost' @{} {
@@ -78,7 +108,10 @@ function Invoke-RunAllClick {
     $lines += (T 'Drivers: {0}   Signed packages: {1}') -f @($Script:S.Drivers).Count, @($Script:S.Signed | Where-Object { $_ }).Count
     $lines += (T 'Answer file: {0}   $OEM$: {1}') -f $(if ($Script:S.Unattend) { $yes } else { $no }), $(if ($Script:S.Oem) { $yes } else { $no })
     if (-not (Confirm-Ui ((T 'Run everything now? It takes 30-90 minutes - the PC is kept awake until it is done.') + "`n`n" + ($lines -join "`n")))) { return }
-    Start-Work 'All' @{ Iso = $iso; Out = $Script:U.OutBox.Text.Trim().Trim('"') }
+    $Script:RunAllArgs = @{ Iso = $iso; Out = $Script:U.OutBox.Text.Trim().Trim('"') }
+    $unpacks = (-not $Script:S.Unpacked) -or $Script:S.Serviced -or ($iso -ne [string]$Script:S.SourceIso)   # as Invoke-RunAll decides
+    if (-not $unpacks) { Start-Work 'All' $Script:RunAllArgs; return }
+    Invoke-IsoCheckThen $iso (T 'Run everything with this ISO anyway?') { Start-Work 'All' $Script:RunAllArgs }
 }
 #endregion
 
@@ -90,6 +123,7 @@ try {
         Question = $null; Answer = $null; Result = $null
     })
     $Script:Busy = $false
+    $Script:IsoAccepted = @{}
     $Script:CfgToggles = @('KeepOnlySelected', 'NetFx3', 'NetFx481', 'ResetBase', 'BootDrivers', 'ForceUnsigned', 'NoPrompt', 'Boot2023', 'SplitFat32', 'SignCleanup', 'InstallOemDrivers', 'SignOnlyThisPc', 'SignIsolate', 'ParallelBoot', 'DefenderExclude', 'BootSkipPE')
     $Script:Cfg = Import-Settings
     Initialize-Paths
@@ -223,6 +257,8 @@ try {
         if ($f) { $Script:U.IsoBox.Text = $f }
     })
     $U.UnpackBtn.Add_Click({ Invoke-UnpackClick })
+    $U.IsoCheckBtn.Add_Click({ Invoke-IsoCheckClick })
+    $U.IsoBox.Add_TextChanged({ if (-not $Script:Loading) { Update-IsoCheck } })
     $U.AnalyzeBtn.Add_Click({ if (Test-Unpacked) { Start-Work 'Analyze' } })
     $U.GetIsoBtn.Add_Click({ Start-Process $(if ($Script:Cfg.WinVersion -eq '11') { $Script:IsoPageUrl11 } else { $Script:IsoPageUrl }) })
     foreach ($rb in @($U.WinVer10, $U.WinVer11)) {
