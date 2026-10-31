@@ -289,7 +289,7 @@ function Complete-Work {
 function Set-Busy([bool]$On) {
     $labels = @{ Unpack = (T 'Unpack'); Analyze = (T 'Analyze'); Download = (T 'Download updates'); ScanHost = (T 'Driver scan'); CommitHost = (T 'Copy drivers')
                  ScanFolder = (T 'Folder scan'); CommitImport = (T 'Import drivers'); Sign = (T 'Re-sign drivers'); Service = (T 'Slipstream'); Build = (T 'Build ISO')
-                 All = (T 'Run everything'); Tools = (T 'Tools'); Clean = (T 'Clean up'); Check = (T 'Install check'); Fix = (T 'Apply fixes'); CheckIso = (T 'SHA-256 check') }
+                 All = (T 'Run everything'); Tools = (T 'Tools'); Clean = (T 'Clean up'); Check = (T 'Install check'); Fix = (T 'Apply fixes'); CheckIso = (T 'ISO check') }
     $Script:JobLabel = $labels[$Script:JobName]
     if (-not $Script:JobLabel) { $Script:JobLabel = $Script:JobName }
     $Script:U.Pages.IsEnabled = -not $On
@@ -411,6 +411,32 @@ function Get-IsoAdvice($C) {
     $t += (T 'An ISO made with the Media Creation Tool is built on the PC and is never listed, and an older ISO Microsoft no longer offers may be missing too. Otherwise it may have been modified: download an original Windows {0} ISO from Microsoft (button above) and use that one.') -f $os
     return ($t -join ' ')
 }
+# What page 1 and the question before unpacking say about a checked ISO: Text, its color, Note.
+function Get-IsoCheckView($C) {
+    $os = if ([string]$Script:Cfg.WinVersion -eq '11') { '11' } else { '10' }
+    $n = @($C.SigChecked | Where-Object { $_ }).Count      # a list read back from state.json may be $null
+    switch ([string]$C.Status) {
+        'original' {
+            $note = if ($C.Source -eq 'list') { (T 'Its SHA-256 is one Microsoft published on its download page (seen there on {0}).') -f $C.Listed }
+                    else { (T 'Its SHA-256 is on Microsoft''s download page (checked {0}).') -f $C.When }
+            return @{ Text = (T 'Original Microsoft ISO: {0} - {1}') -f $C.Product, $C.Label; Color = '#3DDC97'; Note = $note }
+        }
+        'mct' {
+            return @{ Text = T 'Made with the Media Creation Tool - setup and boot files signed by Microsoft'; Color = '#5CC8FF'
+                      Note = (T 'The Media Creation Tool builds the ISO on the PC from Microsoft''s download, so its SHA-256 is never in Microsoft''s list - that is normal. Its setup and boot files ({0} checked) carry Microsoft''s signature; the Windows image in it (install.esd) isn''t signed as a whole, so it isn''t covered.') -f $n }
+        }
+        'badsig' {
+            return @{ Text = T 'Modified: files in this ISO are not signed by Microsoft'; Color = '#FF5C7A'
+                      Note = (T 'Not signed by Microsoft: {0}. Download an original Windows {1} ISO from Microsoft (button above) and use that one.') -f (@($C.SigBad | Where-Object { $_ }) -join ', '), $os }
+        }
+        default {
+            $note = @()
+            if ($n) { $note += (T 'Its setup and boot files are signed by Microsoft ({0} checked), but the Windows image in it can''t be checked this way.') -f $n }
+            $note += Get-IsoAdvice $C
+            return @{ Text = T 'Not verified: the SHA-256 is not one Microsoft lists for its Windows 10 and 11 ISOs.'; Color = '#FFC857'; Note = ($note -join ' ') }
+        }
+    }
+}
 function Update-IsoCheck {
     $U = $Script:U
     $iso = ([string]$U.IsoBox.Text).Trim().Trim('"')
@@ -419,22 +445,16 @@ function Update-IsoCheck {
     $c = Get-IsoCheckFor $iso
     $U.IsoHashBox.Visibility = if ($c) { 'Visible' } else { 'Collapsed' }
     if (-not $c) {
-        $U.IsoCheckText.Text = T 'SHA-256 not checked yet - it is checked when you unpack the ISO, or now with Check SHA-256.'
+        $U.IsoCheckText.Text = T 'Not checked yet - the ISO is checked when you unpack it, or now with Check the ISO.'
         $U.IsoCheckText.Foreground = New-Brush '#E6EAF2'
         $U.IsoCheckNote.Text = ''
         return
     }
     $U.IsoHashBox.Text = [string]$c.Sha256
-    if ($c.Status -eq 'original') {
-        $U.IsoCheckText.Text = (T 'Original Microsoft ISO: {0} - {1}') -f $c.Product, $c.Label
-        $U.IsoCheckText.Foreground = New-Brush '#3DDC97'
-        $U.IsoCheckNote.Text = if ($c.Source -eq 'list') { (T 'Its SHA-256 is one Microsoft published on its download page (seen there on {0}).') -f $c.Listed }
-                               else { (T 'Its SHA-256 is on Microsoft''s download page (checked {0}).') -f $c.When }
-    } else {
-        $U.IsoCheckText.Text = T 'Not verified: the SHA-256 is not one Microsoft lists for its Windows 10 and 11 ISOs.'
-        $U.IsoCheckText.Foreground = New-Brush '#FFC857'
-        $U.IsoCheckNote.Text = Get-IsoAdvice $c
-    }
+    $v = Get-IsoCheckView $c
+    $U.IsoCheckText.Text = $v.Text
+    $U.IsoCheckText.Foreground = New-Brush $v.Color
+    $U.IsoCheckNote.Text = $v.Note
 }
 function Update-Ui {
     $Script:Loading = $true

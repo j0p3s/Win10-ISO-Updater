@@ -73,18 +73,61 @@ function Test-SubscriptionIsoName([string]$Name) {
 function Get-IsoFileKey($File) {
     return '{0}|{1}|{2}' -f $File.FullName.ToLowerInvariant(), $File.Length, $File.LastWriteTimeUtc.Ticks
 }
-# Checks $Iso; the result is in $Script:S.IsoCheck. Status: original / unknown. Online: $true (pages read),
-# $false (not reachable - only the list in this file was used), $null (not needed: found in that list).
+# The files of the setup media that carry Microsoft's own (embedded) signature: setup and the boot managers.
+# An ISO the Media Creation Tool made on the PC can't be in Microsoft's SHA-256 list, but these files in it are
+# Microsoft's. They don't cover the Windows image (install.esd / install.wim), which isn't signed as a whole.
+$Script:IsoSignedFiles = @('setup.exe', 'sources\setup.exe', 'sources\setupprep.exe', 'sources\setuphost.exe', 'bootmgr.efi',
+                           'efi\boot\bootx64.efi', 'efi\boot\bootaa64.efi', 'efi\boot\bootia32.efi', 'efi\microsoft\boot\cdboot.efi')
+# Checked / Bad (file and why) / Esd: install.esd, the Windows image of an ISO built from Microsoft's download
+# files (the Media Creation Tool) - the ISOs Microsoft offers for download have install.wim.
+function Test-IsoFolderSignatures([string]$Root) {
+    $checked = @(); $bad = @()
+    foreach ($rel in $Script:IsoSignedFiles) {
+        $p = Join-Path $Root $rel
+        if (-not (Test-Path -LiteralPath $p -PathType Leaf)) { continue }
+        $sig = Get-AuthenticodeSignature -LiteralPath $p
+        $st = [string]$sig.Status
+        if ($st -eq 'NotSupportedFileFormat') { Add-Log "ISO check: $rel - signature can't be read on this Windows"; continue }
+        $subj = if ($sig.SignerCertificate) { [string]$sig.SignerCertificate.Subject } else { '' }
+        $checked += $rel
+        if ($st -ne 'Valid') { $bad += "$rel ($st)" }
+        elseif ($subj -notmatch 'O=Microsoft Corporation') { $bad += "$rel (signed by $($subj -replace '^CN=([^,]+).*$', '$1'))" }
+    }
+    if (-not (@($checked) -match '^(sources\\)?setup\.exe$') -and -not (@($bad) -match '^(sources\\)?setup\.exe ')) { $bad += 'setup.exe (missing)' }
+    if (-not (@($checked) -match '\.efi$') -and -not (@($bad) -match '\.efi ')) { $bad += 'efi\boot\boot*.efi (missing)' }
+    return [pscustomobject]@{ Checked = @($checked); Bad = @($bad); Esd = (Test-Path -LiteralPath (Join-Path $Root 'sources\install.esd') -PathType Leaf) }
+}
+# Runs $Do with the root of the mounted ISO ("E:\"); an ISO that was already mounted stays mounted.
+function Invoke-WithMountedIso([string]$Iso, [scriptblock]$Do) {
+    $img = Get-DiskImage -ImagePath $Iso
+    $was = [bool]$img.Attached
+    if (-not $was) { $img = Mount-DiskImage -ImagePath $Iso -PassThru; Start-Sleep -Seconds 2 }
+    try {
+        $vol = $img | Get-Volume
+        if (-not $vol.DriveLetter) { throw 'The ISO mounted without a drive letter (auto-mount disabled?).' }
+        return (& $Do "$($vol.DriveLetter):\")
+    } finally {
+        if (-not $was) { Dismount-DiskImage -ImagePath $Iso | Out-Null }
+    }
+}
+# Checks $Iso; the result is in $Script:S.IsoCheck. Status:
+#   original - its SHA-256 is one Microsoft lists
+#   mct      - not listed, built from Microsoft's download files (install.esd, the Media Creation Tool) and its
+#              setup and boot files are signed by Microsoft
+#   badsig   - not listed, and setup or boot files are not signed by Microsoft (or are missing): modified
+#   unknown  - not listed; its signatures are in SigChecked / SigBad when the ISO could be opened (SigDone)
+# Online: $true (pages read), $false (not reachable - only the list in this file was used), $null (not needed).
 function Test-IsoOriginal([string]$Iso) {
     $f = Get-Item -LiteralPath $Iso -ErrorAction Stop
     $key = Get-IsoFileKey $f
     $prev = $Script:S.IsoCheck
-    if ($prev -and [string]$prev.Key -eq $key -and [string]$prev.Status -eq 'original') {
-        Write-Ok "Original Microsoft ISO: $($prev.Product) - $($prev.Label) (SHA-256 checked $($prev.When))."
+    $same = $prev -and [string]$prev.Key -eq $key
+    if ($same -and [string]$prev.Status -in 'original', 'mct', 'badsig') {
+        Write-IsoCheckResult $prev
         return $prev
     }
     Write-Step "SHA-256 of $($f.Name) ($(Format-Size $f.Length))"
-    if ($prev -and [string]$prev.Key -eq $key -and [string]$prev.Sha256 -match '^[0-9A-F]{64}$') { $sha = [string]$prev.Sha256; Write-Info 'Already computed - looking it up again.' }
+    if ($same -and [string]$prev.Sha256 -match '^[0-9A-F]{64}$') { $sha = [string]$prev.Sha256; Write-Info 'Already computed - looking it up again.' }
     else {
         Write-Host 'Reading the ISO to compute its SHA-256' -NoNewline
         $t0 = Get-Date
@@ -94,7 +137,7 @@ function Test-IsoOriginal([string]$Iso) {
     }
     $r = [ordered]@{ Key = $key; Path = $f.FullName; Name = $f.Name; Size = $f.Length; Sha256 = $sha; Status = 'unknown'
                      Product = ''; Label = ''; Source = ''; Listed = ''; Online = $null; When = (Get-Date).ToString('yyyy-MM-dd HH:mm', $Script:Inv)
-                     Subscription = (Test-SubscriptionIsoName $f.Name) }
+                     Subscription = (Test-SubscriptionIsoName $f.Name); SigDone = $false; SigChecked = @(); SigBad = @(); Esd = $false }
     $hit = @(Get-KnownIsoHashList | Where-Object { $_.Sha256 -eq $sha }) | Select-Object -First 1
     if ($hit) { $r.Source = 'list' }
     else {
@@ -107,16 +150,47 @@ function Test-IsoOriginal([string]$Iso) {
     }
     if ($hit) {
         $r.Status = 'original'; $r.Product = $hit.Product; $r.Label = $hit.Label; $r.Listed = $hit.Listed
-        $from = if ($r.Source -eq 'list') { "Microsoft's list as of $($hit.Listed)" } else { 'microsoft.com' }
-        Write-Ok "Original Microsoft ISO: $($r.Product) - $($r.Label) (SHA-256 found on $from)."
     } else {
-        Write-Warn "The SHA-256 of $($f.Name) is not one Microsoft lists for its Windows 10 and 11 ISOs."
-        if ($r.Online -eq $false) { Write-Warn 'microsoft.com could not be reached, so only the list in this program was used - check again when online for the newest ISOs.' }
-        if ($r.Subscription) { Write-Info 'Its name is the one of a Visual Studio subscription / Volume Licensing download: compare the SHA-256 above with the one shown on that portal.' }
-        Write-Info 'ISOs made with the Media Creation Tool are built on the PC and are never in the list, and an older ISO Microsoft no longer offers may be missing too. Otherwise it may be modified - download an original Windows 10 or 11 ISO from microsoft.com.'
+        if ($same -and $prev.SigDone) { $r.SigDone = $true; $r.SigChecked = @($prev.SigChecked | Where-Object { $_ }); $r.SigBad = @($prev.SigBad | Where-Object { $_ }); $r.Esd = [bool]$prev.Esd }
+        else {
+            Write-Host 'Checking the Microsoft signatures of the setup and boot files in the ISO' -NoNewline
+            try {
+                $sig = Invoke-WithMountedIso $f.FullName { param($Root) Test-IsoFolderSignatures $Root }
+                $r.SigDone = $true; $r.SigChecked = @($sig.Checked); $r.SigBad = @($sig.Bad); $r.Esd = [bool]$sig.Esd
+            } catch { Write-Warn "The ISO could not be opened to check the signatures of its files: $($_.Exception.Message)" }
+        }
+        if ($r.SigDone -and @($r.SigBad).Count) { $r.Status = 'badsig' }
+        elseif ($r.SigDone -and $r.Esd -and -not $r.Subscription) { $r.Status = 'mct' }
     }
+    Write-IsoCheckResult $r
     $Script:S.IsoCheck = $r
     Save-State
     return $r
+}
+function Write-IsoCheckResult($R) {
+    $ok = @($R.SigChecked | Where-Object { $_ }); $bad = @($R.SigBad | Where-Object { $_ })      # a list read back from state.json may be $null
+    $signed = if ($ok.Count) { 'Setup and boot files signed by Microsoft: ' + ($ok -join ', ') + '.' } else { '' }
+    switch ([string]$R.Status) {
+        'original' {
+            $from = if ($R.Source -eq 'list') { "Microsoft's list as of $($R.Listed)" } else { 'microsoft.com' }
+            Write-Ok "Original Microsoft ISO: $($R.Product) - $($R.Label) (SHA-256 found on $from)."
+        }
+        'mct' {
+            Write-Info "$($R.Name) was made with the Media Creation Tool (its Windows image is install.esd): it is built on the PC, so its SHA-256 is never in Microsoft's list - nothing wrong."
+            Write-Ok $signed
+            Write-Info 'The Windows image itself (install.esd) is not signed as a whole, so it is not covered by this check.'
+        }
+        'badsig' {
+            Write-Warn "Not signed by Microsoft: $($bad -join ', ')."
+            Write-Warn "$($R.Name) has been modified - download an original Windows 10 or 11 ISO from microsoft.com."
+        }
+        default {
+            Write-Warn "The SHA-256 of $($R.Name) is not one Microsoft lists for its Windows 10 and 11 ISOs."
+            if ($R.Online -eq $false) { Write-Warn 'microsoft.com could not be reached, so only the list in this program was used - check again when online for the newest ISOs.' }
+            if ($signed) { Write-Ok "$signed The Windows image itself is not covered by this check." }
+            if ($R.Subscription) { Write-Info 'Its name is the one of a Visual Studio subscription / Volume Licensing download: compare the SHA-256 above with the one shown on that portal.' }
+            Write-Info 'An older ISO Microsoft no longer offers may be missing from the list too. Otherwise it may be modified - download an original Windows 10 or 11 ISO from microsoft.com.'
+        }
+    }
 }
 #endregion
