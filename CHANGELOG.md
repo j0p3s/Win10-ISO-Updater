@@ -1,5 +1,17 @@
 # Changelog
 
+## v4.3.1 — 2026-10-31
+
+Fix: 4.2.0 and 4.3.0 didn't open on Windows. The console showed *"Windows ISO Updater could not start: Argument types do not match"* at `foreach ($x in @($Texts))`.
+
+**Upgrading:** download `Windows-ISO-updater-GUI_v4.3.1.cmd` and delete the old `.cmd`. Settings, the `signing` folder and the work folder are kept.
+
+### Fixed
+- The window is translated when it opens (since 4.2.0): `Get-UiTexts` collects every text of the window in a list, and `Set-UiTexts` puts the language on them. The list was made with `New-Object`, and PowerShell can't run `@(...)` over such a `List[object]`: it stops with *"Argument types do not match"*. The list is now made with `::new()`, and `Set-UiTexts` goes through it without `@()`.
+
+### Tests
+- `tests/lang.tests.ps1` (41 checks): `Get-UiTexts` and `Set-UiTexts` now run on a whole window of stand-ins for the WPF elements (text, button with tooltip and screen-reader name, tab header, text box tooltip, list columns, 400 more texts), in Portuguese and back to English, and on a list made with `New-Object`. Before, they only got a plain array, which is why the tests passed. The new checks fail on 4.3.0 with the same error.
+
 ## v4.3.0 — 2026-10-31
 
 Page 1 checks that the ISO is an original from Microsoft, and says what to do when it isn't.
