@@ -103,7 +103,7 @@ The ISO is written to a temporary `.part` file and renamed when oscdimg has fini
 
 Before an ISO is unpacked — **Unpack and analyze** on page 1, or **Run everything** — its **SHA-256** is compared with the values Microsoft publishes in the *Verify your download* table of its download pages for Windows 11, Windows 11 Arm64 and Windows 10:
 
-1. first the list built into the tool (`src/iso-hashes.json`: every value those pages showed, also for older ISOs Microsoft no longer lists);
+1. first the list built into the tool (`src/iso-hashes.json`: every value those pages have shown since October 2026 — values are added with each release and never removed, so an ISO stays verifiable after Microsoft replaces it);
 2. when the value is not there, the three pages on microsoft.com themselves, read at that moment, so a brand-new ISO is found too.
 
 Page 1 explains this above the ISO box and shows the result under it, with the SHA-256 (select it to copy):
@@ -117,6 +117,7 @@ Not every original ISO is on the public pages:
 
 - **Visual Studio subscription / Volume Licensing** downloads (file names like `en-us_windows_10_..._x64_dvd_1a2b3c4d.iso` or `SW_DVD9_...`) are listed only on that portal: compare the SHA-256 shown on page 1 with the one there. The tool recognises those names and says so.
 - An ISO made with the **Media Creation Tool** is built on your PC from Microsoft's files, so its SHA-256 is never in a list.
+- An **older ISO** that Microsoft replaced before October 2026 may not be in the list either: the pages show only the current ISO.
 - Without internet only the built-in list is used, and page 1 says so — check again when online.
 
 No other source is trusted, and the SHA-256 is not sent anywhere: the pages are only read.
@@ -311,7 +312,7 @@ Logs: `C:\W10U\logs\engine.log` and `dism.log` (`dism-boot.log` for boot.wim whe
 
 | Problem | Fix |
 |---------|-----|
-| Page 1 says **Not verified** for an ISO from Microsoft | Without internet, press **Check SHA-256** again when online (a new ISO is only on microsoft.com). A Visual Studio subscription / Volume Licensing ISO: compare the SHA-256 with the one on that portal. A Media Creation Tool ISO is never listed. Otherwise download the ISO again from Microsoft (button on page 1) |
+| Page 1 says **Not verified** for an ISO from Microsoft | Without internet, press **Check SHA-256** again when online (a new ISO is only on microsoft.com). A Visual Studio subscription / Volume Licensing ISO: compare the SHA-256 with the one on that portal. A Media Creation Tool ISO is never listed, and an older ISO Microsoft no longer offers may be missing. Otherwise download the ISO again from Microsoft (button on page 1) |
 | "Mount folder is not empty" | *Options and clean up* → **Clean up now** |
 | Start completely fresh | *Options and clean up* → tick **Everything** → **Clean up now** (settings and the signing certificate are kept) |
 | Cumulative update fails with an ESU-related error | Set the month on page 3 back to `2025-10` |

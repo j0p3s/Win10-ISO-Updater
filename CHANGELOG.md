@@ -18,14 +18,14 @@ Page 1 checks that the ISO is an original from Microsoft, and says what to do wh
   - a **Check SHA-256** button that checks the ISO without unpacking it.
 - **When the check fails**, page 1, the log and a question before unpacking say what to do: download an original Windows 10 or 11 ISO from Microsoft (the button next to it) and use that one. Unpack and Run everything go on only when you answer Yes (asked once per ISO while the window is open). The advice also covers:
   - Visual Studio subscription / Volume Licensing downloads, recognised by their file names (`en-us_windows_10_..._dvd_1a2b3c4d.iso`, `SW_DVD9_...`): original, but listed only on that portal — compare the SHA-256 there;
-  - Media Creation Tool ISOs, which are built on the PC and are never listed;
+  - Media Creation Tool ISOs, which are built on the PC and are never listed, and older ISOs Microsoft no longer offers, which may be missing from the list;
   - no internet: only the built-in list was used — check again when online.
 - The ISO is read once (with a progress bar): the result is kept in `state.json` with the file's size and date, so unpacking again or *Run everything* don't read it again. A file that changed is read again.
 - All new texts in the six interface languages.
 
 ### Code and tests
 - New `src/29_engine_isocheck.ps1`: Microsoft's tables (`Read-IsoHashPage`, `Get-MicrosoftIsoHashes`, read as a browser that isn't on Windows, since the Windows 10 page lists the ISOs only then), the built-in list (`Get-KnownIsoHashList`), the SHA-256 read in 4 MB parts with progress (`Get-FileSha256`), subscription file names, and `Test-IsoOriginal`, which keeps the result. New job `CheckIso`.
-- New `src/isohashes.py` and `src/iso-hashes.json`: the SHA-256 values from Microsoft's pages, added to and never removed, so an ISO stays verifiable after Microsoft replaces it. `--archive` also reads the Internet Archive's monthly copies of the same pages. The build turns the list into `Get-KnownIsoHashes`.
+- New `src/isohashes.py` and `src/iso-hashes.json`: the SHA-256 values from Microsoft's pages, added to and never removed, so an ISO stays verifiable after Microsoft replaces it. `--archive` also reads the Internet Archive's monthly copies of the same pages (optional; the archive is slow to read, and most copies lack the table). The build turns the list into `Get-KnownIsoHashes`.
 - New `tests/isocheck.tests.ps1` (45 checks): Microsoft's own table markup (`tests/fixtures/ms-windows11-hashes.html`), the built-in list, the SHA-256 against `Get-FileHash`, microsoft.com online, offline and without a table, the result kept and not read again, a changed file, subscription file names, the job, page 1 (texts, colors, the advice, translated) and the question before *Unpack* and *Run everything*.
 
 ### README

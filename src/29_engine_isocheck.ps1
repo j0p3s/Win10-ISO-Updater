@@ -113,7 +113,7 @@ function Test-IsoOriginal([string]$Iso) {
         Write-Warn "The SHA-256 of $($f.Name) is not one Microsoft lists for its Windows 10 and 11 ISOs."
         if ($r.Online -eq $false) { Write-Warn 'microsoft.com could not be reached, so only the list in this program was used - check again when online for the newest ISOs.' }
         if ($r.Subscription) { Write-Info 'Its name is the one of a Visual Studio subscription / Volume Licensing download: compare the SHA-256 above with the one shown on that portal.' }
-        Write-Info 'ISOs made with the Media Creation Tool are built on the PC and are never in the list. Anything else may be modified - download an original Windows 10 or 11 ISO from microsoft.com.'
+        Write-Info 'ISOs made with the Media Creation Tool are built on the PC and are never in the list, and an older ISO Microsoft no longer offers may be missing too. Otherwise it may be modified - download an original Windows 10 or 11 ISO from microsoft.com.'
     }
     $Script:S.IsoCheck = $r
     Save-State

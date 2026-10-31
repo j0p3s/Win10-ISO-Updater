@@ -408,7 +408,7 @@ function Get-IsoAdvice($C) {
     $t = @()
     if ($C -and $C.Online -eq $false) { $t += T 'microsoft.com could not be reached, so only the list in this program was used - check again when online, the newest ISOs may be on the page.' }
     if ($C -and $C.Subscription) { $t += T 'Its name is the one of a Visual Studio subscription or Volume Licensing download, which are original too but not on the public pages: compare the SHA-256 with the one shown on that portal.' }
-    $t += (T 'An ISO made with the Media Creation Tool is built on the PC and is never listed. Any other ISO may have been modified: download an original Windows {0} ISO from Microsoft (button above) and use that one.') -f $os
+    $t += (T 'An ISO made with the Media Creation Tool is built on the PC and is never listed, and an older ISO Microsoft no longer offers may be missing too. Otherwise it may have been modified: download an original Windows {0} ISO from Microsoft (button above) and use that one.') -f $os
     return ($t -join ' ')
 }
 function Update-IsoCheck {
